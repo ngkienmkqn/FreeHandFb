@@ -1,7 +1,10 @@
 name: Build C2 Android Worker APK
 
 on:
-  workflow_dispatch: # Cho phép ấn nút chạy bằng tay trên giao diện web Github
+  push:
+    branches:
+      - '**' # Tự động bấm nút chạy không đợi lệnh
+  workflow_dispatch:
 
 jobs:
   build_apk:
