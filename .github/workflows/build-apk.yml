@@ -30,14 +30,14 @@ jobs:
         java-version: '17'
         distribution: 'adopt'
 
-    - name: 🔨 Compile Android Native APK (Gradle)
+    - name: 🔨 Compile Android Native APK (Gradle Debug)
       run: |
         cd android
         chmod +x gradlew
-        ./gradlew assembleRelease
+        ./gradlew assembleDebug
 
     - name: 🚀 Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: C2-Worker-Release-APK
-        path: android/app/build/outputs/apk/release/app-release.apk
+        name: C2-Worker-Debug-APK
+        path: android/app/build/outputs/apk/debug/app-debug.apk
