@@ -28,8 +28,13 @@ jobs:
     - name: 🛠️ Scaffold Clean Environment & Install Dependencies
       run: |
         npx create-expo-app c2-app -t blank -y
+
+    - name: Inject Source Code
+      run: |
         cp App.js c2-app/App.js
-        cp -r src c2-app/src
+        cp package.json c2-app/package.json
+        cp app.json c2-app/app.json
+        cp -r assets c2-app/assetsrc
         cd c2-app
         npm install react-native-webview socket.io-client
         npx expo prebuild -p android --clean
