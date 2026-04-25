@@ -11,8 +11,8 @@ export default function App() {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  // ĐÓNG ĐINH CỨNG Đường dẫn. KHÔNG tạo object {uri:...} mới mỗi lần tải lại giao diện để chống Lỗi Kéo Bàn Phím Tự Reset App!
-  const sourceUri = useMemo(() => ({ uri: 'https://m.facebook.com' }), []);
+  // ĐÓNG ĐINH mbasic, Không dùng m.facebook.com vì nó xài Service Worker gây reset Cookie!
+  const sourceUri = useMemo(() => ({ uri: 'https://mbasic.facebook.com' }), []);
 
   useEffect(() => {
     const newSocket = io(SERVER_URL, { transports: ['websocket'] });
@@ -27,9 +27,7 @@ export default function App() {
 
     newSocket.on('execute_task', (task) => {
       if (task.url && webviewRef.current) {
-        // Tự điều hướng nội bộ bằng lướt Web. Bỏ màng kết nối với React State!
         webviewRef.current.injectJavaScript(`window.location.href = "${task.url}"; true;`);
-
         setTimeout(() => {
           if (task.payload_js) {
               let wrappedScript = `(function() { try { ${task.payload_js} } catch (e) { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'task_result', status: 'error', error: e.toString() })); } })(); true;`;
@@ -54,10 +52,14 @@ export default function App() {
   };
 
   const onShouldStartLoadWithRequest = (request) => {
+    // Nếu fb muốn bật link App hoặc intent ảo
     if (!request.url.startsWith('http://') && !request.url.startsWith('https://')) {
-        console.log('Blocked schema:', request.url);
+        console.log('Blocked scheme:', request.url);
+        // Delay 1.5 giây để CookieManager đồng bộ Cookie 2FA vô Ổ Cứng trước khi bẻ lái lướt đi tiếp!! (CHỐNG LOOP ĐĂNG NHẬP)
         if(webviewRef.current) {
-            webviewRef.current.injectJavaScript("window.location.href='https://m.facebook.com/home.php'");
+            setTimeout(() => {
+                webviewRef.current.injectJavaScript("window.location.href='https://mbasic.facebook.com/home.php'");
+            }, 1500);
         }
         return false;
     }
@@ -67,7 +69,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerText}>C2 Farm Node: {deviceId}</Text>
+        <Text style={styles.headerText}>FreeHandFb Node: {deviceId}</Text>
         <Text style={styles.headerSub}>Status: {isConnected ? '✅ Online (Live C2)' : '❌ Offline'}</Text>
       </View>
       <WebView
@@ -77,6 +79,7 @@ export default function App() {
         onMessage={onMessage}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
         originWhitelist={['*']}
+        userAgent="Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
         sharedCookiesEnabled={true}
         thirdPartyCookiesEnabled={true}
         javaScriptEnabled={true}
@@ -90,7 +93,7 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212' },
   header: { padding: 10, backgroundColor: '#001a11', alignItems: 'center' },
-  headerText: { color: '#00ff66', fontWeight: 'bold', fontSize: 16, fontFamily: 'monospace' },
+  headerText: { color: '#00ccff', fontWeight: 'bold', fontSize: 16, fontFamily: 'monospace' },
   headerSub: { color: '#a0a0a0', fontSize: 12, marginTop: 2, fontFamily: 'monospace' },
   webview: { flex: 1 }
 });
