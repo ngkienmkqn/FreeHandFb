@@ -1,0 +1,18 @@
+{
+  "name": "c2-worker",
+  "version": "1.0.0",
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  },
+  "dependencies": {
+    "expo": "~50.0.14",
+    "react": "18.2.0",
+    "react-native": "0.73.6",
+    "react-native-webview": "^13.6.4",
+    "socket.io-client": "^4.7.5"
+  },
+  "private": true
+}
