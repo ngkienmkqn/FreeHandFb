@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, KeyboardAvoidingView } from 'react-native';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
+import { StyleSheet, Text, View, SafeAreaView } from 'react-native';
 import { WebView } from 'react-native-webview';
 import io from 'socket.io-client';
 
@@ -10,7 +10,9 @@ export default function App() {
   const [deviceId] = useState('NODE_' + Math.floor(Math.random() * 10000));
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [currentUrl, setCurrentUrl] = useState('https://mbasic.facebook.com');
+
+  // ĐÓNG ĐINH CỨNG Đường dẫn. KHÔNG tạo object {uri:...} mới mỗi lần tải lại giao diện để chống Lỗi Kéo Bàn Phím Tự Reset App!
+  const sourceUri = useMemo(() => ({ uri: 'https://m.facebook.com' }), []);
 
   useEffect(() => {
     const newSocket = io(SERVER_URL, { transports: ['websocket'] });
@@ -25,7 +27,9 @@ export default function App() {
 
     newSocket.on('execute_task', (task) => {
       if (task.url && webviewRef.current) {
-        setCurrentUrl(task.url);
+        // Tự điều hướng nội bộ bằng lướt Web. Bỏ màng kết nối với React State!
+        webviewRef.current.injectJavaScript(`window.location.href = "${task.url}"; true;`);
+
         setTimeout(() => {
           if (task.payload_js) {
               let wrappedScript = `(function() { try { ${task.payload_js} } catch (e) { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'task_result', status: 'error', error: e.toString() })); } })(); true;`;
@@ -49,20 +53,11 @@ export default function App() {
     } catch (e) {}
   };
 
-  const onNavigationStateChange = (navState) => {
-    if(navState.url && navState.url !== currentUrl && navState.url.startsWith('http')) {
-        setCurrentUrl(navState.url);
-    }
-  };
-
-  // GIẢI PHÁP TỐI THƯỢNG: Phải Giữ Nguyên Xác Trình Duyệt để Ôm Trọn Cookie (Tránh Loop Login), 
-  // Chặn đứng chặn link lạ ở Cửa Vào!
   const onShouldStartLoadWithRequest = (request) => {
     if (!request.url.startsWith('http://') && !request.url.startsWith('https://')) {
-        console.log('Blocked dangerous schema drop: ', request.url);
-        // Bẻ Lái Âm Thầm trong JavaScript để không làm Rút Phân Cứng Webview, Giữ Mạng sống cho Phiên Đăng Nhập
+        console.log('Blocked schema:', request.url);
         if(webviewRef.current) {
-            webviewRef.current.injectJavaScript("window.location.href='https://mbasic.facebook.com/home.php'");
+            webviewRef.current.injectJavaScript("window.location.href='https://m.facebook.com/home.php'");
         }
         return false;
     }
@@ -71,28 +66,23 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-        <View style={styles.header}>
-          <Text style={styles.headerText}>C2 Farm Node: {deviceId}</Text>
-          <Text style={styles.headerSub}>Status: {isConnected ? '✅ Online (Live C2)' : '❌ Offline'}</Text>
-        </View>
-        <WebView
-          ref={webviewRef}
-          source={{ uri: currentUrl }}
-          style={styles.webview}
-          onMessage={onMessage}
-          onNavigationStateChange={onNavigationStateChange} 
-          onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
-          originWhitelist={['*']}
-          userAgent="Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
-          sharedCookiesEnabled={true}
-          thirdPartyCookiesEnabled={true}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-          cacheEnabled={true}
-          setSupportMultipleWindows={false}
-        />
-      </KeyboardAvoidingView>
+      <View style={styles.header}>
+        <Text style={styles.headerText}>C2 Farm Node: {deviceId}</Text>
+        <Text style={styles.headerSub}>Status: {isConnected ? '✅ Online (Live C2)' : '❌ Offline'}</Text>
+      </View>
+      <WebView
+        ref={webviewRef}
+        source={sourceUri}
+        style={styles.webview}
+        onMessage={onMessage}
+        onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+        originWhitelist={['*']}
+        sharedCookiesEnabled={true}
+        thirdPartyCookiesEnabled={true}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        cacheEnabled={true}
+      />
     </SafeAreaView>
   );
 }
