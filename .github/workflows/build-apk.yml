@@ -34,7 +34,7 @@ jobs:
         cp App.js c2-app/App.js
         cp package.json c2-app/package.json
         cp app.json c2-app/app.json
-        cp -r assets c2-app/assetsrc
+        cp -r assets c2-app/assets
         cd c2-app
         npm install react-native-webview socket.io-client
         npx expo prebuild -p android --clean

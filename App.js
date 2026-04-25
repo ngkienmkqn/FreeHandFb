@@ -11,8 +11,8 @@ export default function App() {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  // ĐÓNG ĐINH mbasic, Không dùng m.facebook.com vì nó xài Service Worker gây reset Cookie!
-  const sourceUri = useMemo(() => ({ uri: 'https://mbasic.facebook.com' }), []);
+  // ĐÓNG ĐINH URL, chống Re-render mất trắng Cookie.
+  const sourceUri = useMemo(() => ({ uri: 'https://m.facebook.com' }), []);
 
   useEffect(() => {
     const newSocket = io(SERVER_URL, { transports: ['websocket'] });
@@ -52,15 +52,10 @@ export default function App() {
   };
 
   const onShouldStartLoadWithRequest = (request) => {
-    // Nếu fb muốn bật link App hoặc intent ảo
+    // Nếu fB bật link ảo (fb://), chặn mẹ lại để tránh thoát app.
+    // KHÔNG TỰ ĐỊNH HƯỚNG BẰNG TAY (sẽ đứt Cookie 2FA chưa flush). Bóp cổ chặn lại và Để web FB tự load fallback!
     if (!request.url.startsWith('http://') && !request.url.startsWith('https://')) {
         console.log('Blocked scheme:', request.url);
-        // Delay 1.5 giây để CookieManager đồng bộ Cookie 2FA vô Ổ Cứng trước khi bẻ lái lướt đi tiếp!! (CHỐNG LOOP ĐĂNG NHẬP)
-        if(webviewRef.current) {
-            setTimeout(() => {
-                webviewRef.current.injectJavaScript("window.location.href='https://mbasic.facebook.com/home.php'");
-            }, 1500);
-        }
         return false;
     }
     return true;
@@ -79,6 +74,7 @@ export default function App() {
         onMessage={onMessage}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
         originWhitelist={['*']}
+        userAgent="Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36"
         sharedCookiesEnabled={true}
         thirdPartyCookiesEnabled={true}
         javaScriptEnabled={true}
