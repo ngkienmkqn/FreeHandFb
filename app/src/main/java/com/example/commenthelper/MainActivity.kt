@@ -496,7 +496,7 @@ fun MainApp(
         topBar = {
             Column {
                 CenterAlignedTopAppBar(
-                    title = { Text("Comment Helper") },
+                    title = { Text("FreeHand") },
                     actions = {
                         TextButton(onClick = onLogout) { Text("Đăng xuất", color = Color(0xFFEF4444)) }
                     }
@@ -1053,14 +1053,17 @@ private fun showNotification(context: Context, text: String) {
 
 @Composable fun LeaderboardScreen(authToken: String) {
     var members by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var err by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
-        val (c, b) = httpReq("http://dt.ungthien.com/api/group/members", token = authToken)
-        if (c == 200 && b != null) { try { members = org.json.JSONArray(b) } catch(e:Exception){} }
+        val (c, b) = httpReq("$SERVER_URL/api/group/members", token = authToken)
+        if (c == 200 && b != null) { try { members = org.json.JSONArray(b) } catch(e:Exception){ err = "Lỗi dữ liệu" } }
+        else { err = "Server phản hồi: $c. Có rớt mạng hoặc VPS chưa update backend." }
     }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("🏆 Bảng xếp hạng nhóm", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
-        if (members == null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        if (err.isNotEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(err, color = MaterialTheme.colorScheme.error) }
+        else if (members == null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(members!!.length()) { i -> 
