@@ -158,26 +158,25 @@ function adminOnly(req, res, next) {
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink })));
 });
 
 app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
-    const { username, password, group, role } = req.body;
+    const { username, password, group, role, phone, zaloLink } = req.body;
     if (!username || !password || !group) return res.status(400).json({ error: 'username, password, group required' });
     if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
 
-    const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user' };
+    const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user', phone: phone || '', zaloLink: zaloLink || '' };
     users.push(user);
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, phone: user.phone, zaloLink: user.zaloLink });
 });
 
-// Update user (admin)
 app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     const user = users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { username, password, group, role, points, deviceId, webDeviceId } = req.body;
+    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink } = req.body;
     if (deviceId === null || deviceId === "") user.deviceId = null;
     if (webDeviceId === null || webDeviceId === "") user.webDeviceId = null;
     if (username && username !== user.username) {
@@ -190,9 +189,11 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     if (password) user.password = hashPw(password);
     if (group) user.group = group;
     if (role) user.role = role;
+    if (phone !== undefined) user.phone = phone;
+    if (zaloLink !== undefined) user.zaloLink = zaloLink;
     if (points !== undefined) user.points = parseInt(points, 10) || 0;
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink });
 });
 
 app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
@@ -381,7 +382,7 @@ app.get('/api/me', authMiddleware, (req, res) => {
 
     res.json({
         id: user.id, username: user.username, group: user.group, role: user.role,
-        points: user.points
+        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || ''
     });
 });
 
