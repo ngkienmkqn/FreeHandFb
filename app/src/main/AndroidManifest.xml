@@ -2,8 +2,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <queries>
         <package android:name="com.facebook.katana" />
@@ -47,11 +50,16 @@
         </service>
 
         <!-- Receiver for post completion broadcasts -->
-        <receiver
-            android:name=".PostDoneReceiver"
-            android:exported="false">
+        <receiver android:name=".PostDoneReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="com.example.commenthelper.POST_DONE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Receiver for Auto Wake Schedule -->
+        <receiver android:name=".AutoWakeReceiver" android:enabled="true" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
     </application>

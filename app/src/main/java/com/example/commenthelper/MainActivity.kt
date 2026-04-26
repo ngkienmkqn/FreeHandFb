@@ -188,6 +188,37 @@ class PostDoneReceiver : BroadcastReceiver() {
     }
 }
 
+class AutoWakeReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val interval = prefs.getInt("autowake_interval_hours", 0)
+        
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) { scheduleAutoWake(context, interval); return }
+
+        if (interval > 0) {
+            val launchIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                putExtra("EXTRA_AUTO_START", true)
+            }
+            context.startActivity(launchIntent)
+            scheduleAutoWake(context, interval)
+        }
+    }
+
+    companion object {
+        fun scheduleAutoWake(context: Context, intervalHours: Int) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val pendingIntent = android.app.PendingIntent.getBroadcast(context, 100, Intent(context, AutoWakeReceiver::class.java), android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+            if (intervalHours <= 0) alarmManager.cancel(pendingIntent)
+            else {
+                val triggerAt = System.currentTimeMillis() + intervalHours * 3600 * 1000L
+                try { alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent) }
+                catch (e: Exception) { alarmManager.set(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent) }
+            }
+        }
+    }
+}
+
 /* ================== ACTIVITY ================== */
 
 class MainActivity : ComponentActivity() {
@@ -200,6 +231,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Wake setup
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            keyguardManager.requestDismissKeyguard(this, null)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        }
         
         val oldHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -229,7 +276,8 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) registerReceiver(localReceiver, filter, RECEIVER_NOT_EXPORTED)
         else registerReceiver(localReceiver, filter)
 
-        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { AppRoot(initialUrl = incomingUrl) } } }
+        val autoStart = intent?.getBooleanExtra("EXTRA_AUTO_START", false) ?: false
+        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { AppRoot(initialUrl = incomingUrl, autoStart = autoStart) } } }
     }
 
     override fun onDestroy() { super.onDestroy(); try { unregisterReceiver(localReceiver) } catch (_: Exception) {} }
@@ -239,7 +287,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppRoot(initialUrl: String?) {
+fun AppRoot(initialUrl: String?, autoStart: Boolean = false) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
@@ -281,6 +329,7 @@ fun AppRoot(initialUrl: String?) {
             username = username,
             userGroup = userGroup,
             initialUrl = initialUrl,
+            autoStart = autoStart,
             onLogout = {
                 scope.launch { httpReq("$SERVER_URL/api/logout", "POST", token = authToken) }
                 authToken = ""; username = ""; userGroup = ""
@@ -357,6 +406,7 @@ fun MainApp(
     username: String,
     userGroup: String,
     initialUrl: String?,
+    autoStart: Boolean,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -367,6 +417,7 @@ fun MainApp(
     
     var notifyInterval by remember { mutableIntStateOf(prefs.getInt("notify_interval", 15)) }
     var lastNotifyTime by remember { mutableLongStateOf(prefs.getLong("last_notify", 0L)) }
+    var autoWakeIntervalHours by remember { mutableIntStateOf(prefs.getInt("autowake_interval_hours", 0)) }
 
     var posts by remember { mutableStateOf(loadPosts(prefs)) }
     var templates by remember { mutableStateOf(loadTemplates(prefs)) }
@@ -485,6 +536,14 @@ fun MainApp(
     // Auto-sync on first load
     LaunchedEffect(Unit) { syncWithServer() }
 
+    // Unattended Auto Start
+    LaunchedEffect(posts, autoStart, isServiceEnabled) {
+        if (autoStart && isServiceEnabled) {
+            val pendingCount = posts.count { it.status == PostStatus.PENDING && it.addedBy != username }
+            if (pendingCount > 0) FbAutoService.instance?.startProcessing()
+        }
+    }
+
     // Auto-Remind Notifications based on config
     LaunchedEffect(posts, notifyInterval) {
         if (notifyInterval > 0) {
@@ -571,6 +630,12 @@ fun MainApp(
                 4 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
                     notifyInterval = notifyInterval,
                     onIntervalChange = { v -> notifyInterval = v; prefs.edit().putInt("notify_interval", v).apply() },
+                    autoWakeIntervalHours = autoWakeIntervalHours,
+                    onAutoWakeIntervalChange = { v -> 
+                        autoWakeIntervalHours = v
+                        prefs.edit().putInt("autowake_interval_hours", v).apply()
+                        AutoWakeReceiver.scheduleAutoWake(context, v)
+                    },
                     onTestNotify = { showNotification(context, "Test thông báo FreeHand thành công!\nHiện có ${posts.count { it.status == PostStatus.PENDING && it.addedBy != username }} bài đang PENDING.") },
                     onSync = { syncWithServer() },
                     onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
@@ -822,7 +887,9 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
 
 @Composable fun SettingsScreen(
     isSyncing: Boolean, lastSyncStatus: String, isServiceEnabled: Boolean,
-    notifyInterval: Int, onIntervalChange: (Int) -> Unit, onTestNotify: () -> Unit,
+    notifyInterval: Int, onIntervalChange: (Int) -> Unit, 
+    autoWakeIntervalHours: Int, onAutoWakeIntervalChange: (Int) -> Unit,
+    onTestNotify: () -> Unit,
     onSync: () -> Unit, onRequestPermission: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -837,6 +904,28 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                     else Text("🔄 Sync từ Server")
                 }
                 if (lastSyncStatus.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(lastSyncStatus, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("🤖 Hẹn Giờ Máy Tự Cày", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("Đánh thức máy dậy mở app và tự đi comment", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Kiểm tra nhiệm vụ mỗi (giờ):")
+                    Spacer(Modifier.weight(1f))
+                    var txt by remember { mutableStateOf(autoWakeIntervalHours.toString()) }
+                    OutlinedTextField(
+                        value = txt,
+                        onValueChange = { txt = it; it.toIntOrNull()?.let { v -> onAutoWakeIntervalChange(v) } },
+                        modifier = Modifier.width(70.dp),
+                        singleLine = true
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Yêu cầu gỡ sạch PIN khóa màn hình máy để chạy. Nhập 0 để TẮT.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
             }
         }
         Spacer(Modifier.height(16.dp))
