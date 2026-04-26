@@ -259,6 +259,21 @@ app.post('/api/posts', authMiddleware, (req, res) => {
     };
     posts.push(post);
     saveJson(POSTS_FILE, posts);
+
+    // Phát thông báo cho người trong group
+    users.filter(u => u.group === req.user.group && u.username !== req.user.username).forEach(u => {
+        notifications.push({
+            id: genId(), username: u.username, message: `🔥 [Mới] ${req.user.username} vừa lên 1 bài viết!`, read: false, createdAt: Date.now()
+        });
+        const pCnt = posts.filter(p => p.group === u.group && p.status === 'PENDING' && p.addedBy !== u.username).length;
+        if (pCnt % 5 === 0 && pCnt >= 5) {
+            notifications.push({
+                id: genId(), username: u.username, message: `⚠️ [Nhắc nhở] Bạn đang có ${pCnt} bài chưa tương tác. Vào tích điểm ngay nhé!`, read: false, createdAt: Date.now()
+            });
+        }
+    });
+    saveJson(NOTIFICATIONS_FILE, notifications);
+
     res.json(post);
 });
 
@@ -278,6 +293,22 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
         }
     });
     saveJson(POSTS_FILE, posts);
+    
+    if (added > 0) {
+        users.filter(u => u.group === req.user.group && u.username !== req.user.username).forEach(u => {
+            notifications.push({
+                id: genId(), username: u.username, message: `🎉 [Mới] ${req.user.username} vừa lên ${added} bài viết!`, read: false, createdAt: Date.now()
+            });
+            const pCnt = posts.filter(p => p.group === u.group && p.status === 'PENDING' && p.addedBy !== u.username).length;
+            if (pCnt >= 10) {
+                notifications.push({
+                    id: genId(), username: u.username, message: `⚠️ [Quá Tải] Hệ thống đếm được ${pCnt} bài chưa làm. Nhanh tay đi comment nào!`, read: false, createdAt: Date.now()
+                });
+            }
+        });
+        saveJson(NOTIFICATIONS_FILE, notifications);
+    }
+    
     const groupPosts = posts.filter(p => p.group === req.user.group);
     res.json({ added, total: groupPosts.length });
 });
