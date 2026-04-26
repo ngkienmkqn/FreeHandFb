@@ -544,7 +544,7 @@ fun MainApp(
                 val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                 if (!isFbInstalled) {
                     toast(context, "Lỗi: Không tìm thấy ứng dụng Facebook (com.facebook.katana). Vui lòng cài đặt và đăng nhập trước!")
-                    autoStart = false
+                    return@LaunchedEffect
                 } else {
                     val tasks = pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, templates.randomOrNull() ?: "") }
                     FbAutoService.instance?.startProcessing(tasks)
