@@ -541,9 +541,15 @@ fun MainApp(
         if (autoStart && isServiceEnabled) {
             val pendingPosts = posts.filter { it.status == PostStatus.PENDING && it.addedBy != username }
             if (pendingPosts.isNotEmpty()) {
-                val tasks = pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, templates.randomOrNull() ?: "") }
-                FbAutoService.instance?.startProcessing(tasks)
-                FbAutoService.isRunning.value = true
+                val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
+                if (!isFbInstalled) {
+                    toast(context, "Lỗi: Không tìm thấy ứng dụng Facebook (com.facebook.katana). Vui lòng cài đặt và đăng nhập trước!")
+                    autoStart = false
+                } else {
+                    val tasks = pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, templates.randomOrNull() ?: "") }
+                    FbAutoService.instance?.startProcessing(tasks)
+                    FbAutoService.isRunning.value = true
+                }
             }
         }
     }
@@ -617,7 +623,11 @@ fun MainApp(
                     onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
                     onStartAuto = {
                         val pendingPosts = posts.filter { it.status == PostStatus.PENDING && it.addedBy != username }
-                        if (pendingPosts.isEmpty()) { 
+                        val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
+                        
+                        if (!isFbInstalled) {
+                            toast(context, "Lỗi: Không tìm thấy ứng dụng Facebook. Vui lòng cài đặt Facebook và đăng nhập trước!")
+                        } else if (pendingPosts.isEmpty()) { 
                             toast(context, "Không có bài chưa làm.")
                         } else if (templates.isEmpty()) { 
                             toast(context, "Đang tải Comments mặc định, chờ chút.")
@@ -803,10 +813,15 @@ fun PostsScreen(
     if (showAdd) AddPostDialog({ url, title -> serverAddPost(url, title); showAdd = false }, { showAdd = false })
     pickFor?.let { post -> 
         TemplatePickerDialog(templates, { tpl -> 
-            FbAutoService.instance?.startProcessing(listOf(FbAutoService.TaskItem(post.id, post.url, tpl)))
-            FbAutoService.isRunning.value = true
+            val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
+            if (!isFbInstalled) {
+                toast(context, "Lỗi: Không tìm thấy ứng dụng Facebook. Vui lòng cài và đăng nhập trước!")
+            } else {
+                FbAutoService.instance?.startProcessing(listOf(FbAutoService.TaskItem(post.id, post.url, tpl)))
+                FbAutoService.isRunning.value = true
+                toast(context, "Đang xử lý tương tác...")
+            }
             pickFor = null
-            toast(context, "Đang xử lý tương tác...")
         }, { pickFor = null }) 
     }
 }
