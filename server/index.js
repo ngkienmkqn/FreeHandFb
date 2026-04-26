@@ -96,11 +96,18 @@ if (postsMigrated) saveJson(POSTS_FILE, posts);
 
 // Login
 app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    const { username, password, deviceId } = req.body;
+    if (!username || !password || !deviceId) return res.status(400).json({ error: 'Username, password and System ID required' });
 
     const user = users.find(u => u.username === username && u.password === hashPw(password));
     if (!user) return res.status(401).json({ error: 'Sai tài khoản hoặc mật khẩu' });
+
+    if (!user.deviceId) {
+        user.deviceId = deviceId;
+        saveJson(USERS_FILE, users);
+    } else if (user.deviceId !== deviceId) {
+        return res.status(403).json({ error: 'Thiết bị không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập.' });
+    }
 
     const token = crypto.randomUUID();
     tokens[token] = {
@@ -168,7 +175,8 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     const user = users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { username, password, group, role, points } = req.body;
+    const { username, password, group, role, points, deviceId } = req.body;
+    if (deviceId === null || deviceId === "") user.deviceId = null;
     if (username && username !== user.username) {
         if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
         user.username = username;
@@ -200,6 +208,14 @@ app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
 app.get('/api/groups', authMiddleware, adminOnly, (req, res) => {
     const groups = [...new Set(users.map(u => u.group))];
     res.json(groups);
+});
+
+// Get group leaderboard
+app.get('/api/group/members', authMiddleware, (req, res) => {
+    const memberScores = users.filter(u => u.group === req.user.group)
+        .map(u => ({ username: u.username, points: u.points || 0 }))
+        .sort((a, b) => b.points - a.points);
+    res.json(memberScores);
 });
 
 /* ================== POSTS API (group-scoped) ================== */

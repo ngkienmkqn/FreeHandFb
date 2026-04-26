@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Comment Helper</string>
+    <string name="app_name">FreeHand</string>
     <string name="accessibility_service_description">Comment Helper cần quyền này để tự động Like và Comment trên app Facebook. Service chỉ hoạt động khi bạn bấm Bắt đầu.</string>
 </resources>

@@ -75,7 +75,8 @@ data class Post(
     val status: PostStatus = PostStatus.PENDING,
     val addedAt: Long = System.currentTimeMillis(),
     val interactedAt: Long? = null,
-    val note: String? = null
+    val note: String? = null,
+    val addedBy: String? = null
 )
 
 data class Article(
@@ -111,7 +112,8 @@ private fun postsFromJson(raw: String?): List<Post> {
                 title = if (o.isNull("title")) null else o.getString("title"),
                 status = PostStatus.valueOf(o.optString("status", "PENDING")),
                 addedAt = o.optLong("addedAt", System.currentTimeMillis()),
-                interactedAt = if (o.has("interactedAt") && !o.isNull("interactedAt")) o.getLong("interactedAt") else null
+                interactedAt = if (o.has("interactedAt") && !o.isNull("interactedAt")) o.getLong("interactedAt") else null,
+                addedBy = if (o.has("addedBy") && !o.isNull("addedBy")) o.getString("addedBy") else null
             )
         }
     } catch (e: Exception) { emptyList() }
@@ -148,7 +150,8 @@ private fun parseServerPosts(json: String): List<Post> {
                 title = if (o.isNull("title")) null else o.optString("title"),
                 status = PostStatus.valueOf(o.optString("status", "PENDING")),
                 addedAt = o.optLong("addedAt", System.currentTimeMillis()),
-                interactedAt = if (o.has("interactedAt") && !o.isNull("interactedAt")) o.getLong("interactedAt") else null
+                interactedAt = if (o.has("interactedAt") && !o.isNull("interactedAt")) o.getLong("interactedAt") else null,
+                addedBy = if (o.has("addedBy") && !o.isNull("addedBy")) o.getString("addedBy") else null
             )
         }
     } catch (e: Exception) { emptyList() }
@@ -292,6 +295,7 @@ fun AppRoot(initialUrl: String?) {
 
 @Composable
 fun LoginScreen(onLogin: (username: String, token: String, group: String) -> Unit) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
@@ -301,7 +305,7 @@ fun LoginScreen(onLogin: (username: String, token: String, group: String) -> Uni
     Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("⚡ Comment Helper", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("⚡ FreeHand", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(24.dp))
 
                 OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text("Tên đăng nhập") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -319,7 +323,8 @@ fun LoginScreen(onLogin: (username: String, token: String, group: String) -> Uni
                         if (user.isBlank() || pass.isBlank()) { error = "Điền đủ thông tin"; return@Button }
                         loading = true; error = ""
                         scope.launch {
-                            val (code, body) = httpReq("$SERVER_URL/api/login", "POST", """{"username":"${user.trim()}","password":"$pass"}""")
+                            val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: UUID.randomUUID().toString()
+                            val (code, body) = httpReq("$SERVER_URL/api/login", "POST", """{"username":"${user.trim()}","password":"$pass","deviceId":"$androidId"}""")
                             loading = false
                             if (code == 200 && body != null) {
                                 val json = JSONObject(body)
@@ -505,14 +510,18 @@ fun MainApp(
                             Text(userGroup, color = Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                         }
                         Spacer(Modifier.weight(1f))
-                        Text(if (lastSyncStatus.isNotBlank()) lastSyncStatus else "⭐️ $points điểm", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("⭐️ $points điểm", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            if (lastSyncStatus.isNotBlank()) Text(lastSyncStatus, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
                     }
                 }
-                TabRow(selectedTabIndex = tab) {
+                ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
                     Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Bài viết") })
                     Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Comments") })
                     Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Bài Mẫu") })
-                    Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("⚙️") })
+                    Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Thành viên") })
+                    Tab(selected = tab == 4, onClick = { tab = 4 }, text = { Text("⚙️") })
                 }
             }
         }
@@ -522,24 +531,26 @@ fun MainApp(
                 0 -> PostsScreen(posts, templates, isServiceEnabled, isAutoRunning, currentPostId, autoProgress,
                     authToken = authToken,
                     currentUserRole = role,
+                    currentUsername = username,
                     onRefresh = { syncWithServer() },
-                    onRequestPermission = { showPermissionDialog = true },
+                    onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
                     onStartAuto = {
-                        val pending = posts.filter { it.status == PostStatus.PENDING }
-                        if (pending.isEmpty()) { 
+                        val pendingPosts = posts.filter { it.status == PostStatus.PENDING && it.addedBy != username }
+                        if (pendingPosts.isEmpty()) { 
                             toast(context, "Không có bài chưa làm.")
                         } else if (templates.isEmpty()) { 
                             toast(context, "Đang tải Comments mặc định, chờ chút.")
                         } else {
-                            FbAutoService.instance?.startProcessing(pending.map { p -> FbAutoService.TaskItem(p.id, p.url, templates.random()) })
+                            FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, templates.random()) })
                             FbAutoService.isRunning.value = true
                         }
                     },
                     onStopAuto = { FbAutoService.instance?.stopProcessing() }
                 )
-                1 -> TemplatesScreen(templates, authToken = authToken, onRefresh = { syncWithServer() })
+                1 -> TemplatesScreen(templates, authToken)
                 2 -> ArticlesScreen(articles)
-                3 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
+                3 -> LeaderboardScreen(authToken)
+                4 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
                     onSync = { syncWithServer() },
                     onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 )
@@ -589,7 +600,7 @@ fun MainApp(
 fun PostsScreen(
     posts: List<Post>, templates: List<String>, isServiceEnabled: Boolean, isAutoRunning: Boolean,
     currentPostId: String?, autoProgress: Pair<Int, Int>,
-    authToken: String, currentUserRole: String, onRefresh: () -> Unit,
+    authToken: String, currentUserRole: String, currentUsername: String, onRefresh: () -> Unit,
     onRequestPermission: () -> Unit, onStartAuto: () -> Unit, onStopAuto: () -> Unit
 ) {
     val context = LocalContext.current
@@ -599,9 +610,13 @@ fun PostsScreen(
     var pickFor by remember { mutableStateOf<Post?>(null) }
 
     val visible = remember(posts, filter) {
-        when (filter) { "Chưa làm" -> posts.filter { it.status == PostStatus.PENDING }; "Đã làm" -> posts.filter { it.status == PostStatus.DONE }; else -> posts }.sortedByDescending { it.addedAt }
+        when (filter) { 
+            "Chưa làm" -> posts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
+            "Đã làm" -> posts.filter { it.status == PostStatus.DONE }
+            else -> posts 
+        }.sortedByDescending { it.addedAt }
     }
-    val pending = posts.count { it.status == PostStatus.PENDING }
+    val pending = posts.count { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
     val done = posts.count { it.status == PostStatus.DONE }
 
     // Server API helpers
@@ -683,10 +698,8 @@ fun PostsScreen(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(visible, key = { it.id }) { post -> 
-                    PostRow(
-                        post = post, 
-                        isProcessing = currentPostId == post.id,
-                        currentUserRole = currentUserRole,
+                    PostRow(post, currentPostId == post.id, currentUserRole,
+                        isMine = post.addedBy == currentUsername,
                         onAct = { if (templates.isEmpty()) toast(context, "Chưa có comment mẫu.") else pickFor = post },
                         onToggleDone = { serverToggleDone(post) },
                         onDelete = { serverDeletePost(post.id) }, 
@@ -709,7 +722,7 @@ fun PostsScreen(
 }
 
 @Composable
-private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, onAct: () -> Unit, onToggleDone: () -> Unit, onDelete: () -> Unit, onOpen: () -> Unit) {
+private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, isMine: Boolean, onAct: () -> Unit, onToggleDone: () -> Unit, onDelete: () -> Unit, onOpen: () -> Unit) {
     val isDone = post.status == PostStatus.DONE
     ElevatedCard(Modifier.fillMaxWidth(), colors = if (isProcessing) CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer) else CardDefaults.elevatedCardColors()) {
         Column(Modifier.padding(12.dp)) {
@@ -723,7 +736,7 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
             if (isProcessing) Text("🔄 Đang xử lý...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Row {
-                if (!isDone && !isProcessing) { FilledTonalButton(onClick = onAct) { Text("Comment") }; Spacer(Modifier.width(8.dp)) }
+                if (!isDone && !isProcessing && !isMine) { FilledTonalButton(onClick = onAct) { Text("Comment") }; Spacer(Modifier.width(8.dp)) }
                 OutlinedButton(onClick = onOpen) { Text("Mở FB") }; Spacer(Modifier.width(8.dp))
                 if (currentUserRole == "admin") {
                     TextButton(onClick = onToggleDone) { Text(if (isDone) "↺ Bỏ" else "✓ Xong") }
@@ -1036,4 +1049,32 @@ private fun showNotification(context: Context, text: String) {
         .setAutoCancel(true)
         .build()
     nm.notify(System.currentTimeMillis().toInt(), notif)
+}
+
+@Composable fun LeaderboardScreen(authToken: String) {
+    var members by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    LaunchedEffect(Unit) {
+        val (c, b) = httpReq("http://dt.ungthien.com/api/group/members", token = authToken)
+        if (c == 200 && b != null) { try { members = org.json.JSONArray(b) } catch(e:Exception){} }
+    }
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text("🏆 Bảng xếp hạng nhóm", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
+        if (members == null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(members!!.length()) { i -> 
+                    val m = members!!.getJSONObject(i)
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("${i+1}.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(16.dp))
+                            Text(m.getString("username"), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            Text("⭐️ ${m.getInt("points")}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFF59E0B))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
