@@ -539,8 +539,12 @@ fun MainApp(
     // Unattended Auto Start
     LaunchedEffect(posts, autoStart, isServiceEnabled) {
         if (autoStart && isServiceEnabled) {
-            val pendingCount = posts.count { it.status == PostStatus.PENDING && it.addedBy != username }
-            if (pendingCount > 0) FbAutoService.instance?.startProcessing()
+            val pendingPosts = posts.filter { it.status == PostStatus.PENDING && it.addedBy != username }
+            if (pendingPosts.isNotEmpty()) {
+                val tasks = pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, templates.randomOrNull() ?: "") }
+                FbAutoService.instance?.startProcessing(tasks)
+                FbAutoService.isRunning.value = true
+            }
         }
     }
 
