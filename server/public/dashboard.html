@@ -221,19 +221,6 @@
                 </div>
             </div>
 
-            <!-- TAB: COMMENTS -->
-            <div class="tab-content" id="tab-comments">
-                <div class="glass card" style="padding: 0; overflow: hidden">
-                    <div style="padding: 20px; background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--border)">
-                        <span style="font-weight: 600; font-size: 1.1rem; display:flex; align-items:center; gap:8px"><i class="ph-fill ph-chat-centered-text" style="color:var(--primary)"></i> Mẫu Comment</span>
-                        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px">Copy nhanh các mẫu seeding/comment</div>
-                    </div>
-                    <div id="clientCommentList" style="max-height: 60vh; overflow-y: auto;">
-                        <div style="text-align:center; color:var(--text-muted); padding:30px 0; font-size:0.9rem">Đang tải...</div>
-                    </div>
-                </div>
-            </div>
-
             <!-- TAB: LEADERBOARD -->
             <div class="tab-content" id="tab-leaderboard">
                 <div class="glass card" style="padding: 0; overflow: hidden">
@@ -308,10 +295,7 @@
                 <i class="ph-fill ph-article"></i>
                 <span>Bài Mẫu</span>
             </button>
-            <button class="nav-item" onclick="switchTab('comments', this); fetchComments()">
-                <i class="ph-fill ph-chat-centered-text"></i>
-                <span>Comment</span>
-            </button>
+
             <button class="nav-item" onclick="switchTab('leaderboard', this); fetchLeaderboard()">
                 <i class="ph-fill ph-chart-bar"></i>
                 <span>Xếp Hạng</span>
@@ -569,7 +553,10 @@ function renderArticles() {
             <div style="font-weight:600; font-size:1.1rem; margin-bottom:8px">${a.title}</div>
             <div style="font-size:0.95rem; color:#cbd5e1; white-space:pre-wrap; line-height:1.5; padding:8px 0;">${a.content}</div>
             ${imgsHtml}
-            <button class="btn-secondary" style="width:100%; margin-top:12px; display:flex; justify-content:center; gap:8px" onclick="copyText(this, \`${a.content.replace(/`/g, '\\`').replace(/\\/g, '\\\\').replace(/\\$/g, '\\\\$')}\`)"><i class="ph-bold ph-copy"></i> Copy Nội Dung</button>
+            <div style="display:flex; gap:8px; margin-top:12px">
+                <button class="btn-secondary" style="flex:1; display:flex; justify-content:center; gap:8px" onclick="copyArticleById('${a.id}', this)"><i class="ph-bold ph-copy"></i> Copy Nội Dung</button>
+                ${a.images && a.images.length ? `<button class="btn-primary" style="flex:1; padding:8px; border-radius:10px; display:flex; justify-content:center; gap:8px" onclick="downloadImages('${a.id}', this)"><i class="ph-bold ph-download-simple"></i> Lưu ${a.images.length} Ảnh</button>` : ''}
+            </div>
         </div>`;
     });
     document.getElementById('clientArticleList').innerHTML = html || '<div style="text-align:center; padding:20px">Chưa có bài viết mẫu.</div>';
@@ -580,29 +567,47 @@ function filterCategory(cat) {
     renderArticles();
 }
 
-async function fetchComments() {
-    try {
-        const res = await apiCall('/api/templates');
-        const templates = await res.json();
-        let html = '';
-        templates.forEach((text, idx) => {
-            html += `
-            <div class="list-item" style="border-radius:0; border:none; border-bottom:1px solid var(--border); margin:0">
-                <div style="font-weight:600; font-size:1.0rem; margin-bottom:8px">Mẫu #${idx+1}</div>
-                <div style="font-size:0.9rem; color:#cbd5e1; white-space:pre-wrap; line-height:1.5; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px">${text}</div>
-                <button class="btn-secondary" style="width:100%; margin-top:12px; display:flex; justify-content:center; gap:8px" onclick="copyText(this, \`${text.replace(/`/g, '\\`').replace(/\\/g, '\\\\').replace(/\\$/g, '\\\\$')}\`)"><i class="ph-bold ph-copy"></i> Sao chép mẫu này</button>
-            </div>`;
-        });
-        document.getElementById('clientCommentList').innerHTML = html || '<div style="text-align:center; padding:20px">Chưa có comment mẫu.</div>';
-    } catch(e){}
-}
-
-function copyText(btn, text) {
-    navigator.clipboard.writeText(text).then(() => {
+function copyArticleById(id, btn) {
+    const a = allArticles.find(x => x.id === id);
+    if (!a) return;
+    navigator.clipboard.writeText(a.content).then(() => {
         const old = btn.innerHTML;
         btn.innerHTML = '<i class="ph-bold ph-check"></i> Đã chép!';
-        setTimeout(() => btn.innerHTML = old, 2000);
+        setTimeout(() => btn.innerHTML = old, 1500);
     });
+}
+
+async function downloadImages(id, btn) {
+    const a = allArticles.find(x => x.id === id);
+    if (!a || !a.images || !a.images.length) return;
+    
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Đang tải...';
+    try {
+        for (let i = 0; i < a.images.length; i++) {
+            const url = a.images[i];
+            const titleSlug = a.title ? a.title.substring(0, 15).replace(/[^a-zA-Z0-9]/g, '-') : 'FreeHand';
+            const filename = `FreeHand_${titleSlug}_${i+1}.png`; // fallback if no ext is available
+            
+            // To properly trigger download via PWA, we need to fetch -> blob -> objectUrl
+            const res = await fetch(url);
+            const blob = await res.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+            await new Promise(r => setTimeout(r, 400));
+        }
+        btn.innerHTML = '<i class="ph-bold ph-check"></i> Đã lưu ảnh!';
+    } catch(e) {
+        btn.innerHTML = '<i class="ph-bold ph-x"></i> Lỗi lưu ảnh';
+    }
+    setTimeout(() => btn.innerHTML = oldHtml, 2000);
 }
 
 // ==== ADMIN FUNCTIONS ====
