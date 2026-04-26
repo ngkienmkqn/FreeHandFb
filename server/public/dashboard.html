@@ -419,6 +419,7 @@ async function fetchUsers() {
             </div>
             <div style="display:flex;gap:6px">
                 <button class="btn btn-primary btn-small" onclick="showEditUser('${u.id}', \`${escJs(u.username)}\`, \`${escJs(u.group)}\`, '${u.role}')">✏️ Sửa</button>
+                <button class="btn btn-outline btn-small" onclick="resetDevice('${u.id}')" title="Trường hợp User mượn máy người khác hoặc mua ĐTDĐ mới">📱 Reset Máy</button>
                 <button class="btn btn-danger btn-small" onclick="deleteUser('${u.id}')">Xoá</button>
             </div>
         </div>
@@ -480,6 +481,12 @@ async function addUser() {
     if (res.ok) { document.getElementById('newUserName').value = ''; document.getElementById('newUserPass').value = ''; document.getElementById('newUserGroupCustom').value = ''; }
     else { const e = await res.json(); alert(e.error); }
     fetchUsers();
+}
+async function resetDevice(id) {
+    if (!confirm('Bạn có chắc muốn reset thiết bị nhận diện cho user này? User có thể đăng nhập vào máy mới sau đó.')) return;
+    const res = await apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify({ deviceId: null }) });
+    if (res.ok) { alert('Reset thành công! User có thể đăng nhập trên máy mới.'); fetchUsers(); }
+    else { const e = await res.json(); alert(e.error); }
 }
 async function deleteUser(id) { if (!confirm('Xoá user này?')) return; await apiFetch(`/api/users/${id}`, { method: 'DELETE' }); fetchUsers(); }
 
