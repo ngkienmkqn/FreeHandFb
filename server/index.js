@@ -96,17 +96,26 @@ if (postsMigrated) saveJson(POSTS_FILE, posts);
 
 // Login
 app.post('/api/login', (req, res) => {
-    const { username, password, deviceId } = req.body;
+    const { username, password, deviceId, isWeb } = req.body;
     if (!username || !password || !deviceId) return res.status(400).json({ error: 'Username, password and System ID required' });
 
     const user = users.find(u => u.username === username && u.password === hashPw(password));
     if (!user) return res.status(401).json({ error: 'Sai tài khoản hoặc mật khẩu' });
 
-    if (!user.deviceId) {
-        user.deviceId = deviceId;
-        saveJson(USERS_FILE, users);
-    } else if (user.deviceId !== deviceId) {
-        return res.status(403).json({ error: 'Thiết bị không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập.' });
+    if (isWeb) {
+        if (!user.webDeviceId) {
+            user.webDeviceId = deviceId;
+            saveJson(USERS_FILE, users);
+        } else if (user.webDeviceId !== deviceId) {
+            return res.status(403).json({ error: 'Trình duyệt không hợp lệ. Bạn chỉ được dùng 1 trình duyệt web duy nhất. Liên hệ Admin để đổi.' });
+        }
+    } else {
+        if (!user.deviceId) {
+            user.deviceId = deviceId;
+            saveJson(USERS_FILE, users);
+        } else if (user.deviceId !== deviceId) {
+            return res.status(403).json({ error: 'Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập.' });
+        }
     }
 
     const token = crypto.randomUUID();
@@ -175,8 +184,9 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     const user = users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { username, password, group, role, points, deviceId } = req.body;
+    const { username, password, group, role, points, deviceId, webDeviceId } = req.body;
     if (deviceId === null || deviceId === "") user.deviceId = null;
+    if (webDeviceId === null || webDeviceId === "") user.webDeviceId = null;
     if (username && username !== user.username) {
         if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
         user.username = username;
@@ -260,20 +270,6 @@ app.post('/api/posts', authMiddleware, (req, res) => {
     posts.push(post);
     saveJson(POSTS_FILE, posts);
 
-    // Phát thông báo cho người trong group
-    users.filter(u => u.group === req.user.group && u.username !== req.user.username).forEach(u => {
-        notifications.push({
-            id: genId(), username: u.username, message: `🔥 [Mới] ${req.user.username} vừa lên 1 bài viết!`, read: false, createdAt: Date.now()
-        });
-        const pCnt = posts.filter(p => p.group === u.group && p.status === 'PENDING' && p.addedBy !== u.username).length;
-        if (pCnt % 5 === 0 && pCnt >= 5) {
-            notifications.push({
-                id: genId(), username: u.username, message: `⚠️ [Nhắc nhở] Bạn đang có ${pCnt} bài chưa tương tác. Vào tích điểm ngay nhé!`, read: false, createdAt: Date.now()
-            });
-        }
-    });
-    saveJson(NOTIFICATIONS_FILE, notifications);
-
     res.json(post);
 });
 
@@ -293,21 +289,6 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
         }
     });
     saveJson(POSTS_FILE, posts);
-    
-    if (added > 0) {
-        users.filter(u => u.group === req.user.group && u.username !== req.user.username).forEach(u => {
-            notifications.push({
-                id: genId(), username: u.username, message: `🎉 [Mới] ${req.user.username} vừa lên ${added} bài viết!`, read: false, createdAt: Date.now()
-            });
-            const pCnt = posts.filter(p => p.group === u.group && p.status === 'PENDING' && p.addedBy !== u.username).length;
-            if (pCnt >= 10) {
-                notifications.push({
-                    id: genId(), username: u.username, message: `⚠️ [Quá Tải] Hệ thống đếm được ${pCnt} bài chưa làm. Nhanh tay đi comment nào!`, read: false, createdAt: Date.now()
-                });
-            }
-        });
-        saveJson(NOTIFICATIONS_FILE, notifications);
-    }
     
     const groupPosts = posts.filter(p => p.group === req.user.group);
     res.json({ added, total: groupPosts.length });
