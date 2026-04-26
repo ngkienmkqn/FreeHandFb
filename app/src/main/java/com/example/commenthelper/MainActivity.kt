@@ -365,6 +365,9 @@ fun MainApp(
     var points by remember { mutableStateOf(0) }
     var role by remember { mutableStateOf("user") }
     
+    var notifyInterval by remember { mutableIntStateOf(prefs.getInt("notify_interval", 15)) }
+    var lastNotifyTime by remember { mutableLongStateOf(prefs.getLong("last_notify", 0L)) }
+
     var posts by remember { mutableStateOf(loadPosts(prefs)) }
     var templates by remember { mutableStateOf(loadTemplates(prefs)) }
     var articles by remember { mutableStateOf(emptyList<Article>()) }
@@ -482,6 +485,21 @@ fun MainApp(
     // Auto-sync on first load
     LaunchedEffect(Unit) { syncWithServer() }
 
+    // Auto-Remind Notifications based on config
+    LaunchedEffect(posts, notifyInterval) {
+        if (notifyInterval > 0) {
+            val pendingCount = posts.count { it.status == PostStatus.PENDING && it.addedBy != username }
+            if (pendingCount > 0) {
+                val now = System.currentTimeMillis()
+                if (now - lastNotifyTime >= notifyInterval * 60 * 1000L) {
+                    showNotification(context, "Sắp lười rùi! Bạn đang có $pendingCount bài chưa tương tác. Mở FreeHand ngay nhé!")
+                    lastNotifyTime = now
+                    prefs.edit().putLong("last_notify", now).apply()
+                }
+            }
+        }
+    }
+
     LaunchedEffect(initialUrl) {
         if (!initialUrl.isNullOrBlank()) {
             val (code, body) = httpReq("$SERVER_URL/api/posts", "POST", """{"url":"$initialUrl"}""", authToken)
@@ -551,6 +569,9 @@ fun MainApp(
                 2 -> ArticlesScreen(articles)
                 3 -> LeaderboardScreen(authToken)
                 4 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
+                    notifyInterval = notifyInterval,
+                    onIntervalChange = { v -> notifyInterval = v; prefs.edit().putInt("notify_interval", v).apply() },
+                    onTestNotify = { showNotification(context, "Test thông báo FreeHand thành công!\nHiện có ${posts.count { it.status == PostStatus.PENDING && it.addedBy != username }} bài đang PENDING.") },
                     onSync = { syncWithServer() },
                     onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 )
@@ -799,7 +820,11 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
 
 /* ---------- SETTINGS TAB ---------- */
 
-@Composable fun SettingsScreen(isSyncing: Boolean, lastSyncStatus: String, isServiceEnabled: Boolean, onSync: () -> Unit, onRequestPermission: () -> Unit) {
+@Composable fun SettingsScreen(
+    isSyncing: Boolean, lastSyncStatus: String, isServiceEnabled: Boolean,
+    notifyInterval: Int, onIntervalChange: (Int) -> Unit, onTestNotify: () -> Unit,
+    onSync: () -> Unit, onRequestPermission: () -> Unit
+) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Cài đặt", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(24.dp))
@@ -812,6 +837,30 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                     else Text("🔄 Sync từ Server")
                 }
                 if (lastSyncStatus.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(lastSyncStatus, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("🔔 Cài đặt Thông báo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Khoảng cách nhắc nhở (phút):")
+                    Spacer(Modifier.weight(1f))
+                    var txt by remember { mutableStateOf(notifyInterval.toString()) }
+                    OutlinedTextField(
+                        value = txt,
+                        onValueChange = { txt = it; it.toIntOrNull()?.let { v -> onIntervalChange(v) } },
+                        modifier = Modifier.width(70.dp),
+                        singleLine = true
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Ghi 0 để tắt nhắc nhở gom nhóm.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onTestNotify, modifier = Modifier.fillMaxWidth()) {
+                    Text("🔔 Test Thông Báo Ngay")
+                }
             }
         }
         Spacer(Modifier.height(16.dp))
