@@ -429,6 +429,12 @@ class FbAutoService : AccessibilityService() {
             for (node in nodes) {
                 val cd = node.contentDescription?.toString()?.lowercase() ?: ""
                 val t = node.text?.toString() ?: ""
+                
+                if (cd.contains("messenger") || cd.contains("tin nhắn") || cd.contains("bạn bè")) {
+                    node.recycle()
+                    continue
+                }
+                
                 if (cd.contains("send") || cd.contains("gửi") ||
                     cd.contains("submit") || cd.contains("đăng") ||
                     cd.contains("post") ||
@@ -505,6 +511,39 @@ class FbAutoService : AccessibilityService() {
     private fun markCurrentDone(success: Boolean) {
         val task = currentTask ?: return
         Log.d(TAG, "Post ${task.postId} done, success=$success")
+        
+        if (success) {
+            try {
+                val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+                val postsStr = prefs.getString("posts_v1", null)
+                if (!postsStr.isNullOrBlank()) {
+                    val arr = org.json.JSONArray(postsStr)
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        if (o.getString("id") == task.postId) {
+                            o.put("status", "DONE")
+                            o.put("interactedAt", System.currentTimeMillis())
+                            break
+                        }
+                    }
+                    prefs.edit().putString("posts_v1", arr.toString()).apply()
+                }
+                val token = prefs.getString("auth_token", "")
+                if (!token.isNullOrBlank()) {
+                    Thread {
+                        try {
+                            val conn = java.net.URL("http://dt.ungthien.com/api/posts/${task.postId}/done").openConnection() as java.net.HttpURLConnection
+                            conn.requestMethod = "POST"
+                            conn.setRequestProperty("Authorization", "Bearer $token")
+                            conn.setRequestProperty("Content-Type", "application/json")
+                            conn.doOutput = true
+                            conn.outputStream.write("{}".toByteArray())
+                            conn.responseCode
+                        } catch(e: Exception) {}
+                    }.start()
+                }
+            } catch(e: Exception) {}
+        }
 
         val completed = progress.value.first + 1
         val total = progress.value.second

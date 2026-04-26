@@ -575,7 +575,22 @@ async function addArticle() {
             const file = fileInput.files[i];
             const base64 = await new Promise((resolve) => {
                 const reader = new FileReader();
-                reader.onload = e => resolve(e.target.result);
+                reader.onload = e => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const MAX = 1200;
+                        let w = img.width, h = img.height;
+                        if (w > MAX || h > MAX) {
+                            if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+                            else { w = Math.round(w * MAX / h); h = MAX; }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        resolve(canvas.toDataURL('image/jpeg', 0.8));
+                    };
+                    img.src = e.target.result;
+                };
                 reader.readAsDataURL(file);
             });
             base64Images.push(base64);
@@ -587,17 +602,27 @@ async function addArticle() {
     btn.disabled = true;
 
     try {
-        const res = await apiFetch('/api/articles', { 
-            method: 'POST', 
-            body: JSON.stringify({ category: cat, title, content, base64Images }) 
+        const res = await apiFetch('/api/articles', {
+            method: 'POST',
+            body: JSON.stringify({ category: cat, title, content, base64Images })
         });
         if (res.ok) {
-            document.getElementById('newArtCategory').value = ''; 
+            document.getElementById('newArtCategory').value = '';
             document.getElementById('newArtTitle').value = '';
-            document.getElementById('newArtContent').value = ''; 
+            document.getElementById('newArtContent').value = '';
             fileInput.value = '';
+            document.getElementById('imagePreviewContainer').innerHTML = '';
             fetchArticles();
+            alert('Tạo bài viết mẫu thành công!');
+        } else {
+            let errMsg = `Lỗi ${res.status}`;
+            try { const d = await res.json(); if (d.error) errMsg = d.error; } catch (_) {}
+            if (res.status === 403) errMsg = 'Bạn không có quyền Admin để tạo bài viết mẫu.';
+            if (res.status === 413) errMsg = 'Ảnh quá lớn! Hãy chọn ảnh nhỏ hơn hoặc giảm số lượng ảnh.';
+            alert('Lỗi: ' + errMsg);
         }
+    } catch (err) {
+        alert('Lỗi kết nối: ' + (err.message || 'Không thể kết nối server'));
     } finally {
         btn.innerHTML = '➕ Tạo Bài Viết Mẫu';
         btn.disabled = false;

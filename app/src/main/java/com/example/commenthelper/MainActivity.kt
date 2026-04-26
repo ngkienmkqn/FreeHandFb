@@ -462,6 +462,10 @@ fun MainApp(
                         val jt = JSONObject(b)
                         if (jt.getBoolean("changed")) {
                             syncWithServer()
+                        }
+                        if (jt.has("serverTime")) {
+                            lastSyncCheckedText = jt.getString("serverTime")
+                        } else {
                             lastSyncCheckedText = System.currentTimeMillis().toString()
                         }
                     } catch(_: Exception) {}
@@ -889,22 +893,101 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
 }
 
 private suspend fun downloadImages(context: Context, urls: List<String>) = withContext(Dispatchers.IO) {
-    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    var successCount = 0
+    val errors = mutableListOf<String>()
+
     urls.forEachIndexed { i, url ->
         try {
-            val req = DownloadManager.Request(Uri.parse(url))
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_PICTURES, "CommentHelper_IMG_${System.currentTimeMillis()}_$i.jpg")
-                .setTitle("Đang tải ảnh $i...")
-                .setMimeType("image/jpeg")
-            try {
-                dm.enqueue(req)
-            } catch (e: Exception) {
-                // Ignore missing provider issues
+            // Validate URL
+            val uri = Uri.parse(url)
+            if (uri.scheme.isNullOrBlank() || uri.host.isNullOrBlank()) {
+                errors.add("Ảnh ${i + 1}: URL không hợp lệ")
+                return@forEachIndexed
             }
-        } catch (_: Exception) {}
+
+            // Use MediaStore on Android 10+ (Q), DownloadManager fallback otherwise
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (downloadViaMediaStore(context, url, i)) successCount++
+                else errors.add("Ảnh ${i + 1}: lưu thất bại")
+            } else {
+                if (downloadViaDownloadManager(context, url, i)) successCount++
+                else errors.add("Ảnh ${i + 1}: enqueue thất bại")
+            }
+        } catch (e: Exception) {
+            errors.add("Ảnh ${i + 1}: ${e.message ?: "lỗi không xác định"}")
+        }
     }
-    withContext(Dispatchers.Main) { toast(context, "Đang tải ${urls.size} ảnh xuống Thư viện") }
+
+    withContext(Dispatchers.Main) {
+        val msg = when {
+            successCount == urls.size -> "✓ Đã tải $successCount/${urls.size} ảnh xuống Pictures"
+            successCount > 0 -> "Tải $successCount/${urls.size}. Lỗi: ${errors.firstOrNull() ?: ""}"
+            else -> "Tải thất bại: ${errors.firstOrNull() ?: "không rõ"}"
+        }
+        toast(context, msg)
+    }
+}
+
+private fun downloadViaMediaStore(context: Context, url: String, index: Int): Boolean {
+    return try {
+        val fileName = "CommentHelper_${System.currentTimeMillis()}_$index.jpg"
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/CommentHelper")
+                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val resolver = context.contentResolver
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            android.provider.MediaStore.Images.Media.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        else android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+
+        val itemUri = resolver.insert(collection, values) ?: return false
+
+        try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 15000; conn.readTimeout = 30000
+            conn.connect()
+            if (conn.responseCode !in 200..299) {
+                resolver.delete(itemUri, null, null)
+                return false
+            }
+            resolver.openOutputStream(itemUri)?.use { out ->
+                conn.inputStream.use { input -> input.copyTo(out) }
+            } ?: return false
+        } catch(e: Exception) {
+            resolver.delete(itemUri, null, null)
+            return false
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            values.clear()
+            values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(itemUri, values, null, null)
+        }
+        true
+    } catch (e: Exception) {
+        android.util.Log.e("downloadImages", "MediaStore failed for $url", e)
+        false
+    }
+}
+
+private fun downloadViaDownloadManager(context: Context, url: String, index: Int): Boolean {
+    return try {
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val req = DownloadManager.Request(Uri.parse(url))
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_PICTURES, "CommentHelper_IMG_${System.currentTimeMillis()}_$index.jpg")
+            .setTitle("Tải ảnh ${index + 1}")
+            .setMimeType("image/jpeg")
+        dm.enqueue(req)
+        true
+    } catch (e: Exception) {
+        android.util.Log.e("downloadImages", "DownloadManager failed for $url", e)
+        false
+    }
 }
 
 /* ---------- NOTIFICATIONS SYNC ---------- */
