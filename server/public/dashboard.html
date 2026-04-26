@@ -215,7 +215,20 @@
                         <span style="font-weight: 600; font-size: 1.1rem; display:flex; align-items:center; gap:8px"><i class="ph-fill ph-article" style="color:var(--primary)"></i> Kho Bài Mẫu</span>
                         <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px">Chép nhanh nội dung và ảnh để đăng dạo trên Facebook</div>
                     </div>
-                    <div id="clientArticleList" style="max-height: 60vh; overflow-y: auto;">
+                    <div id="clientArticleList" style="max-height: 60vh; overflow-y: auto; padding: 12px 20px;">
+                        <div style="text-align:center; color:var(--text-muted); padding:30px 0; font-size:0.9rem">Đang tải...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: COMMENTS -->
+            <div class="tab-content" id="tab-comments">
+                <div class="glass card" style="padding: 0; overflow: hidden">
+                    <div style="padding: 20px; background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--border)">
+                        <span style="font-weight: 600; font-size: 1.1rem; display:flex; align-items:center; gap:8px"><i class="ph-fill ph-chat-centered-text" style="color:var(--primary)"></i> Mẫu Comment</span>
+                        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px">Copy nhanh các mẫu seeding/comment</div>
+                    </div>
+                    <div id="clientCommentList" style="max-height: 60vh; overflow-y: auto;">
                         <div style="text-align:center; color:var(--text-muted); padding:30px 0; font-size:0.9rem">Đang tải...</div>
                     </div>
                 </div>
@@ -285,6 +298,10 @@
             <button class="nav-item" onclick="switchTab('articles', this); fetchArticles()">
                 <i class="ph-fill ph-article"></i>
                 <span>Bài Mẫu</span>
+            </button>
+            <button class="nav-item" onclick="switchTab('comments', this); fetchComments()">
+                <i class="ph-fill ph-chat-centered-text"></i>
+                <span>Comment</span>
             </button>
             <button class="nav-item" onclick="switchTab('leaderboard', this); fetchLeaderboard()">
                 <i class="ph-fill ph-chart-bar"></i>
@@ -496,7 +513,62 @@ async function fetchLeaderboard() {
     } catch(e){}
 }
 
+let allArticles = [];
+let currentCategory = null;
+
 async function fetchArticles() {
+    try {
+        const res = await apiCall('/api/articles');
+        allArticles = await res.json();
+        renderArticles();
+    } catch(e){}
+}
+
+function renderArticles() {
+    let html = '';
+    const categories = [...new Set(allArticles.map(a => a.category))].sort();
+    
+    // Category chips
+    if (categories.length > 0) {
+        html += `<div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--border)">`;
+        html += `<button class="btn-secondary" style="white-space:nowrap; ${currentCategory === null ? 'background:var(--primary); color:#000;' : ''}" onclick="filterCategory(null)">Tất cả</button>`;
+        categories.forEach(cat => {
+            html += `<button class="btn-secondary" style="white-space:nowrap; ${currentCategory === cat ? 'background:var(--primary); color:#000;' : ''}" onclick="filterCategory('${cat}')">${cat}</button>`;
+        });
+        html += `</div>`;
+    }
+
+    const visible = currentCategory ? allArticles.filter(a => a.category === currentCategory) : allArticles;
+    
+    visible.forEach(a => {
+        let imgsHtml = '';
+        if(a.images && a.images.length) {
+            imgsHtml = `<div style="margin-bottom:8px; font-size:0.8rem; color:var(--text-muted)">🖼 ${a.images.length} ảnh đi kèm</div>
+            <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px">`;
+            a.images.forEach(img => {
+                imgsHtml += `<img src="${img}" style="height:80px; width:80px; object-fit:cover; border-radius:8px; border:1px solid var(--border)">`;
+            });
+            imgsHtml += '</div>';
+        }
+        
+        html += `
+        <div class="list-item" style="border-radius:0; border:none; border-bottom:1px solid var(--border); margin:0; padding:16px 0;">
+            <div style="color:var(--primary); font-size:0.9rem; font-weight:700; margin-bottom:4px;">[${a.category || 'CHUNG'}]</div>
+            <div style="font-weight:600; font-size:1.1rem; margin-bottom:8px">${a.title}</div>
+            <div style="font-size:0.95rem; color:#cbd5e1; white-space:pre-wrap; line-height:1.5; padding:8px 0;">${a.content}</div>
+            ${imgsHtml}
+            <button class="btn-secondary" style="width:100%; margin-top:12px; display:flex; justify-content:center; gap:8px" onclick="copyText(this, \`${a.content.replace(/`/g, '\\`').replace(/\\/g, '\\\\').replace(/\\$/g, '\\\\$')}\`)"><i class="ph-bold ph-copy"></i> Copy Nội Dung</button>
+        </div>`;
+    });
+    document.getElementById('clientArticleList').innerHTML = html || '<div style="text-align:center; padding:20px">Chưa có bài viết mẫu.</div>';
+}
+
+function filterCategory(cat) {
+    currentCategory = cat;
+    renderArticles();
+}
+
+async function fetchComments() {
     try {
         const res = await apiCall('/api/templates');
         const templates = await res.json();
@@ -509,7 +581,7 @@ async function fetchArticles() {
                 <button class="btn-secondary" style="width:100%; margin-top:12px; display:flex; justify-content:center; gap:8px" onclick="copyText(this, \`${text.replace(/`/g, '\\`').replace(/\\/g, '\\\\').replace(/\\$/g, '\\\\$')}\`)"><i class="ph-bold ph-copy"></i> Sao chép mẫu này</button>
             </div>`;
         });
-        document.getElementById('clientArticleList').innerHTML = html || '<div style="text-align:center; padding:20px">Chưa có bài viết mẫu.</div>';
+        document.getElementById('clientCommentList').innerHTML = html || '<div style="text-align:center; padding:20px">Chưa có comment mẫu.</div>';
     } catch(e){}
 }
 
