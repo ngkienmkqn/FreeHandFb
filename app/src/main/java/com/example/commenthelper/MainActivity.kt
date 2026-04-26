@@ -819,7 +819,19 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
 /* ================== HELPERS ================== */
 
 private fun copyToClipboard(ctx: Context, text: String) { (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("comment", text)) }
-private fun openPost(ctx: Context, url: String) { try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { toast(ctx, "Lỗi: ${e.message}") } }
+private fun openPost(ctx: Context, url: String) {
+    val cleanUrl = url.replace("m.facebook.com", "www.facebook.com").replace("mbasic.facebook.com", "www.facebook.com")
+    try { 
+        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).setPackage("com.facebook.katana"))
+    } catch (e: Exception) { 
+        try {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).setPackage("com.facebook.lite"))
+        } catch(e2: Exception) {
+            try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            catch(e3: Exception) { toast(ctx, "Lỗi: ${e3.message}") }
+        }
+    } 
+}
 private fun toast(ctx: Context, msg: String) { Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show() }
 private val URL_REGEX = Regex("""https?://\S+""")
 private fun extractFirstUrl(text: String): String? = URL_REGEX.find(text)?.value

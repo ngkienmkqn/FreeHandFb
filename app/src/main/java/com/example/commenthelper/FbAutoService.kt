@@ -177,10 +177,11 @@ class FbAutoService : AccessibilityService() {
         // Press Back first to dismiss any existing FB overlay/dialog
         performGlobalAction(GLOBAL_ACTION_BACK)
 
+        val cleanUrl = url.replace("m.facebook.com", "www.facebook.com")
+                          .replace("mbasic.facebook.com", "www.facebook.com")
+
         handler.postDelayed({
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                // CLEAR_TOP + SINGLE_TOP forces FB to navigate to the new URL
-                // even when FB app is already open
+            val intentKatana = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -189,21 +190,28 @@ class FbAutoService : AccessibilityService() {
                 setPackage("com.facebook.katana")
             }
             try {
-                startActivity(intent)
+                startActivity(intentKatana)
             } catch (e: Exception) {
-                // Fallback: open without package restriction
-                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                val intentLite = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
                     addFlags(
                         Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
                         Intent.FLAG_ACTIVITY_SINGLE_TOP
                     )
+                    setPackage("com.facebook.lite")
                 }
                 try {
-                    startActivity(fallback)
+                    startActivity(intentLite)
                 } catch (e2: Exception) {
-                    Log.e(TAG, "Cannot open URL: $url", e2)
-                    markCurrentDone(success = false)
+                    val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    try {
+                        startActivity(fallback)
+                    } catch (e3: Exception) {
+                        Log.e(TAG, "Cannot open URL: $url", e3)
+                        markCurrentDone(success = false)
+                    }
                 }
             }
         }, 500) // Small delay after back press
