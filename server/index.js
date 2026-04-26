@@ -102,19 +102,21 @@ app.post('/api/login', (req, res) => {
     const user = users.find(u => u.username === username && u.password === hashPw(password));
     if (!user) return res.status(401).json({ error: 'Sai tài khoản hoặc mật khẩu' });
 
-    if (isWeb) {
-        if (!user.webDeviceId) {
-            user.webDeviceId = deviceId;
-            saveJson(USERS_FILE, users);
-        } else if (user.webDeviceId !== deviceId) {
-            return res.status(403).json({ error: 'Trình duyệt không hợp lệ. Bạn chỉ được dùng 1 trình duyệt web duy nhất. Liên hệ Admin để đổi.' });
-        }
-    } else {
-        if (!user.deviceId) {
-            user.deviceId = deviceId;
-            saveJson(USERS_FILE, users);
-        } else if (user.deviceId !== deviceId) {
-            return res.status(403).json({ error: 'Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập.' });
+    if (user.role !== 'admin') {
+        if (isWeb) {
+            if (!user.webDeviceId) {
+                user.webDeviceId = deviceId;
+                saveJson(USERS_FILE, users);
+            } else if (user.webDeviceId !== deviceId) {
+                return res.status(403).json({ error: 'Trình duyệt không hợp lệ. Bạn chỉ được dùng 1 trình duyệt web duy nhất. Liên hệ Admin để đổi.' });
+            }
+        } else {
+            if (!user.deviceId) {
+                user.deviceId = deviceId;
+                saveJson(USERS_FILE, users);
+            } else if (user.deviceId !== deviceId) {
+                return res.status(403).json({ error: 'Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập.' });
+            }
         }
     }
 
