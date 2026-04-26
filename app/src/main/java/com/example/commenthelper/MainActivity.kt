@@ -547,7 +547,7 @@ fun MainApp(
                     },
                     onStopAuto = { FbAutoService.instance?.stopProcessing() }
                 )
-                1 -> TemplatesScreen(templates, authToken)
+                1 -> TemplatesScreen(templates, authToken, onRefresh = { syncWithServer() })
                 2 -> ArticlesScreen(articles)
                 3 -> LeaderboardScreen(authToken)
                 4 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
