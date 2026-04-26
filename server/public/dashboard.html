@@ -208,6 +208,19 @@
                 </div>
             </div>
 
+            <!-- TAB: ARTICLES -->
+            <div class="tab-content" id="tab-articles">
+                <div class="glass card" style="padding: 0; overflow: hidden">
+                    <div style="padding: 20px; background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--border)">
+                        <span style="font-weight: 600; font-size: 1.1rem; display:flex; align-items:center; gap:8px"><i class="ph-fill ph-article" style="color:var(--primary)"></i> Kho Bài Mẫu</span>
+                        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px">Chép nhanh nội dung và ảnh để đăng dạo trên Facebook</div>
+                    </div>
+                    <div id="clientArticleList" style="max-height: 60vh; overflow-y: auto;">
+                        <div style="text-align:center; color:var(--text-muted); padding:30px 0; font-size:0.9rem">Đang tải...</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- TAB: LEADERBOARD -->
             <div class="tab-content" id="tab-leaderboard">
                 <div class="glass card" style="padding: 0; overflow: hidden">
@@ -268,6 +281,10 @@
             <button class="nav-item active" onclick="switchTab('home', this)">
                 <i class="ph-fill ph-house"></i>
                 <span>Thêm Bài</span>
+            </button>
+            <button class="nav-item" onclick="switchTab('articles', this); fetchArticles()">
+                <i class="ph-fill ph-article"></i>
+                <span>Bài Mẫu</span>
             </button>
             <button class="nav-item" onclick="switchTab('leaderboard', this); fetchLeaderboard()">
                 <i class="ph-fill ph-chart-bar"></i>
@@ -404,7 +421,10 @@ async function fetchPosts() {
             else done++;
         });
 
-        recent.forEach(p => {
+        // Hiding DONE posts by default in the list
+        const pendingPostsList = posts.filter(p => p.status === 'PENDING').reverse().slice(0, 20);
+
+        pendingPostsList.forEach(p => {
             const isPending = p.status === 'PENDING';
             const shortUrl = p.url.length > 50 ? p.url.slice(0, 47) + '...' : p.url;
             html += `
@@ -474,6 +494,31 @@ async function fetchLeaderboard() {
 
         document.getElementById('rankList').innerHTML = html || '<div style="text-align:center; padding:20px">Không có dữ liệu.</div>';
     } catch(e){}
+}
+
+async function fetchArticles() {
+    try {
+        const res = await apiCall('/api/templates');
+        const templates = await res.json();
+        let html = '';
+        templates.forEach((text, idx) => {
+            html += `
+            <div class="list-item" style="border-radius:0; border:none; border-bottom:1px solid var(--border); margin:0">
+                <div style="font-weight:600; font-size:1.0rem; margin-bottom:8px">Mẫu #${idx+1}</div>
+                <div style="font-size:0.9rem; color:#cbd5e1; white-space:pre-wrap; line-height:1.5; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px">${text}</div>
+                <button class="btn-secondary" style="width:100%; margin-top:12px; display:flex; justify-content:center; gap:8px" onclick="copyText(this, \`${text.replace(/`/g, '\\`').replace(/\\/g, '\\\\').replace(/\\$/g, '\\\\$')}\`)"><i class="ph-bold ph-copy"></i> Sao chép mẫu này</button>
+            </div>`;
+        });
+        document.getElementById('clientArticleList').innerHTML = html || '<div style="text-align:center; padding:20px">Chưa có bài viết mẫu.</div>';
+    } catch(e){}
+}
+
+function copyText(btn, text) {
+    navigator.clipboard.writeText(text).then(() => {
+        const old = btn.innerHTML;
+        btn.innerHTML = '<i class="ph-bold ph-check"></i> Đã chép!';
+        setTimeout(() => btn.innerHTML = old, 2000);
+    });
 }
 
 // ==== ADMIN FUNCTIONS ====
