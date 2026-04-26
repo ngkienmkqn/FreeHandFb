@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Comment Helper Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #09090b; --panel: rgba(24, 24, 27, 0.7); --border: rgba(255, 255, 255, 0.1);
+            --primary: #8b5cf6; --success: #10b981; --error: #ef4444; --warn: #f59e0b; --text: #f8fafc;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+        /* Login */
+        .login-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); z-index: 100; }
+        .login-box { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 40px; width: 380px; backdrop-filter: blur(12px); }
+        .login-box h1 { margin: 0 0 24px; text-align: center; font-size: 1.5rem; }
+        .login-box .error { color: var(--error); font-size: 0.85rem; margin-top: 8px; min-height: 20px; }
+
+        /* Layout */
+        .app { display: none; }
+        .app.visible { display: block; }
+        .topbar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar-user { display: flex; align-items: center; gap: 12px; }
+        .topbar-badge { background: var(--primary); padding: 3px 12px; border-radius: 20px; font-size: 0.75rem; }
+        .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1400px; margin: 20px auto; padding: 0 20px; }
+        .glass-panel { background: var(--panel); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+        h2 { margin: 0 0 16px; font-size: 1.1rem; color: #a5b4fc; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 8px; }
+        .badge { background: var(--primary); padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; }
+
+        input, textarea, select { width: 100%; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid #334155; border-radius: 8px; color: white; font-family: inherit; font-size: 0.9rem; transition: 0.3s; }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 10px rgba(139, 92, 246, 0.3); }
+        textarea { resize: vertical; min-height: 80px; }
+        .btn { border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: 0.2s; }
+        .btn:hover { transform: translateY(-1px); }
+        .btn-primary { background: linear-gradient(135deg, var(--primary), #6d28d9); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--error); color: white; font-size: 0.8rem; padding: 6px 12px; }
+        .btn-small { font-size: 0.8rem; padding: 6px 12px; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-row { display: flex; gap: 8px; margin-top: 12px; }
+
+        .post-item { background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 14px; border-radius: 10px; margin-bottom: 10px; }
+        .post-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .post-url { font-size: 0.85rem; color: #94a3b8; word-break: break-all; }
+        .status-badge { padding: 3px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; }
+        .status-PENDING { background: rgba(245, 158, 11, 0.2); color: var(--warn); }
+        .status-DONE { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+
+        .tpl-item { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 12px; border-radius: 10px; margin-bottom: 8px; }
+        .tpl-text { flex: 1; font-size: 0.9rem; }
+
+        .user-item { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 12px; border-radius: 10px; margin-bottom: 8px; }
+        .user-info { flex: 1; }
+        .user-name { font-weight: 600; }
+        .user-meta { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+
+        .stats { display: flex; gap: 16px; margin-bottom: 16px; }
+        .stat { flex: 1; text-align: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 10px; }
+        .stat-num { font-size: 1.5rem; font-weight: 700; }
+        .stat-label { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
+        .scroll-list { max-height: 400px; overflow-y: auto; margin-top: 12px; }
+        .bulk-hint { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
+        .filter-btns { display: flex; gap: 8px; margin-bottom: 12px; }
+        .filter-btn { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text); padding: 6px 14px; border-radius: 20px; cursor: pointer; font-size: 0.8rem; transition: 0.2s; }
+        .filter-btn.active { background: var(--primary); border-color: var(--primary); }
+        .form-row { display: flex; gap: 8px; margin-bottom: 8px; }
+        .form-row > * { flex: 1; }
+
+        .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+        .tab { padding: 10px 20px; cursor: pointer; font-size: 0.9rem; border-bottom: 2px solid transparent; transition: 0.2s; }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+        .tab-content { display: none; }
+        .tab-content.visible { display: block; }
+    </style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div class="login-overlay" id="loginOverlay">
+    <div class="login-box">
+        <h1>⚡ Comment Helper</h1>
+        <div style="margin-bottom:16px">
+            <input type="text" id="loginUser" placeholder="Tên đăng nhập" style="margin-bottom:8px" />
+            <input type="password" id="loginPass" placeholder="Mật khẩu" />
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Đăng nhập</button>
+        <div class="error" id="loginError"></div>
+    </div>
+</div>
+
+<!-- MAIN APP -->
+<div class="app" id="mainApp">
+    <div class="topbar">
+        <div style="font-weight:700; font-size:1.1rem;">⚡ Comment Helper</div>
+        <div class="topbar-user">
+            <span id="topUsername"></span>
+            <span class="topbar-badge" id="topGroup"></span>
+            <button class="btn btn-outline btn-small" onclick="doLogout()">Đăng xuất</button>
+        </div>
+    </div>
+
+    <!-- TABS (admin sees extra tab) -->
+    <div style="max-width:1400px; margin:20px auto; padding:0 20px;">
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('main', this)">📋 Bài viết & Templates</div>
+            <div class="tab" id="adminTab" style="display:none" onclick="switchTab('admin', this)">👥 Quản lý Users</div>
+        </div>
+
+        <!-- TAB: Main -->
+        <div class="tab-content visible" id="tab-main">
+            <div class="layout">
+                <div>
+                    <div class="glass-panel">
+                        <h2>📝 Thêm Bài Viết</h2>
+                        <textarea id="bulkUrls" placeholder="Dán link bài viết (mỗi dòng 1 link)"></textarea>
+                        <div class="bulk-hint">Mỗi dòng 1 link. Hỗ trợ thêm nhiều bài cùng lúc.</div>
+                        <div class="btn-row"><button class="btn btn-primary" onclick="addPosts()" style="flex:1">➕ Thêm bài</button></div>
+                    </div>
+                    <div class="glass-panel">
+                        <h2>📋 Danh Sách Bài Viết <span class="badge" id="postCount">0</span></h2>
+                        <div id="groupFilterWrap" style="display:none; margin-bottom:12px">
+                            <select id="groupFilter" onchange="fetchPosts()" style="max-width:200px">
+                                <option value="">Tất cả nhóm</option>
+                            </select>
+                        </div>
+                        <div class="stats">
+                            <div class="stat"><div class="stat-num" id="pendingCount" style="color:var(--warn)">0</div><div class="stat-label">Chưa làm</div></div>
+                            <div class="stat"><div class="stat-num" id="doneCount" style="color:var(--success)">0</div><div class="stat-label">Đã xong</div></div>
+                        </div>
+                        <div class="filter-btns">
+                            <button class="filter-btn active" onclick="setFilter('all', this)">Tất cả</button>
+                            <button class="filter-btn" onclick="setFilter('PENDING', this)">Chưa làm</button>
+                            <button class="filter-btn" onclick="setFilter('DONE', this)">Đã xong</button>
+                        </div>
+                        <div class="scroll-list" id="postList"></div>
+                        <div class="btn-row"><button class="btn btn-danger btn-small" onclick="clearDone()">🗑️ Xoá tất cả đã xong</button></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="glass-panel">
+                        <h2>💬 Mẫu Comment <span class="badge" id="tplCount">0</span></h2>
+                        <textarea id="newTemplate" placeholder="Nhập câu comment mẫu..." rows="2"></textarea>
+                        <div class="btn-row"><button class="btn btn-success" onclick="addTemplate()" style="flex:1">➕ Thêm comment</button></div>
+                        <div class="scroll-list" id="templateList" style="margin-top:16px"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Admin -->
+        <div class="tab-content" id="tab-admin">
+            <div class="glass-panel" style="max-width:700px">
+                <h2>👥 Quản lý Users <span class="badge" id="userCount">0</span></h2>
+                <div class="form-row">
+                    <input type="text" id="newUserName" placeholder="Username" />
+                    <input type="password" id="newUserPass" placeholder="Password" />
+                    <select id="newUserGroup" style="max-width:180px">
+                        <option value="">-- Chọn group --</option>
+                    </select>
+                    <input type="text" id="newUserGroupCustom" placeholder="Hoặc nhập group mới" style="max-width:160px" />
+                    <select id="newUserRole" style="max-width:120px"><option value="user">User</option><option value="admin">Admin</option></select>
+                </div>
+                <button class="btn btn-primary btn-small" onclick="addUser()">➕ Thêm user</button>
+                <div class="scroll-list" id="userList" style="margin-top:16px"></div>
+            </div>
+
+            <div class="glass-panel" style="max-width:700px; margin-top:20px">
+                <h2>🌐 Mẫu Comment Mặc Định (Global)</h2>
+                <div class="bulk-hint" style="margin-bottom:8px">Được gán mặc định cho tài khoản mới. Các tài khoản cũ sẽ không bị ảnh hưởng.</div>
+                <textarea id="newGlobalTpl" placeholder="Nhập câu comment mặc định..." rows="2" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
+                <div class="btn-row"><button class="btn btn-success btn-small" onclick="addGlobalTpl()">➕ Thêm Comment Global</button></div>
+                <div class="scroll-list" id="globalTemplateList" style="margin-top:16px"></div>
+            </div>
+
+            <div class="glass-panel" style="max-width:700px; margin-top:20px">
+                <h2>📝 Quản lý Bài Viết Mẫu (Articles)</h2>
+                <div class="form-row">
+                    <input type="text" id="newArtCategory" placeholder="Nhóm bài viết (vd: sales-t1)" />
+                    <input type="text" id="newArtTitle" placeholder="Tiêu đề gợi nhớ" />
+                </div>
+                <textarea id="newArtContent" rows="3" placeholder="Nội dung bài đăng..." style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
+                <div style="margin-bottom:12px">
+                    <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Tải Ảnh Lên (bạn có thể chọn nhiều ảnh cùng lúc)</label>
+                    <input type="file" id="newArtImagesUpload" multiple accept="image/*" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;font-family:inherit" onchange="previewImages()" />
+                    <div id="imagePreviewContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+                </div>
+                <button id="btnAddArticle" class="btn btn-primary" onclick="addArticle()">➕ Tạo Bài Viết Mẫu</button>
+                <div class="scroll-list" id="articleList" style="margin-top:16px;max-height:500px"></div>
+            </div>
+
+            <div class="glass-panel" style="max-width:700px; margin-top:20px">
+                <h2>📋 Xem Logs Hệ Thống</h2>
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <button class="btn btn-outline" onclick="viewLog('server-out')">Log Server</button>
+                    <button class="btn btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="viewLog('server-err')">Lỗi Server</button>
+                    <button class="btn btn-outline" style="color:#f59e0b;border-color:rgba(245,158,11,0.2)" onclick="viewLog('apk')">Lỗi App (APK)</button>
+                </div>
+                <pre id="logViewerContainer" style="display:none;background:rgba(0,0,0,0.5);color:#10b981;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap;"></pre>
+            </div>
+
+            <div class="glass-panel" style="max-width:700px; margin-top:20px">
+                <h2>📦 Cập nhật App</h2>
+                <div style="margin-bottom:12px">
+                    <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Phiên bản mới nhất</label>
+                    <input type="text" id="cfgVersion" placeholder="1.0.0" />
+                </div>
+                <div style="margin-bottom:12px">
+                    <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Link tải APK (GitHub Actions / Release)</label>
+                    <input type="text" id="cfgApkUrl" placeholder="https://github.com/.../releases/download/.../app-debug.apk" />
+                </div>
+                <div style="margin-bottom:12px">
+                    <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Changelog (tuỳ chọn)</label>
+                    <textarea id="cfgChangelog" rows="2" placeholder="Mô tả thay đổi..." style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
+                </div>
+                <button class="btn btn-success" onclick="saveAppVersion()">💾 Lưu cấu hình App</button>
+                <div id="cfgStatus" style="margin-top:8px;font-size:0.85rem"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let authToken = localStorage.getItem('ch_token') || '';
+let currentUser = JSON.parse(localStorage.getItem('ch_user') || 'null');
+let allPosts = [], allTemplates = [];
+let currentFilter = 'all';
+
+// ---- AUTH ----
+async function apiFetch(path, opts = {}) {
+    opts.headers = { ...opts.headers, 'Content-Type': 'application/json' };
+    if (authToken) opts.headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(path, opts);
+    if (res.status === 401) { doLogout(); throw new Error('Session expired'); }
+    return res;
+}
+
+async function doLogin() {
+    const username = document.getElementById('loginUser').value.trim();
+    const password = document.getElementById('loginPass').value;
+    if (!username || !password) return;
+
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) { document.getElementById('loginError').textContent = data.error; return; }
+
+        authToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem('ch_token', authToken);
+        localStorage.setItem('ch_user', JSON.stringify(currentUser));
+        showApp();
+    } catch (e) { document.getElementById('loginError').textContent = 'Không kết nối được server'; }
+}
+
+function doLogout() {
+    apiFetch('/api/logout', { method: 'POST' }).catch(() => {});
+    authToken = '';
+    currentUser = null;
+    localStorage.removeItem('ch_token');
+    localStorage.removeItem('ch_user');
+    document.getElementById('loginOverlay').style.display = 'flex';
+    document.getElementById('mainApp').classList.remove('visible');
+}
+
+async function showApp() {
+    // Verify token still valid
+    try {
+        const res = await apiFetch('/api/me');
+        if (!res.ok) { doLogout(); return; }
+        currentUser = await res.json();
+    } catch { doLogout(); return; }
+
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('mainApp').classList.add('visible');
+    document.getElementById('topUsername').textContent = `${currentUser.username} (Điểm: ${currentUser.points || 0})`;
+    document.getElementById('topGroup').textContent = currentUser.group;
+
+    if (currentUser.role === 'admin') {
+        document.getElementById('adminTab').style.display = '';
+        document.getElementById('groupFilterWrap').style.display = '';
+        fetchUsers();
+        fetchAppVersion();
+        fetchGlobalComments();
+        fetchArticles();
+        // Populate group filter
+        const gRes = await apiFetch('/api/groups');
+        if (gRes.ok) {
+            const groups = await gRes.json();
+            const sel = document.getElementById('groupFilter');
+            sel.innerHTML = '<option value="">Tất cả nhóm</option>' + groups.map(g => `<option value="${g}">${g}</option>`).join('');
+        }
+    }
+    fetchPosts();
+    fetchTemplates();
+}
+
+// ---- TABS ----
+function switchTab(name, el) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('visible'));
+    el.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('visible');
+}
+
+// ---- POSTS ----
+async function fetchPosts() {
+    let url = '/api/posts';
+    if (currentUser && currentUser.role === 'admin') {
+        const g = document.getElementById('groupFilter')?.value;
+        if (g) url += `?group=${encodeURIComponent(g)}`;
+    }
+    const res = await apiFetch(url);
+    allPosts = await res.json();
+    renderPosts();
+}
+
+function renderPosts() {
+    const filtered = currentFilter === 'all' ? allPosts : allPosts.filter(p => p.status === currentFilter);
+    const pending = allPosts.filter(p => p.status === 'PENDING').length;
+    const done = allPosts.filter(p => p.status === 'DONE').length;
+    document.getElementById('postCount').textContent = allPosts.length;
+    document.getElementById('pendingCount').textContent = pending;
+    document.getElementById('doneCount').textContent = done;
+
+    const list = document.getElementById('postList');
+    if (!filtered.length) { list.innerHTML = '<div style="text-align:center;color:#64748b;padding:24px">Không có bài nào.</div>'; return; }
+
+    list.innerHTML = filtered.map(p => `
+        <div class="post-item">
+            <div class="post-header">
+                <span style="font-weight:600">${p.title || shortenUrl(p.url)}</span>
+                <span class="status-badge status-${p.status}">${p.status === 'DONE' ? 'Đã xong' : 'Chưa làm'}</span>
+            </div>
+            <div class="post-url">${esc(p.url)}</div>
+            <div style="font-size:0.75rem;color:#64748b;margin-top:4px">
+                Thuộc về: <span style="color:#10b981">${esc(p.ownerName || p.addedBy || 'N/A')}</span>
+                ${p.group ? ' · Nhóm: ' + esc(p.group) : ''}
+            </div>
+            <div style="font-size:0.75rem;color:#64748b;margin-top:4px">Đăng lúc: ${new Date(p.addedAt).toLocaleString()}</div>
+            <div class="btn-row">
+                ${p.status === 'PENDING' ? `<button class="btn btn-success btn-small" onclick="markDone('${p.id}')">✓ Xong</button>` : ''}
+                <button class="btn btn-danger btn-small" onclick="deletePost('${p.id}')">Xoá</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function addPosts() {
+    const raw = document.getElementById('bulkUrls').value.trim();
+    if (!raw) return;
+    const urls = raw.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
+    if (!urls.length) return alert('Không tìm thấy link hợp lệ');
+    await apiFetch('/api/posts/bulk', { method: 'POST', body: JSON.stringify({ items: urls.map(url => ({ url })) }) });
+    document.getElementById('bulkUrls').value = '';
+    fetchPosts();
+}
+async function markDone(id) { await apiFetch(`/api/posts/${id}/done`, { method: 'POST' }); fetchPosts(); }
+async function deletePost(id) { await apiFetch(`/api/posts/${id}`, { method: 'DELETE' }); fetchPosts(); }
+async function clearDone() { if (!confirm('Xoá tất cả bài đã xong?')) return; await apiFetch('/api/posts/done/clear', { method: 'DELETE' }); fetchPosts(); }
+function setFilter(f, btn) { currentFilter = f; document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); renderPosts(); }
+
+// ---- TEMPLATES ----
+async function fetchTemplates() {
+    const res = await apiFetch('/api/templates');
+    allTemplates = await res.json();
+    renderTemplates();
+}
+function renderTemplates() {
+    document.getElementById('tplCount').textContent = allTemplates.length;
+    const list = document.getElementById('templateList');
+    if (!allTemplates.length) { list.innerHTML = '<div style="text-align:center;color:#64748b;padding:24px">Chưa có template.</div>'; return; }
+    list.innerHTML = allTemplates.map(t => `
+        <div class="tpl-item">
+            <span class="tpl-text">${esc(t)}</span>
+            <button class="btn btn-danger btn-small" onclick="deleteTemplate(\`${escJs(t)}\`)">Xoá</button>
+        </div>
+    `).join('');
+}
+async function addTemplate() {
+    const text = document.getElementById('newTemplate').value.trim();
+    if (!text) return;
+    await apiFetch('/api/templates', { method: 'POST', body: JSON.stringify({ text }) });
+    document.getElementById('newTemplate').value = '';
+    fetchTemplates();
+}
+async function deleteTemplate(text) {
+    await apiFetch('/api/templates', { method: 'DELETE', body: JSON.stringify({ text }) });
+    fetchTemplates();
+}
+
+// ---- USERS (admin) ----
+let allGroups = [];
+
+async function populateGroupDropdowns() {
+    const res = await apiFetch('/api/groups');
+    if (res.ok) allGroups = await res.json();
+    // Populate new user group dropdown
+    const sel = document.getElementById('newUserGroup');
+    sel.innerHTML = '<option value="">-- Chọn group --</option>' + allGroups.map(g => `<option value="${g}">${g}</option>`).join('');
+}
+
+async function fetchUsers() {
+    await populateGroupDropdowns();
+    const res = await apiFetch('/api/users');
+    const users = await res.json();
+    document.getElementById('userCount').textContent = users.length;
+    const list = document.getElementById('userList');
+    list.innerHTML = users.map(u => `
+        <div class="user-item" id="user-row-${u.id}">
+            <div class="user-info">
+                <div class="user-name">${esc(u.username)} ${u.role === 'admin' ? '👑' : ''}</div>
+                <div class="user-meta">Group: ${esc(u.group)} · Role: ${u.role} · Điểm: <b>${u.points || 0}</b></div>
+            </div>
+            <div style="display:flex;gap:6px">
+                <button class="btn btn-primary btn-small" onclick="showEditUser('${u.id}', \`${escJs(u.username)}\`, \`${escJs(u.group)}\`, '${u.role}')">✏️ Sửa</button>
+                <button class="btn btn-danger btn-small" onclick="deleteUser('${u.id}')">Xoá</button>
+            </div>
+        </div>
+        <div class="user-item" id="user-edit-${u.id}" style="display:none;flex-direction:column;gap:8px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px">
+            <div style="font-weight:600;margin-bottom:4px">✏️ Chỉnh sửa: ${esc(u.username)}</div>
+            <div class="form-row" style="margin:0">
+                <select id="editGroup-${u.id}" style="max-width:180px">
+                    ${allGroups.map(g => `<option value="${g}" ${g === u.group ? 'selected' : ''}>${g}</option>`).join('')}
+                </select>
+                <input type="text" id="editGroupNew-${u.id}" placeholder="Hoặc nhập group mới" style="max-width:160px" />
+                <select id="editRole-${u.id}" style="max-width:100px">
+                    <option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option>
+                    <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+                </select>
+            </div>
+            <div class="form-row" style="margin:0">
+                <input type="password" id="editPass-${u.id}" placeholder="Mật khẩu mới (ko đổi = bỏ trống)" style="flex:1" />
+                <input type="number" id="editPoints-${u.id}" placeholder="Điểm" value="${u.points || 0}" style="max-width:80px" />
+            </div>
+            <div style="display:flex;gap:8px">
+                <button class="btn btn-success btn-small" onclick="saveEditUser('${u.id}')">💾 Lưu</button>
+                <button class="btn btn-outline btn-small" onclick="hideEditUser('${u.id}')">Huỷ</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function showEditUser(id) {
+    document.getElementById('user-edit-' + id).style.display = 'flex';
+}
+function hideEditUser(id) {
+    document.getElementById('user-edit-' + id).style.display = 'none';
+}
+
+async function saveEditUser(id) {
+    const groupSel = document.getElementById('editGroup-' + id).value;
+    const groupNew = document.getElementById('editGroupNew-' + id).value.trim();
+    const group = groupNew || groupSel;
+    const role = document.getElementById('editRole-' + id).value;
+    const password = document.getElementById('editPass-' + id).value;
+    const points = document.getElementById('editPoints-' + id).value;
+    const body = { group, role };
+    if (password) body.password = password;
+    if (points !== '') body.points = parseInt(points, 10);
+    const res = await apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+    if (res.ok) { fetchUsers(); }
+    else { const e = await res.json(); alert(e.error); }
+}
+
+async function addUser() {
+    const username = document.getElementById('newUserName').value.trim();
+    const password = document.getElementById('newUserPass').value;
+    const groupSel = document.getElementById('newUserGroup').value;
+    const groupNew = document.getElementById('newUserGroupCustom').value.trim();
+    const group = groupNew || groupSel;
+    const role = document.getElementById('newUserRole').value;
+    if (!username || !password || !group) return alert('Điền đủ thông tin (chọn hoặc nhập group)');
+    const res = await apiFetch('/api/users', { method: 'POST', body: JSON.stringify({ username, password, group, role }) });
+    if (res.ok) { document.getElementById('newUserName').value = ''; document.getElementById('newUserPass').value = ''; document.getElementById('newUserGroupCustom').value = ''; }
+    else { const e = await res.json(); alert(e.error); }
+    fetchUsers();
+}
+async function deleteUser(id) { if (!confirm('Xoá user này?')) return; await apiFetch(`/api/users/${id}`, { method: 'DELETE' }); fetchUsers(); }
+
+// ---- APP VERSION (admin) ----
+async function fetchAppVersion() {
+    const res = await apiFetch('/api/app-version');
+    const cfg = await res.json();
+    document.getElementById('cfgVersion').value = cfg.appVersion || '';
+    document.getElementById('cfgApkUrl').value = cfg.apkUrl || '';
+    document.getElementById('cfgChangelog').value = cfg.changelog || '';
+}
+async function saveAppVersion() {
+    const appVersion = document.getElementById('cfgVersion').value.trim();
+    const apkUrl = document.getElementById('cfgApkUrl').value.trim();
+    const changelog = document.getElementById('cfgChangelog').value.trim();
+    if (!appVersion) return alert('Nhập phiên bản');
+    const res = await apiFetch('/api/app-version', { method: 'PUT', body: JSON.stringify({ appVersion, apkUrl, changelog }) });
+    if (res.ok) document.getElementById('cfgStatus').innerHTML = '<span style="color:#10b981">✅ Đã lưu!</span>';
+    else document.getElementById('cfgStatus').innerHTML = '<span style="color:#ef4444">❌ Lỗi</span>';
+}
+
+// ---- UTILS ----
+function shortenUrl(url) { return url.length > 60 ? url.slice(0, 57) + '...' : url; }
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escJs(s) { return s.replace(/\\/g,'\\\\').replace(/`/g,'\\`').replace(/\$/g,'\\$'); }
+
+// ---- INIT ----
+// Allow Enter key on login
+document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+if (authToken && currentUser) showApp();
+// ---- GLOBAL COMMENTS (ADMIN) ----
+async function fetchGlobalComments() {
+    const res = await apiFetch('/api/config/comments');
+    const lists = await res.json();
+    const lHtml = document.getElementById('globalTemplateList');
+    if (!lists.length) { lHtml.innerHTML = '<div style="text-align:center;padding:12px;color:#64748b">Chưa có comment mặc định.</div>'; return; }
+    lHtml.innerHTML = lists.map((t, idx) => `
+        <div class="post-item">
+            <div style="flex:1">${esc(t)}</div>
+            <button class="btn btn-danger btn-small" onclick="deleteGlobalTpl(${idx})">Xoá</button>
+        </div>
+    `).join('');
+}
+async function addGlobalTpl() {
+    const text = document.getElementById('newGlobalTpl').value.trim();
+    if (!text) return;
+    const res = await apiFetch('/api/config/comments');
+    const lists = await res.json();
+    if (!lists.includes(text)) lists.push(text);
+    await apiFetch('/api/config/comments', { method: 'PUT', body: JSON.stringify(lists) });
+    document.getElementById('newGlobalTpl').value = '';
+    fetchGlobalComments();
+}
+async function deleteGlobalTpl(idx) {
+    if (!confirm('Xoá comment này khỏi mặc định?')) return;
+    const res = await apiFetch('/api/config/comments');
+    const lists = await res.json();
+    lists.splice(idx, 1);
+    await apiFetch('/api/config/comments', { method: 'PUT', body: JSON.stringify(lists) });
+    fetchGlobalComments();
+}
+
+// ---- ARTICLES (BÀI VIẾT MẪU) ----
+async function fetchArticles() {
+    const res = await apiFetch('/api/articles');
+    const arts = await res.json();
+    const lHtml = document.getElementById('articleList');
+    if (!arts.length) { lHtml.innerHTML = '<div style="text-align:center;padding:12px;color:#64748b">Chưa có bài viết mẫu.</div>'; return; }
+    lHtml.innerHTML = arts.map(a => `
+        <div class="post-item" style="flex-direction:column;align-items:flex-start;gap:8px">
+            <div style="font-weight:bold;color:var(--primary)">[${esc(a.category)}] ${esc(a.title)}</div>
+            <div style="font-size:0.85rem;color:#cbd5e1;white-space:pre-wrap">${esc(a.content)}</div>
+            ${a.images.length ? `<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+                ${a.images.map(img => `<img src="${img}" style="height:48px;width:48px;object-fit:cover;border-radius:4px" />`).join('')}
+            </div>` : ''}
+            <div style="align-self:flex-end;margin-top:8px">
+                <button class="btn btn-danger btn-small" onclick="deleteArticle('${a.id}')">Xoá bài</button>
+            </div>
+        </div>
+    `).join('');
+}
+async function addArticle() {
+    const cat = document.getElementById('newArtCategory').value.trim();
+    const title = document.getElementById('newArtTitle').value.trim();
+    const content = document.getElementById('newArtContent').value.trim();
+    const fileInput = document.getElementById('newArtImagesUpload');
+    if (!cat || !title || !content) return alert('Điền nhóm, tiêu đề, nội dung!');
+    
+    let base64Images = [];
+    if (fileInput.files.length > 0) {
+        for (let i = 0; i < fileInput.files.length; i++) {
+            const file = fileInput.files[i];
+            const base64 = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.readAsDataURL(file);
+            });
+            base64Images.push(base64);
+        }
+    }
+    
+    const btn = document.getElementById('btnAddArticle');
+    btn.innerHTML = '⏳ Đang tải lên...';
+    btn.disabled = true;
+
+    try {
+        const res = await apiFetch('/api/articles', { 
+            method: 'POST', 
+            body: JSON.stringify({ category: cat, title, content, base64Images }) 
+        });
+        if (res.ok) {
+            document.getElementById('newArtCategory').value = ''; 
+            document.getElementById('newArtTitle').value = '';
+            document.getElementById('newArtContent').value = ''; 
+            fileInput.value = '';
+            fetchArticles();
+        }
+    } finally {
+        btn.innerHTML = '➕ Tạo Bài Viết Mẫu';
+        btn.disabled = false;
+    }
+}
+function previewImages() {
+    const input = document.getElementById('newArtImagesUpload');
+    const container = document.getElementById('imagePreviewContainer');
+    container.innerHTML = '';
+    for (let i = 0; i < input.files.length; i++) {
+        const file = input.files[i];
+        if (!file.type.startsWith('image/')) continue;
+        const reader = new FileReader();
+        reader.onload = e => {
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.style.height = '60px';
+            img.style.width = '60px';
+            img.style.objectFit = 'cover';
+            img.style.borderRadius = '4px';
+            container.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+    }
+}
+async function deleteArticle(id) {
+    if (!confirm('Xoá bài mẫu này?')) return;
+    await apiFetch(`/api/articles/${id}`, { method: 'DELETE' });
+    fetchArticles();
+}
+
+// ---- LOGS ----
+async function viewLog(type) {
+    const v = document.getElementById('logViewerContainer');
+    v.style.display = 'block';
+    v.textContent = 'Đang tải log...';
+    const res = await apiFetch('/api/logs/' + type);
+    const data = await res.json();
+    v.textContent = data.log || 'Không có dữ liệu.';
+    v.scrollTop = v.scrollHeight;
+}
+
+</script></body></html>
