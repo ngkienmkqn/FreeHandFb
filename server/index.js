@@ -558,7 +558,7 @@ app.get('/api/articles', authMiddleware, (req, res) => {
     res.json(articles);
 });
 
-app.post('/api/articles', authMiddleware, adminOnly, (req, res) => {
+app.post('/api/articles', authMiddleware, (req, res) => {
     const { category, title, content, images, base64Images } = req.body;
     let finalImages = images || [];
     if (base64Images && Array.isArray(base64Images)) {

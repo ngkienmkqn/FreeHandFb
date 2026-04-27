@@ -1019,19 +1019,21 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
         confirmButton = { TextButton(onDismiss) { Text("Đóng") } })
 }
 
-@Composable fun SpintaxComposerDialog(onAdd: (String, String, String) -> Unit, onDismiss: () -> Unit) {
+@Composable fun SpintaxComposerDialog(onAdd: (String, String, String, List<String>) -> Unit, onDismiss: () -> Unit) {
     var cat by remember { mutableStateOf("Chung") }
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
+    var imageUrls by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("📝 Đóng Góp Bài Mẫu") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(cat, { cat = it }, label = { Text("Danh mục (Vd: Bất Động Sản)") })
-                OutlinedTextField(title, { title = it }, label = { Text("Tiêu đề") })
-                OutlinedTextField(content, { content = it }, label = { Text("Nội dung bài viết") }, modifier = Modifier.height(150.dp))
+                OutlinedTextField(cat, { cat = it }, label = { Text("Danh mục (Vd: Bất Động Sản)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(title, { title = it }, label = { Text("Tiêu đề") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(content, { content = it }, label = { Text("Nội dung bài viết") }, modifier = Modifier.fillMaxWidth().height(150.dp))
+                OutlinedTextField(imageUrls, { imageUrls = it }, label = { Text("Link ảnh (mỗi link 1 dòng)") }, modifier = Modifier.fillMaxWidth().height(100.dp))
                 
                 Text("Công cụ Hỗ Trợ (Spintax):", style = MaterialTheme.typography.labelMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1043,7 +1045,8 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
         },
         confirmButton = {
             Button(onClick = {
-                if (content.isNotBlank() && title.isNotBlank()) onAdd(cat, title, content)
+                val imgs = imageUrls.split("\n").map { it.trim() }.filter { it.startsWith("http") }
+                if (content.isNotBlank() && title.isNotBlank()) onAdd(cat, title, content, imgs)
             }) { Text("Gửi Chờ Duyệt") }
         },
         dismissButton = { TextButton(onDismiss) { Text("Huỷ") } }
@@ -1311,10 +1314,11 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
 
     if (showSpintaxDialog) {
         SpintaxComposerDialog(
-            onAdd = { cat, title, content ->
+            onAdd = { cat, title, content, imgs ->
                 showSpintaxDialog = false
                 scope.launch {
-                    val body = """{"category":"${cat}","title":"${title}","content":"${content.replace("\"", "\\\"").replace("\n", "\\n")}"}"""
+                    val imgJsonArray = org.json.JSONArray(imgs).toString()
+                    val body = """{"category":"${cat}","title":"${title}","content":"${content.replace("\"", "\\\"").replace("\n", "\\n")}","images":$imgJsonArray}"""
                     val (code, _) = httpReq("$SERVER_URL/api/articles", "POST", body, authToken)
                     if (code in 200..299) toast(context, "Đã gửi bài mẫu thành công!")
                     else toast(context, "Lỗi khi gửi bài: $code")
