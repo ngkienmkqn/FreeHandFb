@@ -20,6 +20,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -1119,10 +1123,10 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 Spacer(Modifier.height(8.dp))
                 Text("Tự động chọn 1 bài Mẫu và 1 Nhóm gợi ý để bung lên Group Facebook ngầm (Từ A - Z)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 Spacer(Modifier.height(8.dp))
+                var txt by remember { mutableStateOf(autoPublishIntervalHours.toString()) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Khoảng cách đăng (giờ):")
                     Spacer(Modifier.weight(1f))
-                    var txt by remember { mutableStateOf(autoPublishIntervalHours.toString()) }
                     OutlinedTextField(
                         value = txt,
                         onValueChange = { txt = it },
