@@ -265,6 +265,17 @@ class MainActivity : ComponentActivity() {
                 val name = intent.getStringExtra("name") ?: ""
                 val count = intent.getStringExtra("memberCount") ?: ""
                 val url = intent.getStringExtra("url") ?: ""
+                val token = context?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.getString(KEY_AUTH_TOKEN, "") ?: ""
+                if (token.isNotEmpty() && name.isNotEmpty() && context != null) {
+                    Thread {
+                        try {
+                            val js = JSONObject().apply { put("name", name); put("url", url); put("memberCount", count) }
+                            val conn = URL("$SERVER_URL/api/suggested-groups").openConnection() as HttpURLConnection
+                            conn.requestMethod = "POST"
+                            conn.setRequestProperty("Content-Type", "application/json")
+                            conn.setRequestProperty("Authorization", "Bearer $token")
+                            conn.doOutput = true
+                            java.io.OutputStreamWriter(conn.outputStream).use { it.write(js.toString()) }
                             if (conn.responseCode in 200..299) {
                                 android.os.Handler(android.os.Looper.getMainLooper()).post { 
                                     Toast.makeText(context, "Đã tự động lấy và đề xuất thông tin nhóm!", Toast.LENGTH_SHORT).show() 
