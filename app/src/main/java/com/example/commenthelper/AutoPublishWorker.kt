@@ -29,6 +29,12 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
             return@withContext Result.success()
         }
 
+        val blockTimeout = prefs.getLong("block_timeout_epoch", 0L)
+        if (System.currentTimeMillis() < blockTimeout) {
+            Log.w("AutoPublishWorker", "Currently serving Facebook Sandbox Blockade. Aborting publish cycle until epoch $blockTimeout")
+            return@withContext Result.success() // Fail cleanly so we don't retry and trigger more warnings
+        }
+
         Log.d("AutoPublishWorker", "Waking up to perform auto-publish...")
         
         val token = prefs.getString("auth_token", null) ?: return@withContext Result.failure()

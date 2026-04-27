@@ -232,7 +232,12 @@ class AutoWakeReceiver : BroadcastReceiver() {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val interval = prefs.getInt("autowake_interval_hours", 0)
         
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) { scheduleAutoWake(context, interval); return }
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) { 
+            scheduleAutoWake(context, interval)
+            val pubInterval = prefs.getInt("autopublish_interval_minutes", 0)
+            AutoPublishReceiver.schedule(context, pubInterval)
+            return 
+        }
 
         if (interval > 0) {
             val launchIntent = Intent(context, MainActivity::class.java).apply {
@@ -513,7 +518,7 @@ fun MainApp(
     var notifyInterval by remember { mutableIntStateOf(prefs.getInt("notify_interval", 15)) }
     var lastNotifyTime by remember { mutableLongStateOf(prefs.getLong("last_notify", 0L)) }
     var autoWakeIntervalHours by remember { mutableIntStateOf(prefs.getInt("autowake_interval_hours", 0)) }
-    var autoPublishIntervalHours by remember { mutableIntStateOf(prefs.getInt("autopublish_interval_hours", 0)) }
+    var autoPublishIntervalMinutes by remember { mutableIntStateOf(prefs.getInt("autopublish_interval_minutes", 0)) }
 
     var posts by remember { mutableStateOf(loadPosts(prefs)) }
     var templates by remember { mutableStateOf(loadTemplates(prefs)) }
@@ -779,17 +784,11 @@ fun MainApp(
                         prefs.edit().putInt("autowake_interval_hours", v).apply()
                         AutoWakeReceiver.scheduleAutoWake(context, v)
                     },
-                    autoPublishIntervalHours = autoPublishIntervalHours,
+                    autoPublishIntervalMinutes = autoPublishIntervalMinutes,
                     onAutoPublishIntervalChange = { v ->
-                        autoPublishIntervalHours = v
-                        prefs.edit().putInt("autopublish_interval_hours", v).apply()
-                        val wm = androidx.work.WorkManager.getInstance(context)
-                        if (v <= 0) {
-                            wm.cancelUniqueWork("auto_publish_worker")
-                        } else {
-                            val req = androidx.work.PeriodicWorkRequestBuilder<AutoPublishWorker>(v.toLong(), java.util.concurrent.TimeUnit.HOURS).build()
-                            wm.enqueueUniquePeriodicWork("auto_publish_worker", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, req)
-                        }
+                        autoPublishIntervalMinutes = v
+                        prefs.edit().putInt("autopublish_interval_minutes", v).apply()
+                        AutoPublishReceiver.schedule(context, v)
                     },
                     onTriggerNow = {
                         val wm = androidx.work.WorkManager.getInstance(context)
@@ -1020,6 +1019,37 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
         confirmButton = { TextButton(onDismiss) { Text("Đóng") } })
 }
 
+@Composable fun SpintaxComposerDialog(onAdd: (String, String, String) -> Unit, onDismiss: () -> Unit) {
+    var cat by remember { mutableStateOf("Chung") }
+    var title by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("📝 Đóng Góp Bài Mẫu") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(cat, { cat = it }, label = { Text("Danh mục (Vd: Bất Động Sản)") })
+                OutlinedTextField(title, { title = it }, label = { Text("Tiêu đề") })
+                OutlinedTextField(content, { content = it }, label = { Text("Nội dung bài viết") }, modifier = Modifier.height(150.dp))
+                
+                Text("Công cụ Hỗ Trợ (Spintax):", style = MaterialTheme.typography.labelMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { FilterChip(selected=false, onClick={ content += "{PHONE}" }, label={Text("[+] SĐT")}) }
+                    item { FilterChip(selected=false, onClick={ content += "{ZALO}" }, label={Text("[+] Zalo")}) }
+                    item { FilterChip(selected=false, onClick={ content += "{Đoạn 1|Đoạn 2}" }, label={Text("[+] Trộn Từ")}) }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                if (content.isNotBlank() && title.isNotBlank()) onAdd(cat, title, content)
+            }) { Text("Gửi Chờ Duyệt") }
+        },
+        dismissButton = { TextButton(onDismiss) { Text("Huỷ") } }
+    )
+}
+
 /* ---------- TEMPLATES TAB ---------- */
 
 @Composable fun TemplatesScreen(templates: List<String>, authToken: String, onRefresh: () -> Unit) {
@@ -1060,7 +1090,7 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
     endActiveHour: Int, onEndActiveHourChange: (Int) -> Unit,
     notifyInterval: Int, onIntervalChange: (Int) -> Unit, 
     autoWakeIntervalHours: Int, onAutoWakeIntervalChange: (Int) -> Unit,
-    autoPublishIntervalHours: Int, onAutoPublishIntervalChange: (Int) -> Unit,
+    autoPublishIntervalMinutes: Int, onAutoPublishIntervalChange: (Int) -> Unit,
     onTriggerNow: () -> Unit,
     onTestNotify: () -> Unit,
     onSync: () -> Unit, onRequestPermission: () -> Unit,
@@ -1123,9 +1153,9 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 Spacer(Modifier.height(8.dp))
                 Text("Tự động chọn 1 bài Mẫu và 1 Nhóm gợi ý để bung lên Group Facebook ngầm (Từ A - Z)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 Spacer(Modifier.height(8.dp))
-                var txt by remember { mutableStateOf(autoPublishIntervalHours.toString()) }
+                var txt by remember { mutableStateOf(autoPublishIntervalMinutes.toString()) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Khoảng cách đăng (giờ):")
+                    Text("Khoảng cách đăng (phút):")
                     Spacer(Modifier.weight(1f))
                     OutlinedTextField(
                         value = txt,
@@ -1178,6 +1208,18 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                     OutlinedTextField(
                         value = etxt,
                         onValueChange = { etxt = it },
+                        modifier = Modifier.width(70.dp),
+                        singleLine = true
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                var bt by remember { mutableStateOf((prefs.getInt("block_timeout_hours", 24)).toString()) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Thời gian nghỉ khi bị Block (giờ):")
+                    Spacer(Modifier.weight(1f))
+                    OutlinedTextField(
+                        value = bt,
+                        onValueChange = { bt = it; it.toIntOrNull()?.let { v -> prefs.edit().putInt("block_timeout_hours", v).apply() } },
                         modifier = Modifier.width(70.dp),
                         singleLine = true
                     )
@@ -1262,9 +1304,25 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
     val scope = rememberCoroutineScope()
     var filterCategory by remember { mutableStateOf<String?>(null) }
     var showProposeDialog by remember { mutableStateOf(false) }
+    var showSpintaxDialog by remember { mutableStateOf(false) }
     
     val categories = articles.map { it.category }.distinct().sorted()
     val visible = if (filterCategory != null) articles.filter { it.category == filterCategory } else articles
+
+    if (showSpintaxDialog) {
+        SpintaxComposerDialog(
+            onAdd = { cat, title, content ->
+                showSpintaxDialog = false
+                scope.launch {
+                    val body = """{"category":"${cat}","title":"${title}","content":"${content.replace("\"", "\\\"").replace("\n", "\\n")}"}"""
+                    val (code, _) = httpReq("$SERVER_URL/api/articles", "POST", body, authToken)
+                    if (code in 200..299) toast(context, "Đã gửi bài mẫu thành công!")
+                    else toast(context, "Lỗi khi gửi bài: $code")
+                }
+            },
+            onDismiss = { showSpintaxDialog = false }
+        )
+    }
 
     if (showProposeDialog) {
         var newSugUrl by remember { mutableStateOf("") }
@@ -1291,12 +1349,17 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         if (categories.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(filterCategory == null, { filterCategory = null }, label = { Text("Tất cả") })
-                categories.forEach { cat ->
-                    FilterChip(filterCategory == cat, { filterCategory = cat }, label = { Text(cat) })
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                    item { FilterChip(filterCategory == null, { filterCategory = null }, label = { Text("Tất cả") }) }
+                    items(categories) { cat -> FilterChip(filterCategory == cat, { filterCategory = cat }, label = { Text(cat) }) }
                 }
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(onClick = { showSpintaxDialog = true }) { Text("📝 Viết Bài") }
             }
+            Spacer(Modifier.height(12.dp))
+        } else {
+            Button(onClick = { showSpintaxDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("📝 Viết Bài Mẫu Mới") }
             Spacer(Modifier.height(12.dp))
         }
 
@@ -1311,33 +1374,38 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
         )
         Spacer(Modifier.height(8.dp))
         
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            Text("🎯 Nhóm Gợi Ý", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        var expandedGroups by remember { mutableStateOf(false) }
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { expandedGroups = !expandedGroups }.padding(vertical = 8.dp)) {
+            Text("🎯 Nhóm Gợi Ý (${suggestedGroups.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.weight(1f))
             TextButton(onClick = { showProposeDialog = true }) { Text("💡 Đề xuất thêm", style = MaterialTheme.typography.labelSmall) }
+            Text(if (expandedGroups) "▲" else "▼", color = Color.Gray, modifier = Modifier.padding(start = 8.dp))
         }
-        if (suggestedGroups.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(suggestedGroups, key = { it.id }) { g ->
-                    ElevatedCard {
-                        Column(Modifier.padding(12.dp).widthIn(max = 200.dp)) {
-                            Text(g.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            Text("👥 ${if(g.memberCount.isBlank()) "0" else g.memberCount} TV • Nhanh duyệt", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = { 
+
+        androidx.compose.animation.AnimatedVisibility(visible = expandedGroups) {
+            if (suggestedGroups.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    suggestedGroups.forEach { g ->
+                        OutlinedCard(Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(g.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                    Text("👥 ${if(g.memberCount.isBlank()) "0" else g.memberCount} TV", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                }
+                                OutlinedButton(onClick = {
                                     val newLinks = if (groupLinks.isBlank()) g.url else groupLinks + "\n" + g.url
                                     groupLinks = newLinks
                                     prefs.edit().putString("publish_groups", newLinks).apply()
                                     toast(context, "Đã thêm ${g.name}!")
-                                },
-                            ) { Text("➕ Thêm") }
+                                }) { Text("➕ Lấy", style = MaterialTheme.typography.bodySmall) }
+                            }
                         }
                     }
                 }
+            } else {
+                Text("Chưa có nhóm nào được duyệt.", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
             }
-        } else {
-            Text("Chưa có nhóm nào được duyệt.", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
         }
         Spacer(Modifier.height(12.dp))
 

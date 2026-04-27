@@ -276,6 +276,10 @@ class FbAutoService : AccessibilityService() {
                         handler.postDelayed(this, 1500)
                         return
                     }
+                    if (interceptBlockDialog(root)) {
+                        root.recycle()
+                        return
+                    }
                     if (interceptGroupJoin(root)) {
                         retryCount = 0
                         root.recycle()
@@ -341,6 +345,33 @@ class FbAutoService : AccessibilityService() {
         if (isWrongScreen) {
             Log.w(TAG, "Intercepted Wrong Screen (Share/Messenger Sheet). Pressing BACK.")
             performGlobalAction(GLOBAL_ACTION_BACK)
+            return true
+        }
+        return false
+    }
+
+    private fun interceptBlockDialog(root: AccessibilityNodeInfo): Boolean {
+        val blockTexts = listOf("bạn đang tạm thời bị chặn", "tài khoản của bạn bị hạn chế", "you can't post right now", "temporarily blocked", "restricted")
+        val isBlocked = findAllNodes(root).any { 
+            val text = it.text?.toString()?.lowercase() ?: ""
+            blockTexts.any { blockTxt -> text.contains(blockTxt) }
+        }
+        if (isBlocked) {
+            Log.w(TAG, "Facebook Block Detected! Enforcing Cooldown.")
+            val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+            val hours = prefs.getInt("block_timeout_hours", 24)
+            val unlockEpoch = System.currentTimeMillis() + hours * 3600 * 1000L
+            prefs.edit().putLong("block_timeout_epoch", unlockEpoch).apply()
+            
+            val okBtn = findNodeByText(root, listOf("ok", "đóng", "close"))
+            if (okBtn != null) {
+                okBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (!okBtn.isClickable) okBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                okBtn.recycle()
+            }
+            
+            markCurrentDone(success = false)
+            stopProcessing()
             return true
         }
         return false
