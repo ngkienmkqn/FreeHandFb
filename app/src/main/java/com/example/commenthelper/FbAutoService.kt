@@ -453,13 +453,14 @@ class FbAutoService : AccessibilityService() {
         
         if (memberIdx != -1) {
             val memberCountStr = textNodes[memberIdx]
-            val memberCount = Regex("""[0-9.,KkMm]+""").find(memberCountStr)?.value ?: ""
+            // Strict regex: must start with digit, then capture numerical points, optionally followed by space and magnitude letters (K, M, tr)
+            val memberCount = Regex("(?i)[0-9]+[.,0-9]*\\s*[a-z]*").find(memberCountStr)?.value?.trim() ?: "0"
             val nameCanditates = textNodes.subList(0, memberIdx).filter { it.length > 3 && !it.contains("Tham gia", true) && !it.contains("Join", true) }
             val groupName = nameCanditates.lastOrNull() ?: "Nhóm Facebook"
 
             Intent("com.example.commenthelper.GROUP_SCRAPED").apply {
                 putExtra("name", groupName)
-                putExtra("memberCount", memberCount.replace(",", "."))
+                putExtra("memberCount", memberCount.replace(",", ".").uppercase())
                 putExtra("url", currentTask?.url ?: "")
                 sendBroadcast(this)
             }
