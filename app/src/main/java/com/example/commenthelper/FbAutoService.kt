@@ -1080,8 +1080,8 @@ class FbAutoService : AccessibilityService() {
                         } catch(e: Exception) {}
                     }.start()
                 }
-            } catch(e: Exception) {}
-        }
+            }
+        } catch(e: Exception) {}
 
         val completed = progress.value.first + 1
         val total = progress.value.second

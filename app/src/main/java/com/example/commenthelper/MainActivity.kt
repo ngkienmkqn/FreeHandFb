@@ -356,9 +356,11 @@ class MainActivity : ComponentActivity() {
             val text = intent.getStringExtra("EXTRA_TEXT") ?: ""
             val groups = intent.getStringArrayExtra("EXTRA_GROUPS")?.toList() ?: emptyList()
             val images = intent.getStringArrayListExtra("EXTRA_IMAGES") ?: arrayListOf()
-            androidx.lifecycle.lifecycleScope.launch {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 if (images.isNotEmpty()) {
-                    android.widget.Toast.makeText(this@MainActivity, "Headless Trigger: Downloading images", android.widget.Toast.LENGTH_SHORT).show()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        android.widget.Toast.makeText(this@MainActivity, "Headless Trigger: Downloading images", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                     downloadImages(this@MainActivity, images)
                 }
                 FbAutoService.instance?.startPublishing(text, images, groups)
