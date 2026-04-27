@@ -322,6 +322,25 @@ app.post('/api/posts', authMiddleware, (req, res) => {
         if (todayCount >= 5) return res.status(429).json({ error: 'Bạn chỉ được thêm tối đa 5 bài/ngày' });
     }
 
+    // Phase 12 Compliance: Max 1 post per Facebook Group per day per user
+    let fbGroupIdMatch = url.match(/\/groups\/([0-9a-zA-Z.]+)\/?/);
+    if (fbGroupIdMatch) {
+        const fbGroupId = fbGroupIdMatch[1];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const startOfDay = today.getTime();
+        
+        const alreadyPostedToGroupToday = posts.some(p => 
+            p.addedBy === req.user.username && 
+            p.addedAt >= startOfDay && 
+            p.url.includes(`/groups/${fbGroupId}/`)
+        );
+        
+        if (alreadyPostedToGroupToday) {
+            return res.status(429).json({ error: 'Bạn đã đăng bài vào nhóm này hôm nay. Vui lòng tuân thủ Nội quy 1 bài/ngày!' });
+        }
+    }
+
     if (posts.find(p => p.url === url.trim() && p.group === req.user.group)) {
         return res.status(409).json({ error: 'Bài đã tồn tại trong nhóm' });
     }
@@ -341,15 +360,34 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items)) return res.status(400).json({ error: 'items array required' });
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startOfDay = today.getTime();
+
     let added = 0;
     items.forEach(({ url, title }) => {
         const u = url?.trim();
         if (u && !posts.find(p => p.url === u && p.group === req.user.group)) {
-            posts.push({
-                id: genId(), url: u, title: title?.trim() || null,
-                status: 'PENDING', group: req.user.group, ownerName: req.user.username, addedBy: req.user.username, addedAt: Date.now(), interactedAt: null
-            });
-            added++;
+            // Phase 12 Compliance: Max 1 post per Facebook Group per day per user
+            let fbGroupIdMatch = u.match(/\/groups\/([0-9a-zA-Z.]+)\/?/);
+            let skip = false;
+            if (fbGroupIdMatch) {
+                const fbGroupId = fbGroupIdMatch[1];
+                const alreadyPostedToGroupToday = posts.some(p => 
+                    p.addedBy === req.user.username && 
+                    p.addedAt >= startOfDay && 
+                    p.url.includes(`/groups/${fbGroupId}/`)
+                );
+                if (alreadyPostedToGroupToday) skip = true;
+            }
+            
+            if (!skip && (req.user.role === 'admin' || countTodayPosts(req.user.username) < 5)) {
+                posts.push({
+                    id: genId(), url: u, title: title?.trim() || null,
+                    status: 'PENDING', group: req.user.group, ownerName: req.user.username, addedBy: req.user.username, addedAt: Date.now(), interactedAt: null
+                });
+                added++;
+            }
         }
     });
     saveJson(POSTS_FILE, posts);

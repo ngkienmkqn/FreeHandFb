@@ -248,21 +248,11 @@ class MainActivity : ComponentActivity() {
     private val localReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent == null) return
-            if (intent.action == "com.example.commenthelper.GROUP_SCRAPED") {
+            val action = intent.action
+            if (action == "com.example.commenthelper.GROUP_SCRAPED") {
                 val name = intent.getStringExtra("name") ?: ""
                 val count = intent.getStringExtra("memberCount") ?: ""
                 val url = intent.getStringExtra("url") ?: ""
-                val token = context?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.getString(KEY_AUTH_TOKEN, "") ?: ""
-                if (token.isNotEmpty() && name.isNotEmpty() && context != null) {
-                    Thread {
-                        try {
-                            val js = JSONObject().apply { put("name", name); put("url", url); put("memberCount", count) }
-                            val conn = URL("$SERVER_URL/api/suggested-groups").openConnection() as HttpURLConnection
-                            conn.requestMethod = "POST"
-                            conn.setRequestProperty("Content-Type", "application/json")
-                            conn.setRequestProperty("Authorization", "Bearer $token")
-                            conn.doOutput = true
-                            java.io.OutputStreamWriter(conn.outputStream).use { it.write(js.toString()) }
                             if (conn.responseCode in 200..299) {
                                 android.os.Handler(android.os.Looper.getMainLooper()).post { 
                                     Toast.makeText(context, "Đã tự động lấy và đề xuất thông tin nhóm!", Toast.LENGTH_SHORT).show() 
@@ -328,7 +318,30 @@ class MainActivity : ComponentActivity() {
         else registerReceiver(localReceiver, filter)
 
         val autoStart = intent?.getBooleanExtra("EXTRA_AUTO_START", false) ?: false
+        checkAndHandleAutoIntent(intent)
         setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { AppRoot(initialUrl = incomingUrl, autoStart = autoStart) } } }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        intent?.let { checkAndHandleAutoIntent(it) }
+    }
+
+    private fun checkAndHandleAutoIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.getBooleanExtra("EXTRA_AUTO_PUBLISH", false)) {
+            val text = intent.getStringExtra("EXTRA_TEXT") ?: ""
+            val groups = intent.getStringArrayExtra("EXTRA_GROUPS")?.toList() ?: emptyList()
+            val images = intent.getStringArrayListExtra("EXTRA_IMAGES") ?: arrayListOf()
+            androidx.lifecycle.lifecycleScope.launch {
+                if (images.isNotEmpty()) {
+                    android.widget.Toast.makeText(this@MainActivity, "Headless Trigger: Downloading images", android.widget.Toast.LENGTH_SHORT).show()
+                    downloadImages(this@MainActivity, images)
+                }
+                FbAutoService.instance?.startPublishing(text, images, groups)
+            }
+            intent.removeExtra("EXTRA_AUTO_PUBLISH")
+        }
     }
 
     override fun onDestroy() { super.onDestroy(); try { unregisterReceiver(localReceiver) } catch (_: Exception) {} }
@@ -471,6 +484,7 @@ fun MainApp(
     var notifyInterval by remember { mutableIntStateOf(prefs.getInt("notify_interval", 15)) }
     var lastNotifyTime by remember { mutableLongStateOf(prefs.getLong("last_notify", 0L)) }
     var autoWakeIntervalHours by remember { mutableIntStateOf(prefs.getInt("autowake_interval_hours", 0)) }
+    var autoPublishIntervalHours by remember { mutableIntStateOf(prefs.getInt("autopublish_interval_hours", 0)) }
 
     var posts by remember { mutableStateOf(loadPosts(prefs)) }
     var templates by remember { mutableStateOf(loadTemplates(prefs)) }
@@ -732,6 +746,18 @@ fun MainApp(
                         prefs.edit().putInt("autowake_interval_hours", v).apply()
                         AutoWakeReceiver.scheduleAutoWake(context, v)
                     },
+                    autoPublishIntervalHours = autoPublishIntervalHours,
+                    onAutoPublishIntervalChange = { v ->
+                        autoPublishIntervalHours = v
+                        prefs.edit().putInt("autopublish_interval_hours", v).apply()
+                        val wm = androidx.work.WorkManager.getInstance(context)
+                        if (v <= 0) {
+                            wm.cancelUniqueWork("auto_publish_worker")
+                        } else {
+                            val req = androidx.work.PeriodicWorkRequestBuilder<AutoPublishWorker>(v.toLong(), java.util.concurrent.TimeUnit.HOURS).build()
+                            wm.enqueueUniquePeriodicWork("auto_publish_worker", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, req)
+                        }
+                    },
                     onTestNotify = { showNotification(context, "Test thông báo FreeHand thành công!\nHiện có ${posts.count { it.status == PostStatus.PENDING && it.addedBy != username }} bài đang PENDING.") },
                     onSync = { syncWithServer() },
                     onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
@@ -991,6 +1017,7 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
     isSyncing: Boolean, lastSyncStatus: String, isServiceEnabled: Boolean,
     notifyInterval: Int, onIntervalChange: (Int) -> Unit, 
     autoWakeIntervalHours: Int, onAutoWakeIntervalChange: (Int) -> Unit,
+    autoPublishIntervalHours: Int, onAutoPublishIntervalChange: (Int) -> Unit,
     onTestNotify: () -> Unit,
     onSync: () -> Unit, onRequestPermission: () -> Unit,
     prefs: SharedPreferences
@@ -1042,6 +1069,28 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 }
                 Spacer(Modifier.height(4.dp))
                 Text("Yêu cầu gỡ sạch PIN khóa màn hình máy để chạy. Nhập 0 để TẮT.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("🚀 Hẹn Giờ Tự Lấy Bài Đăng Group", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(8.dp))
+                Text("Tự động chọn 1 bài Mẫu và 1 Nhóm gợi ý để bung lên Group Facebook ngầm (Từ A - Z)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Khoảng cách đăng (giờ):")
+                    Spacer(Modifier.weight(1f))
+                    var txt by remember { mutableStateOf(autoPublishIntervalHours.toString()) }
+                    OutlinedTextField(
+                        value = txt,
+                        onValueChange = { txt = it; it.toIntOrNull()?.let { v -> onAutoPublishIntervalChange(v) } },
+                        modifier = Modifier.width(70.dp),
+                        singleLine = true
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Nhập 0 để tắt vòng lặp đăng bài tự động.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
             }
         }
         Spacer(Modifier.height(16.dp))

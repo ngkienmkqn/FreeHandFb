@@ -405,11 +405,37 @@ class FbAutoService : AccessibilityService() {
         return altered
     }
 
+    /* ================== DEAD LINK INTERCEPTOR ================== */
+    private fun interceptDeadLink(root: AccessibilityNodeInfo): Boolean {
+        // Detect "This content isn't available right now" / "Bài viết không khả dụng"
+        val isDead = findNodeByText(root, listOf(
+            "không khả dụng",
+            "không tồn tại",
+            "đã bị gỡ",
+            "content isn't available",
+            "content not found"
+        )) != null
+
+        if (isDead) {
+            Log.w(TAG, "DEAD LINK detected! Aborting interaction to preserve safety.")
+            // Mark as done but with success = false (Server will not deduct points safely)
+            markCurrentDone(success = false)
+            return true
+        }
+        return false
+    }
+
     /* ================== STEP HANDLERS ================== */
 
     private fun handleWaitingForLoad() {
         val root = rootInActiveWindow ?: return
         
+        // Dead link check takes absolute priority
+        if (interceptDeadLink(root)) {
+            root.recycle()
+            return
+        }
+
         if (currentTask?.isScrapingGroup == true) {
             val hasGroupInfo = findAllNodes(root).any { it.text?.toString()?.contains("thành viên", ignoreCase = true) == true }
             if (hasGroupInfo) currentStep = Step.SCRAPING_GROUP_INFO
@@ -1023,22 +1049,23 @@ class FbAutoService : AccessibilityService() {
         val task = currentTask ?: return
         Log.d(TAG, "Post ${task.postId} done, success=$success")
         
-        if (success) {
-            try {
-                val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
-                val postsStr = prefs.getString("posts_v1", null)
-                if (!postsStr.isNullOrBlank()) {
-                    val arr = org.json.JSONArray(postsStr)
-                    for (i in 0 until arr.length()) {
-                        val o = arr.getJSONObject(i)
-                        if (o.getString("id") == task.postId) {
-                            o.put("status", "DONE")
-                            o.put("interactedAt", System.currentTimeMillis())
-                            break
-                        }
+        try {
+            val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+            val postsStr = prefs.getString("posts_v1", null)
+            if (!postsStr.isNullOrBlank()) {
+                val arr = org.json.JSONArray(postsStr)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    if (o.getString("id") == task.postId) {
+                        o.put("status", if (success) "DONE" else "FAILED")
+                        o.put("interactedAt", System.currentTimeMillis())
+                        break
                     }
-                    prefs.edit().putString("posts_v1", arr.toString()).apply()
                 }
+                prefs.edit().putString("posts_v1", arr.toString()).apply()
+            }
+
+            if (success) {
                 val token = prefs.getString("auth_token", "")
                 if (!token.isNullOrBlank()) {
                     Thread {
