@@ -163,15 +163,27 @@ fun applySpintaxAndVars(text: String, prefs: SharedPreferences): String {
     return res
 }
 
-private fun parseServerPosts(json: String): List<Post> {
+private fun parseServerPosts(json: String, currentUsername: String): List<Post> {
     return try {
         val arr = JSONArray(json)
         List(arr.length()) { i ->
             val o = arr.getJSONObject(i)
+            
+            var isRemoteDone = false
+            val completedByArr = o.optJSONArray("completedBy")
+            if (completedByArr != null) {
+                for (j in 0 until completedByArr.length()) {
+                    if (completedByArr.getString(j) == currentUsername) {
+                        isRemoteDone = true
+                        break
+                    }
+                }
+            }
+            
             Post(
                 id = o.getString("id"), url = o.getString("url"),
                 title = if (o.isNull("title")) null else o.optString("title"),
-                status = PostStatus.valueOf(o.optString("status", "PENDING")),
+                status = if (isRemoteDone) PostStatus.DONE else PostStatus.valueOf(o.optString("status", "PENDING")),
                 addedAt = o.optLong("addedAt", System.currentTimeMillis()),
                 interactedAt = if (o.has("interactedAt") && !o.isNull("interactedAt")) o.getLong("interactedAt") else null,
                 addedBy = if (o.has("addedBy") && !o.isNull("addedBy")) o.getString("addedBy") else null
@@ -577,7 +589,7 @@ fun MainApp(
 
             if (pc == 401) { onLogout(); return@launch }
 
-            if (pc == 200 && pb != null) { posts = parseServerPosts(pb); savePosts(prefs, posts) }
+            if (pc == 200 && pb != null) { posts = parseServerPosts(pb, username); savePosts(prefs, posts) }
             if (tc == 200 && tb != null) { templates = parseServerTemplates(tb); saveTemplates(prefs, templates) }
             if (ac == 200 && ab != null) { articles = parseServerArticles(ab) }
             if (sgc == 200 && sgb != null) {
@@ -814,19 +826,21 @@ fun PostsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var filter by remember { mutableStateOf("Chưa làm") }
+    var filter by remember { mutableStateOf("Cần Giúp") }
     var showAdd by remember { mutableStateOf(false) }
     var pickFor by remember { mutableStateOf<Post?>(null) }
 
     val visible = remember(posts, filter) {
         when (filter) { 
-            "Chưa làm" -> posts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
-            "Đã làm" -> posts.filter { it.status == PostStatus.DONE }
+            "Cần Giúp" -> posts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
+            "Đã Giúp" -> posts.filter { it.status == PostStatus.DONE && it.addedBy != currentUsername }
+            "Bài Của Tôi" -> posts.filter { it.addedBy == currentUsername }
             else -> posts 
         }.sortedByDescending { it.addedAt }
     }
     val pending = posts.count { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
-    val done = posts.count { it.status == PostStatus.DONE }
+    val done = posts.count { it.status == PostStatus.DONE && it.addedBy != currentUsername }
+    val mine = posts.count { it.addedBy == currentUsername }
 
     // Server API helpers
     fun serverAddPost(url: String, title: String) {
@@ -875,11 +889,11 @@ fun PostsScreen(
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(filter == "Chưa làm", { filter = "Chưa làm" }, label = { Text("Chưa ($pending)") })
+            FilterChip(filter == "Cần Giúp", { filter = "Cần Giúp" }, label = { Text("Cần Giúp ($pending)") })
             Spacer(Modifier.width(8.dp))
-            FilterChip(filter == "Đã làm", { filter = "Đã làm" }, label = { Text("Đã ($done)") })
+            FilterChip(filter == "Đã Giúp", { filter = "Đã Giúp" }, label = { Text("Đã Giúp ($done)") })
             Spacer(Modifier.width(8.dp))
-            FilterChip(filter == "Tất cả", { filter = "Tất cả" }, label = { Text("Tất cả (${posts.size})") })
+            FilterChip(filter == "Bài Của Tôi", { filter = "Bài Của Tôi" }, label = { Text("Của tôi ($mine)") })
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -903,7 +917,7 @@ fun PostsScreen(
         Spacer(Modifier.height(12.dp))
 
         if (visible.isEmpty()) {
-            Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { Text(when (filter) { "Chưa làm" -> "Không có bài chưa làm."; "Đã làm" -> "Chưa bài nào xong."; else -> "Chưa có bài. Bấm + Thêm để thêm bài." }) }
+            Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { Text(when (filter) { "Cần Giúp" -> "Không có bài cần giúp đỡ."; "Đã Giúp" -> "Chưa giúp ai bài nào."; "Bài Của Tôi" -> "Bạn chưa đăng bài nào. Bấm + Thêm để thêm bài."; else -> "Trống." }) }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(visible, key = { it.id }) { post -> 
