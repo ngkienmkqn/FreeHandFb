@@ -154,79 +154,84 @@
         <!-- TAB: Admin -->
         <div class="tab-content" id="tab-admin">
             <div class="layout">
+                <!-- CỘT 1 -->
                 <div>
                     <div class="glass-panel">
                         <h2>👥 Quản lý Users <span class="badge" id="userCount">0</span></h2>
-                <div class="form-row">
-                    <input type="text" id="newUserName" placeholder="Username" />
-                    <input type="password" id="newUserPass" placeholder="Password" />
-                    <select id="newUserGroup" style="max-width:180px">
-                        <option value="">-- Chọn group --</option>
-                    </select>
-                    <input type="text" id="newUserGroupCustom" placeholder="Hoặc nhập group mới" style="max-width:160px" />
-                    <select id="newUserRole" style="max-width:120px"><option value="user">User</option><option value="admin">Admin</option></select>
+                        <div class="form-row">
+                            <input type="text" id="newUserName" placeholder="Username" />
+                            <input type="password" id="newUserPass" placeholder="Password" />
+                            <select id="newUserGroup" style="max-width:180px">
+                                <option value="">-- Chọn group --</option>
+                            </select>
+                            <input type="text" id="newUserGroupCustom" placeholder="Hoặc nhập group mới" style="max-width:160px" />
+                            <select id="newUserRole" style="max-width:120px"><option value="user">User</option><option value="admin">Admin</option></select>
+                        </div>
+                        <div class="form-row">
+                            <input type="text" id="newUserPhone" placeholder="Số điện thoại (SĐT)" />
+                            <input type="text" id="newUserZalo" placeholder="Link nhóm Zalo" />
+                        </div>
+                        <button class="btn btn-primary btn-small" onclick="addUser()">➕ Thêm user</button>
+                        <div class="scroll-list" id="userList" style="margin-top:16px"></div>
+                    </div>
+
+                    <div class="glass-panel">
+                        <h2>🌐 Mẫu Comment Mặc Định (Global)</h2>
+                        <div class="bulk-hint" style="margin-bottom:8px">Mẫu dùng chung, tự động đồng bộ xuống toàn bộ tài khoản cũ/mới trên App.</div>
+                        <textarea id="newGlobalTpl" placeholder="Nhập câu comment mặc định..." rows="2" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
+                        <div class="btn-row"><button class="btn btn-success btn-small" onclick="addGlobalTpl()">➕ Thêm Comment Global</button></div>
+                        <div class="scroll-list" id="globalTemplateList" style="margin-top:16px;max-height:300px"></div>
+                    </div>
                 </div>
-                <div class="form-row">
-                    <input type="text" id="newUserPhone" placeholder="Số điện thoại (SĐT)" />
-                    <input type="text" id="newUserZalo" placeholder="Link nhóm Zalo" />
-                </div>
-                <button class="btn btn-primary btn-small" onclick="addUser()">➕ Thêm user</button>
-                <div class="scroll-list" id="userList" style="margin-top:16px"></div>
+
+                <!-- CỘT 2 -->
+                <div>
+                    <div class="glass-panel">
+                        <h2>📝 Quản lý Bài Viết Mẫu (Articles)</h2>
+                        <div class="form-row">
+                            <input type="text" id="newArtCategory" placeholder="Nhóm bài viết (vd: sales-t1)" />
+                            <input type="text" id="newArtTitle" placeholder="Tiêu đề gợi nhớ" />
+                        </div>
+                        <textarea id="newArtContent" rows="3" placeholder="Nội dung bài đăng..." style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
+                        <div style="margin-bottom:12px">
+                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Tải Ảnh Lên (bạn có thể chọn nhiều ảnh cùng lúc)</label>
+                            <input type="file" id="newArtImagesUpload" multiple accept="image/*" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;font-family:inherit" onchange="previewImages()" />
+                            <div id="imagePreviewContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+                        </div>
+                        <button id="btnAddArticle" class="btn btn-primary" onclick="addArticle()">➕ Tạo Bài Viết Mẫu</button>
+                        <div class="scroll-list" id="articleList" style="margin-top:16px;max-height:500px"></div>
                     </div>
 
                     <div class="glass-panel">
                         <h2>📋 Xem Logs Hệ Thống</h2>
-                <div class="bulk-hint" style="margin-bottom:8px">Được gán mặc định cho tài khoản mới. Các tài khoản cũ sẽ không bị ảnh hưởng.</div>
-                <textarea id="newGlobalTpl" placeholder="Nhập câu comment mặc định..." rows="2" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
-                <div class="btn-row"><button class="btn btn-success btn-small" onclick="addGlobalTpl()">➕ Thêm Comment Global</button></div>
-                <div class="scroll-list" id="globalTemplateList" style="margin-top:16px"></div>
-            </div>
-
-            <div class="glass-panel" style="max-width:700px; margin-top:20px">
-                <h2>📝 Quản lý Bài Viết Mẫu (Articles)</h2>
-                <div class="form-row">
-                    <input type="text" id="newArtCategory" placeholder="Nhóm bài viết (vd: sales-t1)" />
-                    <input type="text" id="newArtTitle" placeholder="Tiêu đề gợi nhớ" />
-                </div>
-                <textarea id="newArtContent" rows="3" placeholder="Nội dung bài đăng..." style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
-                <div style="margin-bottom:12px">
-                    <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Tải Ảnh Lên (bạn có thể chọn nhiều ảnh cùng lúc)</label>
-                    <input type="file" id="newArtImagesUpload" multiple accept="image/*" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;font-family:inherit" onchange="previewImages()" />
-                    <div id="imagePreviewContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
-                </div>
-                <button id="btnAddArticle" class="btn btn-primary" onclick="addArticle()">➕ Tạo Bài Viết Mẫu</button>
-                <div class="scroll-list" id="articleList" style="margin-top:16px;max-height:500px"></div>
-            </div>
-
-            <div class="glass-panel" style="max-width:700px; margin-top:20px">
-                <h2>📋 Xem Logs Hệ Thống</h2>
-                <div style="display:flex;gap:8px;margin-bottom:12px">
-                    <button class="btn btn-outline" onclick="viewLog('server-out')">Log Server</button>
-                    <button class="btn btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="viewLog('server-err')">Lỗi Server</button>
-                    <button class="btn btn-outline" style="color:#f59e0b;border-color:rgba(245,158,11,0.2)" onclick="viewLog('apk')">Lỗi App (APK)</button>
-                </div>
-                <pre id="logViewerContainer" style="display:none;background:rgba(0,0,0,0.5);color:#10b981;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap;"></pre>
+                        <div style="display:flex;gap:8px;margin-bottom:12px">
+                            <button class="btn btn-outline" onclick="viewLog('server-out')">Log Server</button>
+                            <button class="btn btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="viewLog('server-err')">Lỗi Server</button>
+                            <button class="btn btn-outline" style="color:#f59e0b;border-color:rgba(245,158,11,0.2)" onclick="viewLog('apk')">Lỗi App (APK)</button>
+                        </div>
+                        <pre id="logViewerContainer" style="display:none;background:rgba(0,0,0,0.5);color:#10b981;padding:12px;border-radius:8px;max-height:200px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap;"></pre>
                     </div>
 
                     <div class="glass-panel">
                         <h2>📦 Cập nhật App</h2>
-                <div style="margin-bottom:12px">
-                    <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Phiên bản mới nhất</label>
-                    <input type="text" id="cfgVersion" placeholder="1.0.0" />
+                        <div style="margin-bottom:12px">
+                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Phiên bản mới nhất</label>
+                            <input type="text" id="cfgVersion" placeholder="1.0.0" />
+                        </div>
+                        <div style="margin-bottom:12px">
+                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Link tải APK (GitHub Actions / Release)</label>
+                            <input type="text" id="cfgApkUrl" placeholder="https://github.com/.../releases/download/.../app-debug.apk" />
+                        </div>
+                        <div style="margin-bottom:12px">
+                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Changelog (tuỳ chọn)</label>
+                            <textarea id="cfgChangelog" rows="2" placeholder="Mô tả thay đổi..." style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
+                        </div>
+                        <button class="btn btn-success" onclick="saveAppVersion()">💾 Lưu cấu hình App</button>
+                        <div id="cfgStatus" style="margin-top:8px;font-size:0.85rem"></div>
+                    </div>
                 </div>
-                <div style="margin-bottom:12px">
-                    <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Link tải APK (GitHub Actions / Release)</label>
-                    <input type="text" id="cfgApkUrl" placeholder="https://github.com/.../releases/download/.../app-debug.apk" />
-                </div>
-                <div style="margin-bottom:12px">
-                    <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Changelog (tuỳ chọn)</label>
-                    <textarea id="cfgChangelog" rows="2" placeholder="Mô tả thay đổi..." style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
-                </div>
-                <button class="btn btn-success" onclick="saveAppVersion()">💾 Lưu cấu hình App</button>
-                <div id="cfgStatus" style="margin-top:8px;font-size:0.85rem"></div>
             </div>
         </div>
-    </div>
         
         <!-- TAB: Groups -->
         <div class="tab-content" id="tab-groups">
