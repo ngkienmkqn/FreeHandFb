@@ -549,6 +549,10 @@ fun MainApp(
             kotlinx.coroutines.delay(5000)
             if (authToken.isNotEmpty()) {
                 val (c, b) = httpReq("$SERVER_URL/api/sync?after=$lastSyncCheckedText", token = authToken)
+                if (c == 401 || c == 403) {
+                    onLogout()
+                    break
+                }
                 if (c == 200 && b != null) {
                     try {
                         val jt = JSONObject(b)
@@ -1088,6 +1092,35 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
             maxLines = 5,
             singleLine = false
         )
+        Spacer(Modifier.height(8.dp))
+        
+        Text("🎯 Nhóm Gợi Ý (Dễ cắn đề xuất)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(4.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val suggestedGroups = listOf(
+                Triple("Review Homestay Ba Vì - Sóc Sơn", "150K", "https://m.facebook.com/groups/homestaybavi/"),
+                Triple("Hội Chủ Nhà Thuê Villa", "80K", "https://m.facebook.com/groups/chothuevillagiare/"),
+                Triple("Pass Phòng Booking VN", "200K", "https://m.facebook.com/groups/passphongdulich/"),
+                Triple("Review Du Lịch Tự Túc", "450K", "https://m.facebook.com/groups/reviewdulichtutuc/")
+            )
+            items(suggestedGroups) { g ->
+                ElevatedCard {
+                    Column(Modifier.padding(12.dp).widthIn(max = 200.dp)) {
+                        Text(g.first, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text("👥 ${g.second} TV • 🚀 Nhanh duyệt", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { 
+                                val newLinks = if (groupLinks.isBlank()) g.third else groupLinks + "\n" + g.third
+                                groupLinks = newLinks
+                                prefs.edit().putString("publish_groups", newLinks).apply()
+                                toast(context, "Đã thêm nhóm vào danh sách!")
+                            },
+                        ) { Text("➕ Thêm") }
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
 
         if (visible.isEmpty()) {

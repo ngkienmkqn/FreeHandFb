@@ -101,6 +101,7 @@ app.post('/api/login', (req, res) => {
 
     const user = users.find(u => u.username === username && u.password === hashPw(password));
     if (!user) return res.status(401).json({ error: 'Sai tài khoản hoặc mật khẩu' });
+    if (user.isLocked) return res.status(403).json({ error: 'Tài khoản đã bị tạm khóa. Vui lòng liên hệ Admin.' });
 
     if (user.role !== 'admin' && !isWeb) {
         if (!user.deviceId) {
@@ -146,6 +147,8 @@ function extractToken(req) {
 function authMiddleware(req, res, next) {
     const token = extractToken(req);
     if (!token || !tokens[token]) return res.status(401).json({ error: 'Unauthorized' });
+    const u = users.find(x => x.id === tokens[token].userId);
+    if (u && u.isLocked) return res.status(401).json({ error: 'Tài khoản đã bị khóa' });
     req.user = tokens[token];
     next();
 }
@@ -158,7 +161,7 @@ function adminOnly(req, res, next) {
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, isLocked: !!u.isLocked })));
 });
 
 app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
@@ -166,25 +169,34 @@ app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
     if (!username || !password || !group) return res.status(400).json({ error: 'username, password, group required' });
     if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
 
-    const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user', phone: phone || '', zaloLink: zaloLink || '' };
+    const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user', phone: phone || '', zaloLink: zaloLink || '', isLocked: false };
     users.push(user);
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, phone: user.phone, zaloLink: user.zaloLink });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, phone: user.phone, zaloLink: user.zaloLink, isLocked: false });
 });
 
 app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     const user = users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink } = req.body;
+    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink, isLocked } = req.body;
     if (deviceId === null || deviceId === "") user.deviceId = null;
     if (webDeviceId === null || webDeviceId === "") user.webDeviceId = null;
+    if (isLocked !== undefined) user.isLocked = isLocked;
     if (username && username !== user.username) {
         if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
+        const oldUsername = user.username;
         user.username = username;
         // Update tokens with new username
         Object.values(tokens).forEach(t => { if (t.userId === user.id) t.username = username; });
         saveJson(TOKENS_FILE, tokens);
+        
+        // Cascade update addedBy in posts
+        let postsChanged = false;
+        posts.forEach(p => {
+            if (p.addedBy === oldUsername) { p.addedBy = username; postsChanged = true; }
+        });
+        if (postsChanged) saveJson(POSTS_FILE, posts);
     }
     if (password) user.password = hashPw(password);
     if (group) user.group = group;
