@@ -267,6 +267,17 @@ class FbAutoService : AccessibilityService() {
         handler.postDelayed(object : Runnable {
             override fun run() {
                 if (!isRunning.value || stopRequested.value || currentStep == Step.IDLE || currentStep == Step.DONE) return
+
+                val root = rootInActiveWindow
+                if (root != null) {
+                    if (interceptGroupJoin(root)) {
+                        retryCount = 0
+                        root.recycle()
+                        handler.postDelayed(this, 1500)
+                        return
+                    }
+                    root.recycle()
+                }
                 
                 if (currentStep == Step.WAITING_FOR_FB_LOAD) {
                     if (currentTask?.isScrapingGroup == true) {
@@ -309,6 +320,67 @@ class FbAutoService : AccessibilityService() {
                 handler.postDelayed(this, 500)
             }
         }, 1500) // Initial delay to let FB open
+    }
+
+    /* ================== DOM INTERCEPTOR ================== */
+
+    private fun interceptGroupJoin(root: AccessibilityNodeInfo): Boolean {
+        var altered = false
+        val nodes = findAllNodes(root)
+
+        // 1. Click "Tham gia nhóm" (Join Group)
+        val joinBtn = nodes.firstOrNull { 
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            (txt == "tham gia nhóm" || txt == "join group") && (it.isClickable || it.parent?.isClickable == true)
+        }
+        if (joinBtn != null) {
+            Log.d(TAG, "Intercepted Join Group Request")
+            joinBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: joinBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            return true
+        }
+
+        // 2. Look for Questionnaire Items (Only fill if we see Submit buttons or Checkboxes)
+        val submitCanditates = listOf("gửi", "đồng ý", "submit", "i agree")
+        val submitBtn = nodes.firstOrNull { 
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            val cd = it.contentDescription?.toString()?.lowercase() ?: ""
+            ((submitCanditates.contains(txt)) && (it.isClickable || it.parent?.isClickable == true)) ||
+            ((submitCanditates.contains(cd)) && (it.isClickable || it.parent?.isClickable == true))
+        }
+
+        val editTexts = nodes.filter { it.className?.toString() == "android.widget.EditText" }
+        val checkBoxes = nodes.filter { it.className?.toString() == "android.widget.CheckBox" || it.className?.toString() == "android.widget.RadioButton" }
+        
+        val isQuestionnaire = nodes.any { 
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            txt.contains("tham gia nhóm") || txt.contains("câu hỏi") || txt.contains("quy tắc")
+        }
+
+        if (editTexts.isNotEmpty() || checkBoxes.isNotEmpty() || (isQuestionnaire && submitBtn != null)) {
+            Log.d(TAG, "Intercepted Group Questionnaire")
+            
+            for (et in editTexts) {
+                val txt = et.text?.toString() ?: ""
+                if (txt.isBlank() || txt.contains("câu trả lời", true) || txt.contains("answer", true)) {
+                    val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "ok") }
+                    et.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                    altered = true
+                }
+            }
+
+            for (cb in checkBoxes) {
+                if (!cb.isChecked) {
+                    cb.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: cb.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    altered = true
+                }
+            }
+
+            if (!altered && submitBtn != null) {
+                submitBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: submitBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                altered = true
+            }
+        }
+        return altered
     }
 
     /* ================== STEP HANDLERS ================== */
