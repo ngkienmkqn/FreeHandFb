@@ -163,7 +163,7 @@ function adminOnly(req, res, next) {
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, isLocked: !!u.isLocked })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, isLocked: !!u.isLocked, history: u.history || [] })));
 });
 
 app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
@@ -201,13 +201,27 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
         if (postsChanged) saveJson(POSTS_FILE, posts);
     }
     if (password) user.password = hashPw(password);
-    if (group) user.group = group;
-    if (role) user.role = role;
-    if (phone !== undefined) user.phone = phone;
-    if (zaloLink !== undefined) user.zaloLink = zaloLink;
-    if (points !== undefined) user.points = parseInt(points, 10) || 0;
+
+    // Audit Trailing logic for Phone/Zalo/Points updates
+    const changes = [];
+    if (group && group !== user.group) { changes.push(`Group: ${user.group||''} -> ${group}`); user.group = group; }
+    if (role && role !== user.role) { changes.push(`Role: ${user.role||''} -> ${role}`); user.role = role; }
+    if (phone !== undefined && phone !== user.phone) { changes.push(`SĐT: ${user.phone||'[Trống]'} -> ${phone}`); user.phone = phone; }
+    if (zaloLink !== undefined && zaloLink !== user.zaloLink) { changes.push(`Zalo: ${user.zaloLink||'[Trống]'} -> ${zaloLink}`); user.zaloLink = zaloLink; }
+    if (points !== undefined) {
+        const parsedPoints = parseInt(points, 10) || 0;
+        if (parsedPoints !== user.points) { changes.push(`Điểm: ${user.points||0} -> ${parsedPoints}`); user.points = parsedPoints; }
+    }
+    
+    if (changes.length > 0) {
+        if (!user.history) user.history = [];
+        user.history.unshift({ timestamp: Date.now(), by: req.user.username, desc: changes.join(' | ') });
+        // Keep only last 10 logs
+        if (user.history.length > 10) user.history.pop();
+    }
+
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, history: user.history });
 });
 
 app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
@@ -396,10 +410,14 @@ app.delete('/api/posts/done/clear', authMiddleware, (req, res) => {
     res.json({ remaining: posts.filter(p => p.group === req.user.group).length });
 });
 
-/* ================== TEMPLATES API (group-scoped) ================== */
+/* ================== TEMPLATES API (group-scoped + global) ================== */
 
 app.get('/api/templates', authMiddleware, (req, res) => {
-    res.json(templates[req.user.group] || []);
+    const groupTemplates = templates[req.user.group] || [];
+    const globalTemplates = config.defaultComments || [];
+    // Merge so global templates always show up for everyone
+    const merged = [...new Set([...globalTemplates, ...groupTemplates])];
+    res.json(merged);
 });
 
 app.post('/api/templates', authMiddleware, (req, res) => {
@@ -426,16 +444,30 @@ app.delete('/api/templates', authMiddleware, (req, res) => {
 app.get('/api/me', authMiddleware, (req, res) => {
     const user = users.find(u => u.username === req.user.username);
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({
+        id: user.id, username: user.username, group: user.group, role: user.role,
+        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || ''
+    });
+});
+
+app.put('/api/me', authMiddleware, (req, res) => {
+    const user = users.find(u => u.username === req.user.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const { phone, zaloLink } = req.body;
+    const changes = [];
     
-    // Auto-init global comments if empty and not initialized (for new users)
-    if (!user.initializedComments && config.defaultComments && config.defaultComments.length > 0) {
-        const g = req.user.group;
-        templates[g] = [...new Set([...(templates[g] || []), ...config.defaultComments])];
-        saveJson(TEMPLATES_FILE, templates);
-        user.initializedComments = true;
+    if (phone !== undefined && phone !== user.phone) { changes.push(`SĐT: ${user.phone||'[Trống]'} -> ${phone}`); user.phone = phone; }
+    if (zaloLink !== undefined && zaloLink !== user.zaloLink) { changes.push(`Zalo: ${user.zaloLink||'[Trống]'} -> ${zaloLink}`); user.zaloLink = zaloLink; }
+    
+    if (changes.length > 0) {
+        if (!user.history) user.history = [];
+        user.history.unshift({ timestamp: Date.now(), by: req.user.username + " (Tự sửa)", desc: changes.join(' | ') });
+        if (user.history.length > 10) user.history.pop();
         saveJson(USERS_FILE, users);
     }
-
+    
     res.json({
         id: user.id, username: user.username, group: user.group, role: user.role,
         points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || ''

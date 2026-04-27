@@ -465,6 +465,12 @@ async function fetchUsers() {
         </div>
         <div class="user-item" id="user-edit-${u.id}" style="display:none;flex-direction:column;gap:8px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px">
             <div style="font-weight:600;margin-bottom:4px">✏️ Chỉnh sửa: ${esc(u.username)}</div>
+            ${u.history && u.history.length > 0 ? `
+                <div style="font-size:0.75rem; color:#94a3b8; background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; margin-bottom:8px">
+                    <div style="font-weight:bold; margin-bottom:4px; color:#10b981">📜 Lịch sử thay đổi:</div>
+                    ${u.history.map(h => `<div style="margin-bottom:2px">[${new Date(h.timestamp).toLocaleString()}] <b>${esc(h.by)}</b> sửa: ${esc(h.desc)}</div>`).join('')}
+                </div>
+            ` : `<div style="font-size:0.75rem; color:#64748b; margin-bottom:8px">Chưa có lịch sử thay đổi.</div>`}
             <div class="form-row" style="margin:0">
                 <input type="text" id="editUsername-${u.id}" placeholder="Username" value="${esc(u.username)}" style="max-width:140px" />
                 <select id="editGroup-${u.id}" style="max-width:180px">
