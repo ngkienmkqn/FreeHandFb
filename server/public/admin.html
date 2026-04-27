@@ -153,8 +153,10 @@
 
         <!-- TAB: Admin -->
         <div class="tab-content" id="tab-admin">
-            <div class="glass-panel" style="max-width:700px">
-                <h2>👥 Quản lý Users <span class="badge" id="userCount">0</span></h2>
+            <div class="layout">
+                <div>
+                    <div class="glass-panel">
+                        <h2>👥 Quản lý Users <span class="badge" id="userCount">0</span></h2>
                 <div class="form-row">
                     <input type="text" id="newUserName" placeholder="Username" />
                     <input type="password" id="newUserPass" placeholder="Password" />
@@ -170,10 +172,10 @@
                 </div>
                 <button class="btn btn-primary btn-small" onclick="addUser()">➕ Thêm user</button>
                 <div class="scroll-list" id="userList" style="margin-top:16px"></div>
-            </div>
+                    </div>
 
-            <div class="glass-panel" style="max-width:700px; margin-top:20px">
-                <h2>🌐 Mẫu Comment Mặc Định (Global)</h2>
+                    <div class="glass-panel">
+                        <h2>📋 Xem Logs Hệ Thống</h2>
                 <div class="bulk-hint" style="margin-bottom:8px">Được gán mặc định cho tài khoản mới. Các tài khoản cũ sẽ không bị ảnh hưởng.</div>
                 <textarea id="newGlobalTpl" placeholder="Nhập câu comment mặc định..." rows="2" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
                 <div class="btn-row"><button class="btn btn-success btn-small" onclick="addGlobalTpl()">➕ Thêm Comment Global</button></div>
@@ -204,10 +206,10 @@
                     <button class="btn btn-outline" style="color:#f59e0b;border-color:rgba(245,158,11,0.2)" onclick="viewLog('apk')">Lỗi App (APK)</button>
                 </div>
                 <pre id="logViewerContainer" style="display:none;background:rgba(0,0,0,0.5);color:#10b981;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap;"></pre>
-            </div>
+                    </div>
 
-            <div class="glass-panel" style="max-width:700px; margin-top:20px">
-                <h2>📦 Cập nhật App</h2>
+                    <div class="glass-panel">
+                        <h2>📦 Cập nhật App</h2>
                 <div style="margin-bottom:12px">
                     <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Phiên bản mới nhất</label>
                     <input type="text" id="cfgVersion" placeholder="1.0.0" />
@@ -228,20 +230,26 @@
         
         <!-- TAB: Groups -->
         <div class="tab-content" id="tab-groups">
-            <div class="glass-panel" style="max-width:700px">
-                <h2>🎯 Quản lý Nhóm Gợi Ý</h2>
-                
-                <div style="font-weight:bold;color:var(--warn);margin-bottom:8px">Đề xuất chờ duyệt:</div>
-                <div class="scroll-list" id="pendingGroupsList" style="margin-bottom:20px;max-height:250px"></div>
-                
-                <div style="font-weight:bold;color:var(--success);margin-bottom:8px">Nhóm đã duyệt (Đang hiển thị trên App):</div>
-                <div class="form-row">
-                    <input type="text" id="newSugGroupName" placeholder="Tên nhóm (Vd: Khách sạn Đà Lạt)" />
-                    <input type="text" id="newSugGroupCount" placeholder="Số TV (Vd: 150K)" style="max-width:140px"/>
+            <div class="layout">
+                <div>
+                    <div class="glass-panel">
+                        <h2>🎯 Yêu cầu Đề xuất (Chờ duyệt)</h2>
+                        <div style="font-weight:bold;color:var(--warn);margin-bottom:8px">Danh sách thành viên gửi yêu cầu:</div>
+                        <div class="scroll-list" id="pendingGroupsList" style="margin-bottom:20px;max-height:400px"></div>
+                    </div>
                 </div>
-                <input type="text" id="newSugGroupUrl" placeholder="Link (https://...)" style="margin-bottom:12px" />
-                <button class="btn btn-primary btn-small" onclick="addSuggestedGroup()">➕ Thêm nhóm (Auto Duyệt)</button>
-                <div class="scroll-list" id="approvedGroupsList" style="margin-top:16px;max-height:400px"></div>
+                <div>
+                    <div class="glass-panel">
+                        <h2>✅ Nhóm Hoạt Động (Hiển thị ra App)</h2>
+                        <div class="form-row">
+                            <input type="text" id="newSugGroupName" placeholder="Tên nhóm (Vd: Khách sạn Đà Lạt)" />
+                            <input type="text" id="newSugGroupCount" placeholder="Số TV (Vd: 150K)" style="max-width:140px"/>
+                        </div>
+                        <input type="text" id="newSugGroupUrl" placeholder="Link (https://...)" style="margin-bottom:12px" />
+                        <button class="btn btn-primary btn-small" onclick="addSuggestedGroup()">➕ Thêm nhóm (Auto Duyệt)</button>
+                        <div class="scroll-list" id="approvedGroupsList" style="margin-top:16px;max-height:500px"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
