@@ -270,6 +270,12 @@ class FbAutoService : AccessibilityService() {
 
                 val root = rootInActiveWindow
                 if (root != null) {
+                    if (interceptWrongScreen(root)) {
+                        retryCount = 0
+                        root.recycle()
+                        handler.postDelayed(this, 1500)
+                        return
+                    }
                     if (interceptGroupJoin(root)) {
                         retryCount = 0
                         root.recycle()
@@ -323,6 +329,22 @@ class FbAutoService : AccessibilityService() {
     }
 
     /* ================== DOM INTERCEPTOR ================== */
+
+    private fun interceptWrongScreen(root: AccessibilityNodeInfo): Boolean {
+        val nodes = findAllNodes(root)
+        val isWrongScreen = nodes.any { 
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            txt.contains("gửi bằng messenger") || txt.contains("gửi trong messenger") || 
+            txt.contains("chia sẻ lên tin") || txt.contains("share to story") ||
+            txt.contains("gửi cho") || txt.contains("tìm kiếm người") || txt.contains("search people")
+        }
+        if (isWrongScreen) {
+            Log.w(TAG, "Intercepted Wrong Screen (Share/Messenger Sheet). Pressing BACK.")
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            return true
+        }
+        return false
+    }
 
     private fun interceptGroupJoin(root: AccessibilityNodeInfo): Boolean {
         var altered = false
@@ -801,13 +823,22 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun findCommentInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        // Look for EditText nodes (comment input fields)
-        return findNodeByClassName(root, "android.widget.EditText")
-            ?: findNodeByHint(root, listOf(
-                "Write a comment", "Viết bình luận",
-                "Write a public comment", "Viết bình luận công khai",
-                "Comment", "Bình luận"
-            ))
+        val hints = listOf(
+            "write a comment", "viết bình luận",
+            "write a public comment", "viết bình luận công khai",
+            "comment", "bình luận", "trả lời", "reply"
+        )
+        val editTexts = findAllNodes(root).filter { it.className?.toString() == "android.widget.EditText" }
+        for (et in editTexts) {
+            val hintText = et.hintText?.toString()?.lowercase() ?: ""
+            val txt = et.text?.toString()?.lowercase() ?: ""
+            val cd = et.contentDescription?.toString()?.lowercase() ?: ""
+            val combined = "$hintText $txt $cd"
+            if (hints.any { combined.contains(it) }) {
+                return AccessibilityNodeInfo.obtain(et)
+            }
+        }
+        return null
     }
 
     private fun findCommentPlaceholder(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
