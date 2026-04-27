@@ -1019,23 +1019,47 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
         confirmButton = { TextButton(onDismiss) { Text("Đóng") } })
 }
 
-@Composable fun SpintaxComposerDialog(onAdd: (String, String, String, List<String>) -> Unit, onDismiss: () -> Unit) {
+@Composable fun SpintaxComposerDialog(onAdd: (String, String, String, List<String>, List<String>) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var cat by remember { mutableStateOf("Chung") }
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
     var imageUrls by remember { mutableStateOf("") }
 
+    var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var isCompressing by remember { mutableStateOf(false) }
+
+    val photoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()) { uris ->
+        selectedImageUris = selectedImageUris + uris
+    }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = if (isCompressing) { {} } else onDismiss,
         title = { Text("📝 Đóng Góp Bài Mẫu") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(cat, { cat = it }, label = { Text("Danh mục (Vd: Bất Động Sản)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(title, { title = it }, label = { Text("Tiêu đề") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(content, { content = it }, label = { Text("Nội dung bài viết") }, modifier = Modifier.fillMaxWidth().height(150.dp))
-                OutlinedTextField(imageUrls, { imageUrls = it }, label = { Text("Link ảnh (mỗi link 1 dòng)") }, modifier = Modifier.fillMaxWidth().height(100.dp))
+                OutlinedTextField(imageUrls, { imageUrls = it }, label = { Text("Link ảnh ngoài (nếu có)") }, modifier = Modifier.fillMaxWidth().height(100.dp))
                 
-                Text("Công cụ Hỗ Trợ (Spintax):", style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Ảnh từ máy: ${selectedImageUris.size} ảnh")
+                    Spacer(Modifier.weight(1f))
+                    OutlinedButton(onClick = { photoPickerLauncher.launch("image/*") }) {
+                        Text("Chọn Kèm Ảnh")
+                    }
+                }
+                if (selectedImageUris.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(selectedImageUris) { uri ->
+                            AsyncImage(model = uri, contentDescription = null, modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                        }
+                    }
+                }
+
+                Text(if (isCompressing) "Đang nén ảnh..." else "Công cụ Hỗ Trợ (Spintax):", style = MaterialTheme.typography.labelMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { FilterChip(selected=false, onClick={ content += "{PHONE}" }, label={Text("[+] SĐT")}) }
                     item { FilterChip(selected=false, onClick={ content += "{ZALO}" }, label={Text("[+] Zalo")}) }
@@ -1044,12 +1068,36 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
             }
         },
         confirmButton = {
-            Button(onClick = {
+            Button(enabled = !isCompressing, onClick = {
                 val imgs = imageUrls.split("\n").map { it.trim() }.filter { it.startsWith("http") }
-                if (content.isNotBlank() && title.isNotBlank()) onAdd(cat, title, content, imgs)
+                if (content.isNotBlank() && title.isNotBlank()) {
+                    isCompressing = true
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val base64List = mutableListOf<String>()
+                        selectedImageUris.forEach { uri ->
+                            try {
+                                val ins = context.contentResolver.openInputStream(uri)
+                                val bitmap = android.graphics.BitmapFactory.decodeStream(ins)
+                                ins?.close()
+                                if (bitmap != null) {
+                                    val out = java.io.ByteArrayOutputStream()
+                                    val scale = kotlin.math.min(800f / bitmap.width.toFloat(), 800f / bitmap.height.toFloat())
+                                    val scaledBitmap = if (scale < 1) android.graphics.Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true) else bitmap
+                                    scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                                    val b64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+                                    base64List.add("data:image/jpeg;base64,$b64")
+                                }
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            isCompressing = false
+                            onAdd(cat, title, content, imgs, base64List)
+                        }
+                    }
+                }
             }) { Text("Gửi Chờ Duyệt") }
         },
-        dismissButton = { TextButton(onDismiss) { Text("Huỷ") } }
+        dismissButton = { TextButton(enabled = !isCompressing, onClick = onDismiss) { Text("Huỷ") } }
     )
 }
 
@@ -1314,11 +1362,13 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
 
     if (showSpintaxDialog) {
         SpintaxComposerDialog(
-            onAdd = { cat, title, content, imgs ->
+            onAdd = { cat, title, content, imgs, b64s ->
                 showSpintaxDialog = false
                 scope.launch {
+                    toast(context, "Đang tải ảnh lên máy chủ...")
                     val imgJsonArray = org.json.JSONArray(imgs).toString()
-                    val body = """{"category":"${cat}","title":"${title}","content":"${content.replace("\"", "\\\"").replace("\n", "\\n")}","images":$imgJsonArray}"""
+                    val b64JsonArray = org.json.JSONArray(b64s).toString()
+                    val body = """{"category":"${cat}","title":"${title}","content":"${content.replace("\"", "\\\"").replace("\n", "\\n")}","images":$imgJsonArray,"base64Images":$b64JsonArray}"""
                     val (code, _) = httpReq("$SERVER_URL/api/articles", "POST", body, authToken)
                     if (code in 200..299) toast(context, "Đã gửi bài mẫu thành công!")
                     else toast(context, "Lỗi khi gửi bài: $code")
