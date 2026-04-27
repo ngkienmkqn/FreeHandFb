@@ -59,18 +59,25 @@ class FbAutoService : AccessibilityService() {
     data class TaskItem(
         val postId: String,
         val url: String,
-        val comment: String
+        val comment: String,
+        val isPublishingGroup: Boolean = false,
+        val imageCount: Int = 0
     )
 
     private val handler = Handler(Looper.getMainLooper())
 
-    // State machine for current post processing
     private enum class Step {
         IDLE,
         WAITING_FOR_FB_LOAD,
         LOOKING_FOR_LIKE,
         LOOKING_FOR_COMMENT_FIELD,
         WAITING_FOR_COMMENT_SENT,
+        LOOKING_FOR_COMPOSER, 
+        WAITING_FOR_COMPOSER_INPUT, 
+        LOOKING_FOR_PHOTO_BUTTON, 
+        SELECTING_PHOTOS, 
+        WAITING_FOR_POST_TO_UPLOAD,
+        CLICKING_SHARE_AND_COPY,
         DONE
     }
 
@@ -78,8 +85,8 @@ class FbAutoService : AccessibilityService() {
     private var currentTask: TaskItem? = null
     private var currentIndex = 0
     private var retryCount = 0
-    private val MAX_RETRIES = 30 // ~15 seconds at 500ms interval
-    private val STEP_DELAY = 800L // ms between actions for stability
+    private val MAX_RETRIES = 40 // Allow 20s for upload to finish
+    private val STEP_DELAY = 800L 
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -112,6 +119,12 @@ class FbAutoService : AccessibilityService() {
             Step.LOOKING_FOR_LIKE -> handleLookingForLike()
             Step.LOOKING_FOR_COMMENT_FIELD -> handleLookingForCommentField()
             Step.WAITING_FOR_COMMENT_SENT -> handleWaitingForCommentSent()
+            Step.LOOKING_FOR_COMPOSER -> handleLookingForComposer()
+            Step.WAITING_FOR_COMPOSER_INPUT -> handleWaitingForComposerInput()
+            Step.LOOKING_FOR_PHOTO_BUTTON -> { handleLookingForPhotoButton() }
+            Step.SELECTING_PHOTOS -> { handleSelectingPhotos() }
+            Step.WAITING_FOR_POST_TO_UPLOAD -> { handleWaitingForPostToUpload() }
+            Step.CLICKING_SHARE_AND_COPY -> { handleClickingShareAndCopy() }
             else -> {}
         }
     }
@@ -125,6 +138,29 @@ class FbAutoService : AccessibilityService() {
 
     fun startProcessing(tasks: List<TaskItem>) {
         if (tasks.isEmpty()) return
+
+        taskQueue.value = tasks
+        progress.value = 0 to tasks.size
+        currentIndex = 0
+        stopRequested.value = false
+        isRunning.value = true
+
+        processNextPost()
+    }
+
+    fun startPublishing(text: String, images: List<String>, groupLinks: List<String>) {
+        if (groupLinks.isEmpty()) return
+        val count = images.size
+
+        val tasks = groupLinks.mapIndexed { index, link ->
+            TaskItem(
+                postId = "GROUP_PUB_$index",
+                url = link,
+                comment = text,
+                isPublishingGroup = true,
+                imageCount = count
+            )
+        }
 
         taskQueue.value = tasks
         progress.value = 0 to tasks.size
@@ -166,6 +202,10 @@ class FbAutoService : AccessibilityService() {
 
         Log.d(TAG, "Processing post ${currentIndex + 1}/${tasks.size}: ${task.url}")
 
+        // Clear clipboard first to avoid grabbing old links
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
+
         // Open the FB link
         openFacebookLink(task.url)
 
@@ -192,26 +232,14 @@ class FbAutoService : AccessibilityService() {
             try {
                 startActivity(intentKatana)
             } catch (e: Exception) {
-                val intentLite = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
-                    addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    )
-                    setPackage("com.facebook.lite")
+                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 try {
-                    startActivity(intentLite)
-                } catch (e2: Exception) {
-                    val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    try {
-                        startActivity(fallback)
-                    } catch (e3: Exception) {
-                        Log.e(TAG, "Cannot open URL: $url", e3)
-                        markCurrentDone(success = false)
-                    }
+                    startActivity(fallback)
+                } catch (e3: Exception) {
+                    Log.e(TAG, "Cannot open URL: $url", e3)
+                    markCurrentDone(success = false)
                 }
             }
         }, 500) // Small delay after back press
@@ -224,6 +252,14 @@ class FbAutoService : AccessibilityService() {
                 retryCount++
                 if (retryCount > MAX_RETRIES) {
                     Log.w(TAG, "Timeout waiting for step: $currentStep")
+                    // If we timeout on upload, try grabbing anyway
+                    if (currentStep == Step.WAITING_FOR_POST_TO_UPLOAD) {
+                        currentStep = Step.CLICKING_SHARE_AND_COPY
+                        retryCount = 0
+                        handleClickingShareAndCopy()
+                        handler.postDelayed(this, 500)
+                        return
+                    }
                     markCurrentDone(success = false)
                     return
                 }
@@ -233,6 +269,12 @@ class FbAutoService : AccessibilityService() {
                     Step.LOOKING_FOR_LIKE -> handleLookingForLike()
                     Step.LOOKING_FOR_COMMENT_FIELD -> handleLookingForCommentField()
                     Step.WAITING_FOR_COMMENT_SENT -> handleWaitingForCommentSent()
+                    Step.LOOKING_FOR_COMPOSER -> handleLookingForComposer()
+                    Step.WAITING_FOR_COMPOSER_INPUT -> handleWaitingForComposerInput()
+                    Step.LOOKING_FOR_PHOTO_BUTTON -> { handleLookingForPhotoButton() }
+                    Step.SELECTING_PHOTOS -> { handleSelectingPhotos() }
+                    Step.WAITING_FOR_POST_TO_UPLOAD -> { handleWaitingForPostToUpload() }
+                    Step.CLICKING_SHARE_AND_COPY -> { handleClickingShareAndCopy() }
                     else -> return
                 }
                 handler.postDelayed(this, 500)
@@ -244,17 +286,31 @@ class FbAutoService : AccessibilityService() {
 
     private fun handleWaitingForLoad() {
         val root = rootInActiveWindow ?: return
-        // Check if we can find any interactable content (Like button area or comment area)
-        val likeNode = findLikeButton(root)
-        val commentArea = findCommentInput(root)
+        val task = currentTask ?: return
 
-        if (likeNode != null || commentArea != null) {
-            Log.d(TAG, "FB loaded — found interactive elements")
-            likeNode?.recycle()
-            commentArea?.recycle()
-            currentStep = Step.LOOKING_FOR_LIKE
-            retryCount = 0
-            handler.postDelayed({ handleLookingForLike() }, STEP_DELAY)
+        if (task.isPublishingGroup) {
+            // Wait for group to load (composer placeholder visible)
+            val composer = findGroupComposerPlaceholder(root)
+            if (composer != null) {
+                Log.d(TAG, "Group loaded — found composer")
+                composer.recycle()
+                currentStep = Step.LOOKING_FOR_COMPOSER
+                retryCount = 0
+                handler.postDelayed({ handleLookingForComposer() }, STEP_DELAY)
+            }
+        } else {
+            // Check if we can find any interactable content (Like button area or comment area)
+            val likeNode = findLikeButton(root)
+            val commentArea = findCommentInput(root)
+
+            if (likeNode != null || commentArea != null) {
+                Log.d(TAG, "FB loaded — found interactive elements")
+                likeNode?.recycle()
+                commentArea?.recycle()
+                currentStep = Step.LOOKING_FOR_LIKE
+                retryCount = 0
+                handler.postDelayed({ handleLookingForLike() }, STEP_DELAY)
+            }
         }
         root.recycle()
     }
@@ -340,6 +396,7 @@ class FbAutoService : AccessibilityService() {
 
     private fun findAndClickSend() {
         val root = rootInActiveWindow ?: return
+        val task = currentTask ?: return
 
         val sendButton = findSendButton(root)
         if (sendButton != null) {
@@ -353,8 +410,14 @@ class FbAutoService : AccessibilityService() {
 
             // Wait a moment for the comment to be submitted
             handler.postDelayed({
-                markCurrentDone(success = true)
-            }, 1500)
+                if (task.isPublishingGroup) {
+                    // Shift to URL extraction phase
+                    currentStep = Step.WAITING_FOR_POST_TO_UPLOAD
+                    retryCount = 0
+                } else {
+                    markCurrentDone(success = true)
+                }
+            }, 3000)
         } else {
             root.recycle()
             // Retry finding send button
@@ -370,6 +433,212 @@ class FbAutoService : AccessibilityService() {
 
     private fun handleWaitingForCommentSent() {
         // Handled by findAndClickSend callback
+    }
+
+    private fun handleLookingForComposer() {
+        val root = rootInActiveWindow ?: return
+        val composer = findGroupComposerPlaceholder(root)
+        if (composer != null) {
+            Log.d(TAG, "Clicking composer placeholder to open input")
+            composer.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (!composer.isClickable) composer.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            composer.recycle()
+            
+            currentStep = Step.WAITING_FOR_COMPOSER_INPUT
+            retryCount = 0
+            handler.postDelayed({ handleWaitingForComposerInput() }, STEP_DELAY)
+        } else {
+            retryCount++
+        }
+        root.recycle()
+    }
+
+    private fun handleWaitingForComposerInput() {
+        val root = rootInActiveWindow ?: return
+        val task = currentTask ?: return
+
+        val inputNode = findGroupComposerInput(root)
+        if (inputNode != null) {
+            Log.d(TAG, "Found composer input, setting text")
+            inputNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            inputNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+
+            val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, task.comment) }
+            inputNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            inputNode.recycle()
+
+            if (task.imageCount > 0) {
+                currentStep = Step.LOOKING_FOR_PHOTO_BUTTON
+                retryCount = 0
+                handler.postDelayed({ handleLookingForPhotoButton() }, STEP_DELAY)
+            } else {
+                currentStep = Step.WAITING_FOR_COMMENT_SENT
+                retryCount = 0
+                handler.postDelayed({ findAndClickSend() }, STEP_DELAY)
+            }
+        } else {
+            retryCount++
+        }
+        root.recycle()
+    }
+
+    private fun handleLookingForPhotoButton() {
+        val root = rootInActiveWindow ?: return
+        val photoBtn = findNodeByContentDescription(root, listOf("photo", "video", "ảnh", "video"))
+            ?: findNodeByHint(root, listOf("photo", "ảnh", "video"))
+
+        if (photoBtn != null) {
+            Log.d(TAG, "Found Photo Picker trigger")
+            photoBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (!photoBtn.isClickable) photoBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            photoBtn.recycle()
+            
+            currentStep = Step.SELECTING_PHOTOS
+            retryCount = 0
+            handler.postDelayed({ handleSelectingPhotos() }, 2500) // Gallery load buffer
+        } else {
+            retryCount++
+        }
+        root.recycle()
+    }
+
+    private fun handleSelectingPhotos() {
+        val root = rootInActiveWindow ?: return
+        val task = currentTask ?: return
+        
+        val allImages = findAllGalleryImages(root)
+        if (allImages.isNotEmpty()) {
+            val count = Math.min(task.imageCount, allImages.size)
+            for (i in 0 until count) {
+                val node = allImages[i]
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (!node.isClickable) node.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                node.recycle()
+            }
+            for (i in count until allImages.size) allImages[i].recycle()
+
+            val doneBtn = findNodeByContentDescription(root, listOf("next", "tiếp", "done", "xong"))
+                ?: findNodeByText(root, listOf("next", "tiếp", "done", "xong"))
+
+            if (doneBtn != null) {
+                doneBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                doneBtn.recycle()
+            } else {
+                // If "Next" is missing, we might already be out of gallery if the layout is different?
+                Log.w(TAG, "Missing NEXT button, will attempt posting anyway")
+            }
+
+            currentStep = Step.WAITING_FOR_COMMENT_SENT
+            retryCount = 0
+            handler.postDelayed({ findAndClickSend() }, 2000)
+        } else {
+            retryCount++
+            // If we timeout while searching for gallery nodes, we'll organically fail.
+        }
+        root.recycle()
+    }
+
+    private fun handleWaitingForPostToUpload() {
+        val root = rootInActiveWindow ?: return
+        
+        val submittedTexts = listOf("bài viết của bạn đã được gửi", "submitted to admins", "đã gửi", "chờ phê duyệt", "pending")
+        if (findNodeByText(root, submittedTexts) != null) {
+            Log.d(TAG, "Post requires admin approval. Cannot grab link.")
+            markCurrentDone(success = true) 
+            root.recycle()
+            return
+        }
+
+        // 1. Try finding Share button (Public groups)
+        val shareBtn = findNodeByContentDescription(root, listOf("share", "chia sẻ"))
+            ?: findNodeByText(root, listOf("share", "chia sẻ"))
+
+        if (shareBtn != null) {
+            Log.d(TAG, "Found Share button, clicking it...")
+            shareBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (!shareBtn.isClickable) shareBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            shareBtn.recycle()
+            currentStep = Step.CLICKING_SHARE_AND_COPY
+            retryCount = 0
+            handler.postDelayed({ handleClickingShareAndCopy() }, 1500)
+        } else {
+            // 2. Fallback for Private Groups (No share button -> Click "..." More options menu)
+            // The content description on FB Android usually includes "options" or "tùy chọn"
+            val menuBtn = findNodeByContentDescription(root, listOf("post options", "tùy chọn bài viết", "tùy chọn khác", "more options"))
+                ?: findNodeByContentDescription(root, listOf("tùy chọn", "options"))
+
+            if (menuBtn != null) {
+                Log.d(TAG, "Private group detected (No Share). Found '...' menu, clicking...")
+                menuBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (!menuBtn.isClickable) menuBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                menuBtn.recycle()
+                currentStep = Step.CLICKING_SHARE_AND_COPY
+                retryCount = 0
+                // Takes slightly longer for the BottomSheet to render from the '...' menu
+                handler.postDelayed({ handleClickingShareAndCopy() }, 2000) 
+            } else {
+                retryCount++
+            }
+        }
+        root.recycle()
+    }
+
+    private fun handleClickingShareAndCopy() {
+        val root = rootInActiveWindow ?: return
+        val task = currentTask ?: return
+
+        // Wait to find "Copy link" (Sao chép liên kết)
+        val copyBtn = findNodeByContentDescription(root, listOf("copy link", "sao chép liên kết", "sao chép"))
+            ?: findNodeByText(root, listOf("copy link", "sao chép liên kết", "sao chép"))
+
+        if (copyBtn != null) {
+            copyBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (!copyBtn.isClickable) copyBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            copyBtn.recycle()
+            
+            // Wait 1.5s for clipboard to populate, then send to API and proceed
+            handler.postDelayed({
+                submitCopiedLinkToBackend(task)
+            }, 1500)
+        } else {
+            retryCount++
+        }
+        root.recycle()
+    }
+
+    private fun submitCopiedLinkToBackend(task: TaskItem) {
+        try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val cd = cm.primaryClip
+            if (cd != null && cd.itemCount > 0) {
+                val copiedLink = cd.getItemAt(0).text?.toString() ?: ""
+                if (copiedLink.contains("facebook.com")) {
+                    Log.d(TAG, "Extracted link successfully: $copiedLink")
+                    val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+                    val token = prefs.getString("auth_token", "")
+                    if (!token.isNullOrBlank()) {
+                        Thread {
+                            try {
+                                val urlObj = java.net.URL("http://dt.ungthien.com/api/posts/bulk")
+                                val conn = urlObj.openConnection() as java.net.HttpURLConnection
+                                conn.requestMethod = "POST"
+                                conn.setRequestProperty("Authorization", "Bearer $token")
+                                conn.setRequestProperty("Content-Type", "application/json")
+                                conn.doOutput = true
+                                val titleJson = task.comment.substring(0, Math.min(task.comment.length, 30)).replace("\n", " ")
+                                val payload = """{"items": [{"url": "$copiedLink", "title": "[TỰ ĐỘNG] $titleJson..."}]}"""
+                                conn.outputStream.write(payload.toByteArray())
+                                val rc = conn.responseCode
+                                Log.d(TAG, "Bulk submit seeded back: $rc")
+                            } catch (e: Exception) { Log.e(TAG, "C2 submit link failed", e) }
+                        }.start()
+                    }
+                }
+            }
+        } catch(e: Exception) {}
+        
+        markCurrentDone(success = true)
     }
 
     /* ================== NODE FINDERS ================== */
@@ -427,6 +696,24 @@ class FbAutoService : AccessibilityService() {
             }
         }
         return null
+    }
+
+    private fun findGroupComposerPlaceholder(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val hints = listOf("Write something...", "Write a public post...", "Viết gì đó...", "Bài viết mới...")
+        for (hint in hints) {
+            val nodes = root.findAccessibilityNodeInfosByText(hint)
+            for (node in nodes) {
+                if (node.isClickable || node.parent?.isClickable == true) {
+                    return node
+                }
+                node.recycle()
+            }
+        }
+        return null
+    }
+
+    private fun findGroupComposerInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        return findNodeByClassName(root, "android.widget.EditText")
     }
 
     private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
@@ -512,6 +799,46 @@ class FbAutoService : AccessibilityService() {
             }
         }
         return null
+    }
+
+    private fun findNodeByText(
+        root: AccessibilityNodeInfo,
+        texts: List<String>
+    ): AccessibilityNodeInfo? {
+        for (txt in texts) {
+            val nodes = root.findAccessibilityNodeInfosByText(txt)
+            for (node in nodes) {
+                if (node.text?.toString()?.equals(txt, true) == true && node.isVisibleToUser) {
+                    if (node.isClickable || node.parent?.isClickable == true) {
+                        return node
+                    }
+                }
+                node.recycle()
+            }
+        }
+        return null
+    }
+
+    private fun findAllGalleryImages(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+        val list = mutableListOf<AccessibilityNodeInfo>()
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val cd = node.contentDescription?.toString()?.lowercase() ?: ""
+            if ((cd.contains("photo") || cd.contains("ảnh") || cd.contains("chọn")) && 
+                node.isVisibleToUser && (node.isClickable || node.isCheckable || node.parent?.isClickable == true)) {
+                if (!cd.contains("take") && !cd.contains("chụp") && !cd.contains("camera")) {
+                    list.add(AccessibilityNodeInfo.obtain(node))
+                }
+            } else if (node.className?.toString() == "android.widget.CheckBox" && node.isVisibleToUser) {
+                list.add(AccessibilityNodeInfo.obtain(node))
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+        return list
     }
 
     /* ================== STATE MANAGEMENT ================== */

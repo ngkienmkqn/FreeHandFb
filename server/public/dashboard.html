@@ -541,8 +541,12 @@ function renderArticles() {
         if(a.images && a.images.length) {
             imgsHtml = `<div style="margin-bottom:8px; font-size:0.8rem; color:var(--text-muted)">🖼 ${a.images.length} ảnh đi kèm</div>
             <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px">`;
-            a.images.forEach(img => {
-                imgsHtml += `<img src="${img}" style="height:80px; width:80px; object-fit:cover; border-radius:8px; border:1px solid var(--border)">`;
+            a.images.forEach((img, idx) => {
+                imgsHtml += `
+                <div style="position:relative; display:inline-block; flex-shrink:0;">
+                    <img src="${img}" style="height:80px; width:80px; object-fit:cover; border-radius:8px; border:1px solid var(--border)">
+                    ${currentUser && currentUser.role === 'admin' ? `<button onclick="deleteImage('${a.id}', ${idx})" style="position:absolute; top:-4px; right:-4px; background:var(--error); color:white; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; padding:0; border:2px solid var(--bg); box-shadow:0 2px 5px rgba(0,0,0,0.5)"><i class="ph-bold ph-x" style="font-size:12px"></i></button>` : ''}
+                </div>`;
             });
             imgsHtml += '</div>';
         }
@@ -555,7 +559,8 @@ function renderArticles() {
             ${imgsHtml}
             <div style="display:flex; gap:8px; margin-top:12px">
                 <button class="btn-secondary" style="flex:1; display:flex; justify-content:center; gap:8px" onclick="copyArticleById('${a.id}', this)"><i class="ph-bold ph-copy"></i> Copy Nội Dung</button>
-                ${a.images && a.images.length ? `<button class="btn-primary" style="flex:1; padding:8px; border-radius:10px; display:flex; justify-content:center; gap:8px" onclick="downloadImages('${a.id}', this)"><i class="ph-bold ph-download-simple"></i> Lưu ${a.images.length} Ảnh</button>` : ''}
+                ${a.images && a.images.length ? `<button class="btn-primary" style="flex:2; padding:8px; border-radius:10px; display:flex; justify-content:center; gap:8px" onclick="downloadImages('${a.id}', this)"><i class="ph-bold ph-download-simple"></i> Thu thập vào Android</button>` : ''}
+                ${currentUser && currentUser.role === 'admin' ? `<button class="btn-danger" style="display:flex; align-items:center; justify-content:center; padding:8px; border-radius:10px" onclick="deleteArticle('${a.id}', this)"><i class="ph-bold ph-trash"></i></button>` : ''}
             </div>
         </div>`;
     });
@@ -608,6 +613,45 @@ async function downloadImages(id, btn) {
         btn.innerHTML = '<i class="ph-bold ph-x"></i> Lỗi lưu ảnh';
     }
     setTimeout(() => btn.innerHTML = oldHtml, 2000);
+}
+
+async function deleteArticle(id, btn) {
+    if (!confirm('Hành động này không thể hoàn tác!\nBạn có chắc chắn muốn Xoá vĩnh viễn Bài viết mẫu này?')) return;
+    
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i>';
+    try {
+        await apiCall(`/api/articles/${id}`, { method: 'DELETE' });
+        fetchArticles(); // Tự động reload lại DOM
+    } catch(e) {
+        alert('Có lỗi xảy ra khi xoá bài.');
+        btn.innerHTML = oldHtml;
+    }
+}
+
+async function deleteImage(articleId, imageIndex) {
+    if (!confirm('Bạn có chắc xoá rời bức ảnh này khỏi bài viết mẫu?')) return;
+    
+    const a = allArticles.find(x => x.id === articleId);
+    if (!a) return;
+    
+    const newImages = [...a.images];
+    newImages.splice(imageIndex, 1);
+    
+    try {
+        await apiCall(`/api/articles/${articleId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                title: a.title,
+                category: a.category,
+                content: a.content,
+                images: newImages
+            })
+        });
+        fetchArticles();
+    } catch(e) {
+        alert('Có lỗi xảy ra khi cập nhật ảnh.');
+    }
 }
 
 // ==== ADMIN FUNCTIONS ====

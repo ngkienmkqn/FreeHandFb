@@ -48,3 +48,31 @@ pm2 save
 pm2 startup
 ```
 🚀 Server sẽ luôn chạy ngay cả khi VPS reset! Mở port 3000 để truy cập. Dưới App chỉ cần đổi IP thành IP của cái VPS là hệ thống kết nối thành công.
+
+---
+
+## 📸 3. Mô-đun Quản Lý Homestay (Zalo Caching Crawler)
+- **Công cụ:** `group_selector.js` (Web UI Môi giới) & `homestay_extractor.js` (Lõi xử lý JXL).
+- **Quy trình:**
+  - Bỏ qua API Zalo chính thức (tránh bị khoá tài khoản).
+  - Web UI (Port 3005) quét toàn bộ ổ cứng để lôi ra các `_group` bị ẩn và cho người dùng chọn bằng mắt.
+  - Lõi Node.js phân tích siêu dữ liệu thời gian (`mtimeMs` < 120s) để bó những bức hình ghim chung với nhau thành các Album độc lập (3-15 ảnh/album).
+  - Tích hợp công cụ `djxl` để De-compress tệp JXL ẩn của Zalo Desktop siêu nén 40KB lại thành file Web chuẩn.
+
+---
+
+## 🔑 4. Cấu hình bảo mật Cloud (TrumVPS SSH)
+Theo yêu cầu Developer hand-off, dưới đây là Private Key duy nhất dùng để Remote trực tiếp vào hệ thống Cloud `dt.ungthien.com`.
+
+**SSH Key (Ed25519 - TrumVPS / Deploy Key)**
+\`\`\`text
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACBZRuU9+SFB0s90uPMGCuBddTGhOq5lwm2v25alICPnOQAAAJA/MDPNPzAz
+zQAAAAtzc2gtZWQyNTUxOQAAACBZRuU9+SFB0s90uPMGCuBddTGhOq5lwm2v25alICPnOQ
+AAAEDPknHep38u8c8z6QnMD1Vm6s3USldnnPknpp4vYb4HyVlG5T35IUHSz3S48wYK4F11
+MaE6rmXCba/blqUgI+c5AAAADHZwcy1jMi1hZG1pbgE=
+-----END OPENSSH PRIVATE KEY-----
+\`\`\`
+
+> ⚠️ Vui lòng sao chép đoạn Key trên lưu dưới định dạng tệp `id_ed25519` để sử dụng cùng MobaXTerm hoặc Terminal: `ssh -i id_ed25519 root@dt.ungthien.com`

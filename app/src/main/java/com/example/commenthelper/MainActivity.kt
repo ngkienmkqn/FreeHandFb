@@ -61,6 +61,8 @@ private const val KEY_TEMPLATES = "templates"
 private const val KEY_AUTH_TOKEN = "auth_token"
 private const val KEY_USERNAME = "username"
 private const val KEY_GROUP = "user_group"
+private const val KEY_PHONE = "user_phone"
+private const val KEY_ZALO = "user_zalo"
 private const val SERVER_URL = "http://dt.ungthien.com"
 private const val APP_VERSION = "1.0.0"
 
@@ -138,6 +140,25 @@ private suspend fun httpReq(url: String, method: String = "GET", json: String? =
         val body = try { BufferedReader(InputStreamReader(if (code in 200..299) conn.inputStream else conn.errorStream)).use { it.readText() } } catch (e: Exception) { null }
         code to body
     } catch (e: Exception) { -1 to e.message }
+}
+
+fun applySpintaxAndVars(text: String, prefs: SharedPreferences): String {
+    val phone = prefs.getString(KEY_PHONE, "") ?: ""
+    val zalo = prefs.getString(KEY_ZALO, "") ?: ""
+
+    var res = text
+        .replace("{PHONE}", phone).replace("{SDT}", phone).replace("{PHONE_NUMBER}", phone)
+        .replace("{ZALO}", zalo).replace("{ZALO_LINK}", zalo)
+
+    // Evaluate spintax: {A|B|C}
+    val spintaxRegex = Regex("\\{([^\\{\\}]+)\\}")
+    while (res.contains(spintaxRegex)) {
+        res = res.replace(spintaxRegex) { match ->
+            val options = match.groupValues[1].split("|")
+            options.random()
+        }
+    }
+    return res
 }
 
 private fun parseServerPosts(json: String): List<Post> {
@@ -312,12 +333,14 @@ fun AppRoot(initialUrl: String?, autoStart: Boolean = false) {
 
     if (!isLoggedIn) {
         LoginScreen(
-            onLogin = { user, token, group ->
+            onLogin = { user, token, group, phone, zalo ->
                 username = user; authToken = token; userGroup = group
                 prefs.edit()
                     .putString(KEY_AUTH_TOKEN, token)
                     .putString(KEY_USERNAME, user)
                     .putString(KEY_GROUP, group)
+                    .putString(KEY_PHONE, phone)
+                    .putString(KEY_ZALO, zalo)
                     .apply()
                 isLoggedIn = true
             }
@@ -343,7 +366,7 @@ fun AppRoot(initialUrl: String?, autoStart: Boolean = false) {
 /* ================== LOGIN SCREEN ================== */
 
 @Composable
-fun LoginScreen(onLogin: (username: String, token: String, group: String) -> Unit) {
+fun LoginScreen(onLogin: (username: String, token: String, group: String, phone: String, zalo: String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var user by remember { mutableStateOf("") }
@@ -379,7 +402,7 @@ fun LoginScreen(onLogin: (username: String, token: String, group: String) -> Uni
                                 val json = JSONObject(body)
                                 val token = json.getString("token")
                                 val u = json.getJSONObject("user")
-                                onLogin(u.getString("username"), token, u.getString("group"))
+                                onLogin(u.getString("username"), token, u.getString("group"), u.optString("phone", ""), u.optString("zaloLink", ""))
                             } else if (body != null) {
                                 try { error = JSONObject(body).getString("error") } catch (_: Exception) { error = "Lỗi: $code" }
                             } else { error = "Không kết nối được server" }
@@ -489,7 +512,17 @@ fun MainApp(
         scope.launch {
             val (mc, mb) = httpReq("$SERVER_URL/api/me", token = authToken)
             if (mc == 200 && mb != null) {
-                try { val j = JSONObject(mb); points = j.getInt("points"); role = j.getString("role") } catch (_: Exception) {}
+                try {
+                    val j = JSONObject(mb)
+                    points = j.getInt("points")
+                    role = j.getString("role")
+                    val phone = j.optString("phone", "")
+                    val zalo = j.optString("zaloLink", "")
+                    prefs.edit()
+                        .putString(KEY_PHONE, phone)
+                        .putString(KEY_ZALO, zalo)
+                        .apply()
+                } catch (_: Exception) {}
             }
 
             val (pc, pb) = httpReq("$SERVER_URL/api/posts", token = authToken)
@@ -639,7 +672,7 @@ fun MainApp(
                     onStopAuto = { FbAutoService.instance?.stopProcessing() }
                 )
                 1 -> TemplatesScreen(templates, authToken, onRefresh = { syncWithServer() })
-                2 -> ArticlesScreen(articles)
+                2 -> ArticlesScreen(articles, prefs)
                 3 -> LeaderboardScreen(authToken)
                 4 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
                     notifyInterval = notifyInterval,
@@ -1012,7 +1045,7 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
 /* ---------- ARTICLES TAB ---------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun ArticlesScreen(articles: List<Article>) {
+@Composable fun ArticlesScreen(articles: List<Article>, prefs: SharedPreferences) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var filterCategory by remember { mutableStateOf<String?>(null) }
@@ -1030,7 +1063,18 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
             }
             Spacer(Modifier.height(12.dp))
         }
-        
+
+        var groupLinks by remember { mutableStateOf(prefs.getString("publish_groups", "") ?: "") }
+        OutlinedTextField(
+            value = groupLinks,
+            onValueChange = { groupLinks = it; prefs.edit().putString("publish_groups", it).apply() },
+            label = { Text("Link Nhóm Zalo/Facebook cần auto đăng bài (Mỗi dòng 1 link)") },
+            modifier = Modifier.fillMaxWidth().height(90.dp),
+            maxLines = 5,
+            singleLine = false
+        )
+        Spacer(Modifier.height(12.dp))
+
         if (visible.isEmpty()) {
             Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { Text("Chưa có bài mẫu.") }
         } else {
@@ -1058,8 +1102,28 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
                             }
                             Spacer(Modifier.height(8.dp))
                             Row {
-                                FilledTonalButton(onClick = { copyToClipboard(context, art.content); toast(context, "Đã copy nội dung") }) { Text("Copy", style = MaterialTheme.typography.bodySmall) }
+                                FilledTonalButton(onClick = { copyToClipboard(context, applySpintaxAndVars(art.content, prefs)); toast(context, "Đã copy nội dung") }) { Text("Copy", style = MaterialTheme.typography.bodySmall) }
                                 Spacer(Modifier.width(8.dp))
+                                FilledTonalButton(
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    onClick = { 
+                                        if (groupLinks.isBlank()) { toast(context, "Cần dán link Nhóm ở trên trước!"); return@FilledTonalButton }
+                                        val links = groupLinks.split("\n").map{it.trim()}.filter{it.startsWith("http")}
+                                        if (links.isEmpty()) { toast(context, "Không có link hợp lệ!"); return@FilledTonalButton }
+                                        
+                                        scope.launch {
+                                            if (art.images.isNotEmpty()) {
+                                                toast(context, "Đang bung nén Album ảnh...\nXin đừng khóa màn hình!")
+                                                downloadImages(context, art.images)
+                                            }
+                                            FbAutoService.instance?.startPublishing(
+                                                applySpintaxAndVars(art.content, prefs), art.images, links
+                                            )
+                                            toast(context, "Đã chạy Robot ném ${art.images.size} ảnh vào ${links.size} nhóm 🚀")
+                                        }
+                                    }
+                                ) { Text("Đăng Group 🚀", style = MaterialTheme.typography.bodySmall, color = Color.White) }
+                                Spacer(Modifier.weight(1f))
                                 if (art.images.isNotEmpty()) {
                                     OutlinedButton(onClick = { 
                                         scope.launch { downloadImages(context, art.images) }
@@ -1080,14 +1144,6 @@ private suspend fun downloadImages(context: Context, urls: List<String>) = withC
 
     urls.forEachIndexed { i, url ->
         try {
-            // Validate URL
-            val uri = Uri.parse(url)
-            if (uri.scheme.isNullOrBlank() || uri.host.isNullOrBlank()) {
-                errors.add("Ảnh ${i + 1}: URL không hợp lệ")
-                return@forEachIndexed
-            }
-
-            // Use MediaStore on Android 10+ (Q), DownloadManager fallback otherwise
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 if (downloadViaMediaStore(context, url, i)) successCount++
                 else errors.add("Ảnh ${i + 1}: lưu thất bại")
@@ -1102,7 +1158,7 @@ private suspend fun downloadImages(context: Context, urls: List<String>) = withC
 
     withContext(Dispatchers.Main) {
         val msg = when {
-            successCount == urls.size -> "✓ Đã tải $successCount/${urls.size} ảnh xuống Pictures"
+            successCount == urls.size -> "✓ Đã đưa $successCount/${urls.size} ảnh vào thư viện"
             successCount > 0 -> "Tải $successCount/${urls.size}. Lỗi: ${errors.firstOrNull() ?: ""}"
             else -> "Tải thất bại: ${errors.firstOrNull() ?: "không rõ"}"
         }
@@ -1112,10 +1168,11 @@ private suspend fun downloadImages(context: Context, urls: List<String>) = withC
 
 private fun downloadViaMediaStore(context: Context, url: String, index: Int): Boolean {
     return try {
-        val fileName = "CommentHelper_${System.currentTimeMillis()}_$index.jpg"
+        val ext = if (url.contains("png")) "png" else "jpg"
+        val fileName = "CommentHelper_${System.currentTimeMillis()}_$index.$ext"
         val values = android.content.ContentValues().apply {
             put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName)
-            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/$ext")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/CommentHelper")
                 put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
@@ -1129,15 +1186,20 @@ private fun downloadViaMediaStore(context: Context, url: String, index: Int): Bo
         val itemUri = resolver.insert(collection, values) ?: return false
 
         try {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            conn.connectTimeout = 15000; conn.readTimeout = 30000
-            conn.connect()
-            if (conn.responseCode !in 200..299) {
-                resolver.delete(itemUri, null, null)
-                return false
-            }
             resolver.openOutputStream(itemUri)?.use { out ->
-                conn.inputStream.use { input -> input.copyTo(out) }
+                if (url.startsWith("data:image")) {
+                    // Xử lý base64 string
+                    val base64Data = url.substringAfter(",")
+                    val decodedBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    out.write(decodedBytes)
+                } else {
+                    // Xử lý pure URL
+                    val conn = URL(url).openConnection() as HttpURLConnection
+                    conn.connectTimeout = 15000; conn.readTimeout = 30000
+                    conn.connect()
+                    if (conn.responseCode !in 200..299) { throw Exception("HTTP ${conn.responseCode}") }
+                    conn.inputStream.use { input -> input.copyTo(out) }
+                }
             } ?: return false
         } catch(e: Exception) {
             resolver.delete(itemUri, null, null)
