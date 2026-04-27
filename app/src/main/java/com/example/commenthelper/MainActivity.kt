@@ -787,6 +787,12 @@ fun MainApp(
                             wm.enqueueUniquePeriodicWork("auto_publish_worker", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, req)
                         }
                     },
+                    onTriggerNow = {
+                        val wm = androidx.work.WorkManager.getInstance(context)
+                        val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                        wm.enqueue(req)
+                        toast(context, "Đã kích hoạt ngầm 1 luồng thả Bài!")
+                    },
                     onTestNotify = { showNotification(context, "Test thông báo FreeHand thành công!\nHiện có ${posts.count { it.status == PostStatus.PENDING && it.addedBy != username }} bài đang PENDING.") },
                     onSync = { syncWithServer() },
                     onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
@@ -1051,14 +1057,16 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
     notifyInterval: Int, onIntervalChange: (Int) -> Unit, 
     autoWakeIntervalHours: Int, onAutoWakeIntervalChange: (Int) -> Unit,
     autoPublishIntervalHours: Int, onAutoPublishIntervalChange: (Int) -> Unit,
+    onTriggerNow: () -> Unit,
     onTestNotify: () -> Unit,
     onSync: () -> Unit, onRequestPermission: () -> Unit,
     prefs: SharedPreferences
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var phone by remember { mutableStateOf(prefs.getString(KEY_PHONE, "") ?: "") }
     var zalo by remember { mutableStateOf(prefs.getString(KEY_ZALO, "") ?: "") }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("Cài đặt", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(24.dp))
         ElevatedCard(Modifier.fillMaxWidth()) {
@@ -1117,13 +1125,27 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                     var txt by remember { mutableStateOf(autoPublishIntervalHours.toString()) }
                     OutlinedTextField(
                         value = txt,
-                        onValueChange = { txt = it; it.toIntOrNull()?.let { v -> onAutoPublishIntervalChange(v) } },
+                        onValueChange = { txt = it },
                         modifier = Modifier.width(70.dp),
                         singleLine = true
                     )
                 }
-                Spacer(Modifier.height(4.dp))
-                Text("Nhập 0 để tắt vòng lặp đăng bài tự động.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { 
+                        txt.toIntOrNull()?.let { v -> onAutoPublishIntervalChange(v) }
+                        toast(context, "Đã lưu cài đặt hẹn giờ!")
+                    }, modifier = Modifier.weight(1f)) {
+                        Text("💾 Lưu Mức Giờ")
+                    }
+                    Button(onClick = {
+                        onTriggerNow()
+                    }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))) {
+                        Text("▶️ Chạy Ngay")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Nhập 0 và Lưu để tắt vòng lặp. 'Chạy Ngay' sẽ lập tức tung 1 bài giấu nền.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -1133,13 +1155,14 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 Spacer(Modifier.height(8.dp))
                 Text("Ứng dụng tự động bỏ qua chu kỳ chạy Auto-Publish ngoài khung giờ này.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 Spacer(Modifier.height(8.dp))
+                var stxt by remember { mutableStateOf(startActiveHour.toString()) }
+                var etxt by remember { mutableStateOf(endActiveHour.toString()) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Giờ bắt đầu làm (Sáng):")
                     Spacer(Modifier.weight(1f))
-                    var stxt by remember { mutableStateOf(startActiveHour.toString()) }
                     OutlinedTextField(
                         value = stxt,
-                        onValueChange = { stxt = it; it.toIntOrNull()?.let { v -> onStartActiveHourChange(v) } },
+                        onValueChange = { stxt = it },
                         modifier = Modifier.width(70.dp),
                         singleLine = true
                     )
@@ -1148,13 +1171,20 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Giờ đi ngủ (Tối):")
                     Spacer(Modifier.weight(1f))
-                    var etxt by remember { mutableStateOf(endActiveHour.toString()) }
                     OutlinedTextField(
                         value = etxt,
-                        onValueChange = { etxt = it; it.toIntOrNull()?.let { v -> onEndActiveHourChange(v) } },
+                        onValueChange = { etxt = it },
                         modifier = Modifier.width(70.dp),
                         singleLine = true
                     )
+                }
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = {
+                    stxt.toIntOrNull()?.let { v -> onStartActiveHourChange(v) }
+                    etxt.toIntOrNull()?.let { v -> onEndActiveHourChange(v) }
+                    toast(context, "Đã lưu khung giờ bảo vệ!")
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text("💾 Lưu Khung Giờ")
                 }
             }
         }
