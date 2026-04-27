@@ -887,7 +887,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun findGroupComposerPlaceholder(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val hints = listOf("Write something...", "Write a public post...", "Viết gì đó...", "Bài viết mới...")
+        val hints = listOf("Write something", "Write a public", "Viết gì đó", "Bài viết mới", "Bạn viết gì đi", "Tạo bài viết", "Bạn đang nghĩ gì", "Thảo luận", "Share something")
         for (hint in hints) {
             val nodes = root.findAccessibilityNodeInfosByText(hint)
             for (node in nodes) {
@@ -895,6 +895,20 @@ class FbAutoService : AccessibilityService() {
                     return node
                 }
                 node.recycle()
+            }
+        }
+
+        // Heavy Fallback: Manual scan
+        val allNodes = findAllNodes(root)
+        for (node in allNodes) {
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val cd = node.contentDescription?.toString()?.lowercase() ?: ""
+            if (text.contains("viết gì đó") || text.contains("bạn viết gì đi") || 
+                text.contains("tạo bài viết") || text.contains("bạn đang nghĩ gì") ||
+                cd.contains("viết gì đó") || cd.contains("bạn viết gì đi")) {
+                if (node.isClickable || node.parent?.isClickable == true) {
+                    return node
+                }
             }
         }
         return null
@@ -906,7 +920,7 @@ class FbAutoService : AccessibilityService() {
 
     private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         // Look for send/submit button
-        val sendTexts = listOf("Send", "Gửi", "Submit", "Đăng", "Post")
+        val sendTexts = listOf("Send", "Gửi", "Submit", "Đăng", "Post", "Tiếp", "Next", "Tiếp tục", "Continue")
         for (text in sendTexts) {
             val nodes = root.findAccessibilityNodeInfosByText(text)
             for (node in nodes) {
@@ -920,7 +934,7 @@ class FbAutoService : AccessibilityService() {
                 
                 if (cd.contains("send") || cd.contains("gửi") ||
                     cd.contains("submit") || cd.contains("đăng") ||
-                    cd.contains("post") ||
+                    cd.contains("post") || cd.contains("tiếp") || cd.contains("next") ||
                     t.equals(text, ignoreCase = true)
                 ) {
                     if (node.isClickable || node.parent?.isClickable == true) {
