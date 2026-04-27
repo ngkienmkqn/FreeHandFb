@@ -636,12 +636,12 @@ fun MainApp(
                         }
                     }
                 }
-                ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
-                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Bài viết") })
-                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Comments") })
-                    Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Bài Mẫu") })
-                    Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Thành viên") })
-                    Tab(selected = tab == 4, onClick = { tab = 4 }, text = { Text("⚙️") })
+                TabRow(selectedTabIndex = tab) {
+                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Bài viết", maxLines = 1) })
+                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Comments", maxLines = 1) })
+                    Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Bài Mẫu", maxLines = 1) })
+                    Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Thành viên", maxLines = 1) })
+                    Tab(selected = tab == 4, onClick = { tab = 4 }, text = { Text("⚙️", maxLines = 1) })
                 }
             }
         }
@@ -685,7 +685,8 @@ fun MainApp(
                     },
                     onTestNotify = { showNotification(context, "Test thông báo FreeHand thành công!\nHiện có ${posts.count { it.status == PostStatus.PENDING && it.addedBy != username }} bài đang PENDING.") },
                     onSync = { syncWithServer() },
-                    onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                    prefs = prefs
                 )
             }
         }
@@ -942,11 +943,25 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
     notifyInterval: Int, onIntervalChange: (Int) -> Unit, 
     autoWakeIntervalHours: Int, onAutoWakeIntervalChange: (Int) -> Unit,
     onTestNotify: () -> Unit,
-    onSync: () -> Unit, onRequestPermission: () -> Unit
+    onSync: () -> Unit, onRequestPermission: () -> Unit,
+    prefs: SharedPreferences
 ) {
+    var phone by remember { mutableStateOf(prefs.getString(KEY_PHONE, "") ?: "") }
+    var zalo by remember { mutableStateOf(prefs.getString(KEY_ZALO, "") ?: "") }
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Cài đặt", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(24.dp))
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("📱 Cấu hình Cá nhân (Tự động trộn SĐT)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = phone, onValueChange = { phone = it; prefs.edit().putString(KEY_PHONE, it).apply() }, label = { Text("Số điện thoại của bạn") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = zalo, onValueChange = { zalo = it; prefs.edit().putString(KEY_ZALO, it).apply() }, label = { Text("Link Zalo của bạn") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Text("🔄 Đồng bộ Server", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
