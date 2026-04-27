@@ -89,6 +89,8 @@ data class Article(
     val images: List<String>
 )
 
+data class SuggestedGroup(val id: String, val name: String, val memberCount: String, val url: String, val addedBy: String)
+
 /* ================== STORAGE ================== */
 
 private fun postsToJson(posts: List<Post>): String {
@@ -445,6 +447,7 @@ fun MainApp(
     var posts by remember { mutableStateOf(loadPosts(prefs)) }
     var templates by remember { mutableStateOf(loadTemplates(prefs)) }
     var articles by remember { mutableStateOf(emptyList<Article>()) }
+    var suggestedGroups by remember { mutableStateOf(emptyList<SuggestedGroup>()) }
     var tab by remember { mutableIntStateOf(0) }
     var isSyncing by remember { mutableStateOf(false) }
     var lastSyncStatus by remember { mutableStateOf("") }
@@ -528,12 +531,26 @@ fun MainApp(
             val (pc, pb) = httpReq("$SERVER_URL/api/posts", token = authToken)
             val (tc, tb) = httpReq("$SERVER_URL/api/templates", token = authToken)
             val (ac, ab) = httpReq("$SERVER_URL/api/articles", token = authToken)
+            val (sgc, sgb) = httpReq("$SERVER_URL/api/suggested-groups", token = authToken)
 
             if (pc == 401) { onLogout(); return@launch }
 
             if (pc == 200 && pb != null) { posts = parseServerPosts(pb); savePosts(prefs, posts) }
             if (tc == 200 && tb != null) { templates = parseServerTemplates(tb); saveTemplates(prefs, templates) }
             if (ac == 200 && ab != null) { articles = parseServerArticles(ab) }
+            if (sgc == 200 && sgb != null) {
+                try {
+                    val arr = JSONObject(sgb).optJSONArray("approved")
+                    if (arr != null) {
+                        val lst = mutableListOf<SuggestedGroup>()
+                        for (i in 0 until arr.length()) {
+                            val o = arr.getJSONObject(i)
+                            lst.add(SuggestedGroup(o.optString("id",""), o.optString("name",""), o.optString("memberCount",""), o.optString("url",""), o.optString("addedBy","")))
+                        }
+                        suggestedGroups = lst
+                    }
+                } catch(_: Exception){}
+            }
             
             syncNotifications(authToken, context)
 
@@ -676,7 +693,7 @@ fun MainApp(
                     onStopAuto = { FbAutoService.instance?.stopProcessing() }
                 )
                 1 -> TemplatesScreen(templates, authToken, onRefresh = { syncWithServer() })
-                2 -> ArticlesScreen(articles, prefs)
+                2 -> ArticlesScreen(articles, suggestedGroups, prefs, authToken)
                 3 -> LeaderboardScreen(authToken)
                 4 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
                     notifyInterval = notifyInterval,
@@ -1064,13 +1081,45 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
 /* ---------- ARTICLES TAB ---------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun ArticlesScreen(articles: List<Article>, prefs: SharedPreferences) {
+@Composable fun ArticlesScreen(articles: List<Article>, suggestedGroups: List<SuggestedGroup>, prefs: SharedPreferences, authToken: String) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var filterCategory by remember { mutableStateOf<String?>(null) }
+    var showProposeDialog by remember { mutableStateOf(false) }
     
     val categories = articles.map { it.category }.distinct().sorted()
     val visible = if (filterCategory != null) articles.filter { it.category == filterCategory } else articles
+
+    if (showProposeDialog) {
+        var newSugName by remember { mutableStateOf("") }
+        var newSugUrl by remember { mutableStateOf("") }
+        var newSugCount by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showProposeDialog = false },
+            title = { Text("💡 Đề Xuất Nhóm Gợi Ý") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = newSugName, onValueChange = {newSugName=it}, label = {Text("Tên nhóm")})
+                    OutlinedTextField(value = newSugUrl, onValueChange = {newSugUrl=it}, label = {Text("Link Share Nhóm")})
+                    OutlinedTextField(value = newSugCount, onValueChange = {newSugCount=it}, label = {Text("Số member (vd: 15K)")})
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (newSugName.isNotBlank() && newSugUrl.isNotBlank()) {
+                        scope.launch {
+                            val js = JSONObject().apply { put("name", newSugName); put("url", newSugUrl); put("memberCount", newSugCount) }
+                            val (c,_) = httpReq("$SERVER_URL/api/suggested-groups", "POST", js.toString(), authToken)
+                            if (c in 200..299) toast(context,"Đã gửi đề xuất! Admin sẽ duyệt sớm.")
+                            else toast(context, "Lỗi kết nối!")
+                            showProposeDialog = false
+                        }
+                    } else toast(context, "Nhập Tên và Link!")
+                }) { Text("Gửi đi") }
+            },
+            dismissButton = { TextButton({ showProposeDialog = false }) { Text("Đóng") } }
+        )
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         if (categories.isNotEmpty()) {
@@ -1094,32 +1143,33 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
         )
         Spacer(Modifier.height(8.dp))
         
-        Text("🎯 Nhóm Gợi Ý (Dễ cắn đề xuất)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(4.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val suggestedGroups = listOf(
-                Triple("Review Homestay Ba Vì - Sóc Sơn", "150K", "https://m.facebook.com/groups/homestaybavi/"),
-                Triple("Hội Chủ Nhà Thuê Villa", "80K", "https://m.facebook.com/groups/chothuevillagiare/"),
-                Triple("Pass Phòng Booking VN", "200K", "https://m.facebook.com/groups/passphongdulich/"),
-                Triple("Review Du Lịch Tự Túc", "450K", "https://m.facebook.com/groups/reviewdulichtutuc/")
-            )
-            items(suggestedGroups) { g ->
-                ElevatedCard {
-                    Column(Modifier.padding(12.dp).widthIn(max = 200.dp)) {
-                        Text(g.first, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                        Text("👥 ${g.second} TV • 🚀 Nhanh duyệt", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = { 
-                                val newLinks = if (groupLinks.isBlank()) g.third else groupLinks + "\n" + g.third
-                                groupLinks = newLinks
-                                prefs.edit().putString("publish_groups", newLinks).apply()
-                                toast(context, "Đã thêm nhóm vào danh sách!")
-                            },
-                        ) { Text("➕ Thêm") }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("🎯 Nhóm Gợi Ý", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            TextButton(onClick = { showProposeDialog = true }) { Text("💡 Đề xuất thêm", style = MaterialTheme.typography.labelSmall) }
+        }
+        if (suggestedGroups.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(suggestedGroups, key = { it.id }) { g ->
+                    ElevatedCard {
+                        Column(Modifier.padding(12.dp).widthIn(max = 200.dp)) {
+                            Text(g.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Text("👥 ${if(g.memberCount.isBlank()) "0" else g.memberCount} TV • Nhanh duyệt", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { 
+                                    val newLinks = if (groupLinks.isBlank()) g.url else groupLinks + "\n" + g.url
+                                    groupLinks = newLinks
+                                    prefs.edit().putString("publish_groups", newLinks).apply()
+                                    toast(context, "Đã thêm ${g.name}!")
+                                },
+                            ) { Text("➕ Thêm") }
+                        }
                     }
                 }
             }
+        } else {
+            Text("Chưa có nhóm nào được duyệt.", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
         }
         Spacer(Modifier.height(12.dp))
 

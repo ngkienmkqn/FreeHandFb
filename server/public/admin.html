@@ -107,6 +107,7 @@
         <div class="tabs">
             <div class="tab active" onclick="switchTab('main', this)">📋 Bài viết & Templates</div>
             <div class="tab" id="adminTab" style="display:none" onclick="switchTab('admin', this)">👥 Quản lý Users</div>
+            <div class="tab" id="groupsTab" style="display:none" onclick="switchTab('groups', this)">🎯 Nhóm Gợi Ý</div>
         </div>
 
         <!-- TAB: Main -->
@@ -224,6 +225,26 @@
             </div>
         </div>
     </div>
+        
+        <!-- TAB: Groups -->
+        <div class="tab-content" id="tab-groups">
+            <div class="glass-panel" style="max-width:700px">
+                <h2>🎯 Quản lý Nhóm Gợi Ý</h2>
+                
+                <div style="font-weight:bold;color:var(--warn);margin-bottom:8px">Đề xuất chờ duyệt:</div>
+                <div class="scroll-list" id="pendingGroupsList" style="margin-bottom:20px;max-height:250px"></div>
+                
+                <div style="font-weight:bold;color:var(--success);margin-bottom:8px">Nhóm đã duyệt (Đang hiển thị trên App):</div>
+                <div class="form-row">
+                    <input type="text" id="newSugGroupName" placeholder="Tên nhóm (Vd: Khách sạn Đà Lạt)" />
+                    <input type="text" id="newSugGroupCount" placeholder="Số TV (Vd: 150K)" style="max-width:140px"/>
+                </div>
+                <input type="text" id="newSugGroupUrl" placeholder="Link (https://...)" style="margin-bottom:12px" />
+                <button class="btn btn-primary btn-small" onclick="addSuggestedGroup()">➕ Thêm nhóm (Auto Duyệt)</button>
+                <div class="scroll-list" id="approvedGroupsList" style="margin-top:16px;max-height:400px"></div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -288,10 +309,12 @@ async function showApp() {
     if (currentUser.role === 'admin') {
         document.getElementById('adminTab').style.display = '';
         document.getElementById('groupFilterWrap').style.display = '';
+        document.getElementById('groupsTab').style.display = '';
         fetchUsers();
         fetchAppVersion();
         fetchGlobalComments();
         fetchArticles();
+        fetchSuggestedGroups();
         // Populate group filter
         const gRes = await apiFetch('/api/groups');
         if (gRes.ok) {
@@ -511,6 +534,70 @@ async function toggleLock(id, status) {
     if (status && !confirm('Bạn muốn tạm khóa tài khoản này? Ứng dụng của họ sẽ văng ra màn hình đăng nhập lập tức.')) return;
     await apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify({ isLocked: status }) });
     fetchUsers();
+}
+
+// ---- SUGGESTED GROUPS ----
+async function fetchSuggestedGroups() {
+    const res = await apiFetch('/api/suggested-groups');
+    const data = await res.json();
+    
+    const pList = document.getElementById('pendingGroupsList');
+    if (!data.pending || data.pending.length === 0) pList.innerHTML = '<div style="color:#64748b;font-size:0.85rem;padding:8px">Không có đề xuất mới.</div>';
+    else {
+        pList.innerHTML = data.pending.map(g => `
+            <div class="user-item">
+                <div class="user-info">
+                    <div class="user-name">${esc(g.name)}</div>
+                    <div class="user-meta">${esc(g.memberCount || '0')} TV • Đề xuất bởi: ${esc(g.addedBy)}</div>
+                    <div class="user-meta" style="color:var(--primary);cursor:pointer;text-decoration:underline" onclick="window.open('${escJs(g.url)}', '_blank')">${esc(g.url)}</div>
+                </div>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-success btn-small" onclick="approveSuggestedGroup('${g.id}')">✔️ Duyệt</button>
+                    <button class="btn btn-danger btn-small" onclick="deleteSuggestedGroup('${g.id}')">❌ Bỏ</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    const aList = document.getElementById('approvedGroupsList');
+    if (!data.approved || data.approved.length === 0) aList.innerHTML = '<div style="color:#64748b;font-size:0.85rem;padding:8px">Chưa có nhóm nào.</div>';
+    else {
+        aList.innerHTML = data.approved.map(g => `
+            <div class="user-item">
+                <div class="user-info">
+                    <div class="user-name">${esc(g.name)}</div>
+                    <div class="user-meta">${esc(g.memberCount || '0')} TV • Đề xuất bởi: ${esc(g.addedBy || 'admin')}</div>
+                    <div class="user-meta" style="color:var(--success);cursor:pointer;text-decoration:underline" onclick="window.open('${escJs(g.url)}', '_blank')">${esc(g.url)}</div>
+                </div>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-danger btn-small" onclick="deleteSuggestedGroup('${g.id}')">🗑️ Xóa</button>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+async function addSuggestedGroup() {
+    const name = document.getElementById('newSugGroupName').value.trim();
+    const memberCount = document.getElementById('newSugGroupCount').value.trim();
+    const url = document.getElementById('newSugGroupUrl').value.trim();
+    if (!name || !url) return alert('Nhập tên và Link!');
+    await apiFetch('/api/suggested-groups', { method: 'POST', body: JSON.stringify({ name, memberCount, url }) });
+    document.getElementById('newSugGroupName').value = '';
+    document.getElementById('newSugGroupCount').value = '';
+    document.getElementById('newSugGroupUrl').value = '';
+    fetchSuggestedGroups();
+}
+
+async function approveSuggestedGroup(id) {
+    await apiFetch(`/api/suggested-groups/${id}`, { method: 'PUT', body: JSON.stringify({ status: 'approved' }) });
+    fetchSuggestedGroups();
+}
+
+async function deleteSuggestedGroup(id) {
+    if(!confirm('Xoá nhóm này?')) return;
+    await apiFetch(`/api/suggested-groups/${id}`, { method: 'DELETE' });
+    fetchSuggestedGroups();
 }
 
 // ---- LOGS (admin) ----

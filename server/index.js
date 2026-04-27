@@ -25,6 +25,7 @@ const TEMPLATES_FILE = path.join(DATA_DIR, 'templates.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const NOTIFICATIONS_FILE = path.join(DATA_DIR, 'notifications.json');
 const ARTICLES_FILE = path.join(DATA_DIR, 'articles.json');
+const SUGGESTED_GROUPS_FILE = path.join(DATA_DIR, 'suggested_groups.json');
 const APK_LOGS_FILE = path.join(DATA_DIR, 'apk_logs.txt');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -46,6 +47,7 @@ let posts = loadJson(POSTS_FILE, []);
 let templates = loadJson(TEMPLATES_FILE, {}); // { "group-name": ["tpl1", ...] }
 let notifications = loadJson(NOTIFICATIONS_FILE, []); // [{ id, userId, message, read, createdAt }]
 let articles = loadJson(ARTICLES_FILE, []); // [{ id, title, category, content, images }]
+let suggestedGroups = loadJson(SUGGESTED_GROUPS_FILE, []); // [{ id, name, url, memberCount, status, addedBy, createdAt }]
 let config = loadJson(CONFIG_FILE, {
     appVersion: '1.0.0',
     apkUrl: '',
@@ -224,6 +226,48 @@ app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
 app.get('/api/groups', authMiddleware, adminOnly, (req, res) => {
     const groups = [...new Set(users.map(u => u.group))];
     res.json(groups);
+});
+
+/* ================== SUGGESTED GROUPS API ================== */
+
+app.get('/api/suggested-groups', authMiddleware, (req, res) => {
+    if (req.user.role === 'admin') {
+        const approved = suggestedGroups.filter(g => g.status === 'approved');
+        const pending = suggestedGroups.filter(g => g.status === 'pending');
+        return res.json({ approved, pending });
+    }
+    // Users only see approved
+    res.json({ approved: suggestedGroups.filter(g => g.status === 'approved') });
+});
+
+app.post('/api/suggested-groups', authMiddleware, (req, res) => {
+    const { name, url, memberCount } = req.body;
+    if (!name || !url) return res.status(400).json({ error: 'Name and URL are required' });
+    const status = req.user.role === 'admin' ? 'approved' : 'pending';
+    const g = { id: genId(), name, url, memberCount: memberCount || '', status, addedBy: req.user.username, createdAt: Date.now() };
+    suggestedGroups.push(g);
+    saveJson(SUGGESTED_GROUPS_FILE, suggestedGroups);
+    res.json(g);
+});
+
+app.put('/api/suggested-groups/:id', authMiddleware, adminOnly, (req, res) => {
+    const g = suggestedGroups.find(x => x.id === req.params.id);
+    if (!g) return res.status(404).json({ error: 'Not found' });
+    const { name, url, memberCount, status } = req.body;
+    if (name) g.name = name;
+    if (url) g.url = url;
+    if (memberCount !== undefined) g.memberCount = memberCount;
+    if (status && ['approved', 'pending'].includes(status)) g.status = status;
+    saveJson(SUGGESTED_GROUPS_FILE, suggestedGroups);
+    res.json(g);
+});
+
+app.delete('/api/suggested-groups/:id', authMiddleware, adminOnly, (req, res) => {
+    const idx = suggestedGroups.findIndex(x => x.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    suggestedGroups.splice(idx, 1);
+    saveJson(SUGGESTED_GROUPS_FILE, suggestedGroups);
+    res.json({ ok: true });
 });
 
 // Get group leaderboard
