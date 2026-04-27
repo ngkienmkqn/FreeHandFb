@@ -20,9 +20,17 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
     private val SERVER_URL = "http://dt.ungthien.com"
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+        val startHour = prefs.getInt("start_active_hour", 7)
+        val endHour = prefs.getInt("end_active_hour", 23)
+        val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        if (currentHour < startHour || currentHour >= endHour) {
+            Log.d("AutoPublishWorker", "Outside operating hours ($startHour - $endHour). Sleeping.")
+            return@withContext Result.success()
+        }
+
         Log.d("AutoPublishWorker", "Waking up to perform auto-publish...")
         
-        val prefs = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
         val token = prefs.getString("auth_token", null) ?: return@withContext Result.failure()
         val username = prefs.getString("username", "") ?: ""
         
@@ -42,7 +50,7 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
 
         // 2. Fetch User's Today History
         val historyRes = httpReq("$SERVER_URL/api/posts", "GET", null, token)
-        val postedFbGroupIds = mutableSetOf<String>()
+        val postedFbGroupCounts = mutableMapOf<String, Int>()
         val startOfDay = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
         var todayTotalPosts = 0
 
@@ -54,22 +62,32 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
                     if (o.optString("addedBy") == username && o.optLong("addedAt", 0) >= startOfDay) {
                         todayTotalPosts++
                         val urlMatch = Regex("/groups/([0-9a-zA-Z.]+)/?").find(o.getString("url"))
-                        urlMatch?.let { postedFbGroupIds.add(it.groupValues[1]) }
+                        urlMatch?.let { 
+                            val gId = it.groupValues[1]
+                            postedFbGroupCounts[gId] = (postedFbGroupCounts[gId] ?: 0) + 1
+                        }
                     }
                 }
             }
         } catch (e: Exception) {}
 
-        if (todayTotalPosts >= 5) {
-            Log.d("AutoPublishWorker", "Daily quota of 5 reached. Going back to sleep.")
+        if (todayTotalPosts >= 20) {
+            Log.d("AutoPublishWorker", "Global daily quota of 20 reached. Going back to sleep.")
             return@withContext Result.success()
         }
 
-        // 3. Filter group URLs to only those we haven't posted today
+        // Fetch Global App Settings (Max per Group)
+        var maxGroupPosts = 1
+        val settingsRes = httpReq("$SERVER_URL/api/settings", "GET", null, token)
+        if (settingsRes.first == 200 && !settingsRes.second.isNullOrBlank()) {
+            try { maxGroupPosts = JSONObject(settingsRes.second!!).optInt("maxGroupPostsPerDay", 1) } catch(e: Exception) {}
+        }
+
+        // 3. Filter group URLs verifying usage <= Max Posts Configuration
         val targetGroups = allGroups.filter { url ->
             val match = Regex("/groups/([0-9a-zA-Z.]+)/?").find(url)
             val groupId = match?.groupValues?.get(1)
-            groupId == null || !postedFbGroupIds.contains(groupId)
+            groupId == null || (postedFbGroupCounts[groupId] ?: 0) < maxGroupPosts
         }
 
         if (targetGroups.isEmpty()) return@withContext Result.success()

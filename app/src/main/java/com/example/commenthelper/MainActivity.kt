@@ -763,6 +763,10 @@ fun MainApp(
                 2 -> ArticlesScreen(articles, suggestedGroups, prefs, authToken)
                 3 -> LeaderboardScreen(authToken)
                 4 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
+                    startActiveHour = prefs.getInt("start_active_hour", 7),
+                    onStartActiveHourChange = { v -> prefs.edit().putInt("start_active_hour", v).apply() },
+                    endActiveHour = prefs.getInt("end_active_hour", 23),
+                    onEndActiveHourChange = { v -> prefs.edit().putInt("end_active_hour", v).apply() },
                     notifyInterval = notifyInterval,
                     onIntervalChange = { v -> notifyInterval = v; prefs.edit().putInt("notify_interval", v).apply() },
                     autoWakeIntervalHours = autoWakeIntervalHours,
@@ -1042,6 +1046,8 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
 
 @Composable fun SettingsScreen(
     isSyncing: Boolean, lastSyncStatus: String, isServiceEnabled: Boolean,
+    startActiveHour: Int, onStartActiveHourChange: (Int) -> Unit,
+    endActiveHour: Int, onEndActiveHourChange: (Int) -> Unit,
     notifyInterval: Int, onIntervalChange: (Int) -> Unit, 
     autoWakeIntervalHours: Int, onAutoWakeIntervalChange: (Int) -> Unit,
     autoPublishIntervalHours: Int, onAutoPublishIntervalChange: (Int) -> Unit,
@@ -1118,6 +1124,38 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 }
                 Spacer(Modifier.height(4.dp))
                 Text("Nhập 0 để tắt vòng lặp đăng bài tự động.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("🕒 Khung Giờ Hoạt Động", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(8.dp))
+                Text("Ứng dụng tự động bỏ qua chu kỳ chạy Auto-Publish ngoài khung giờ này.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Giờ bắt đầu làm (Sáng):")
+                    Spacer(Modifier.weight(1f))
+                    var stxt by remember { mutableStateOf(startActiveHour.toString()) }
+                    OutlinedTextField(
+                        value = stxt,
+                        onValueChange = { stxt = it; it.toIntOrNull()?.let { v -> onStartActiveHourChange(v) } },
+                        modifier = Modifier.width(70.dp),
+                        singleLine = true
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Giờ đi ngủ (Tối):")
+                    Spacer(Modifier.weight(1f))
+                    var etxt by remember { mutableStateOf(endActiveHour.toString()) }
+                    OutlinedTextField(
+                        value = etxt,
+                        onValueChange = { etxt = it; it.toIntOrNull()?.let { v -> onEndActiveHourChange(v) } },
+                        modifier = Modifier.width(70.dp),
+                        singleLine = true
+                    )
+                }
             }
         }
         Spacer(Modifier.height(16.dp))

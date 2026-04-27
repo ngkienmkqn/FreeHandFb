@@ -26,6 +26,7 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const NOTIFICATIONS_FILE = path.join(DATA_DIR, 'notifications.json');
 const ARTICLES_FILE = path.join(DATA_DIR, 'articles.json');
 const SUGGESTED_GROUPS_FILE = path.join(DATA_DIR, 'suggested_groups.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const APK_LOGS_FILE = path.join(DATA_DIR, 'apk_logs.txt');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -48,6 +49,7 @@ let templates = loadJson(TEMPLATES_FILE, {}); // { "group-name": ["tpl1", ...] }
 let notifications = loadJson(NOTIFICATIONS_FILE, []); // [{ id, userId, message, read, createdAt }]
 let articles = loadJson(ARTICLES_FILE, []); // [{ id, title, category, content, images }]
 let suggestedGroups = loadJson(SUGGESTED_GROUPS_FILE, []); // [{ id, name, url, memberCount, status, addedBy, createdAt }]
+let appSettings = loadJson(SETTINGS_FILE, { maxGroupPostsPerDay: 1 });
 let config = loadJson(CONFIG_FILE, {
     appVersion: '1.0.0',
     apkUrl: '',
@@ -159,6 +161,19 @@ function adminOnly(req, res, next) {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
     next();
 }
+
+/* ================== CONSTANTS & SETTINGS ================== */
+
+app.get('/api/settings', authMiddleware, (req, res) => res.json(appSettings));
+
+app.post('/api/settings', authMiddleware, adminOnly, (req, res) => {
+    const { maxGroupPostsPerDay } = req.body;
+    if (typeof maxGroupPostsPerDay === 'number' && maxGroupPostsPerDay >= 1) {
+        appSettings.maxGroupPostsPerDay = maxGroupPostsPerDay;
+        saveJson(SETTINGS_FILE, appSettings);
+    }
+    res.json(appSettings);
+});
 
 /* ================== USER MANAGEMENT (admin only) ================== */
 
@@ -330,14 +345,14 @@ app.post('/api/posts', authMiddleware, (req, res) => {
         today.setHours(0, 0, 0, 0);
         const startOfDay = today.getTime();
         
-        const alreadyPostedToGroupToday = posts.some(p => 
+        const countToday = posts.filter(p => 
             p.addedBy === req.user.username && 
             p.addedAt >= startOfDay && 
             p.url.includes(`/groups/${fbGroupId}/`)
-        );
+        ).length;
         
-        if (alreadyPostedToGroupToday) {
-            return res.status(429).json({ error: 'Bạn đã đăng bài vào nhóm này hôm nay. Vui lòng tuân thủ Nội quy 1 bài/ngày!' });
+        if (countToday >= appSettings.maxGroupPostsPerDay) {
+            return res.status(429).json({ error: `Bạn đã đăng ${countToday} bài vào nhóm này hôm nay. Giới hạn là ${appSettings.maxGroupPostsPerDay} bài/ngày!` });
         }
     }
 
