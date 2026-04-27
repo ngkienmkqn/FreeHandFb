@@ -61,7 +61,8 @@ class FbAutoService : AccessibilityService() {
         val url: String,
         val comment: String,
         val isPublishingGroup: Boolean = false,
-        val imageCount: Int = 0
+        val imageCount: Int = 0,
+        val isScrapingGroup: Boolean = false
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -78,6 +79,7 @@ class FbAutoService : AccessibilityService() {
         SELECTING_PHOTOS, 
         WAITING_FOR_POST_TO_UPLOAD,
         CLICKING_SHARE_AND_COPY,
+        SCRAPING_GROUP_INFO,
         DONE
     }
 
@@ -125,6 +127,7 @@ class FbAutoService : AccessibilityService() {
             Step.SELECTING_PHOTOS -> { handleSelectingPhotos() }
             Step.WAITING_FOR_POST_TO_UPLOAD -> { handleWaitingForPostToUpload() }
             Step.CLICKING_SHARE_AND_COPY -> { handleClickingShareAndCopy() }
+            Step.SCRAPING_GROUP_INFO -> { handleScrapingGroupInfo() }
             else -> {}
         }
     }
@@ -168,6 +171,21 @@ class FbAutoService : AccessibilityService() {
         stopRequested.value = false
         isRunning.value = true
 
+        processNextPost()
+    }
+
+    fun startScrapingGroup(url: String) {
+        val task = TaskItem(
+            postId = "SCRAPE_" + System.currentTimeMillis(),
+            url = url,
+            comment = "",
+            isScrapingGroup = true
+        )
+        taskQueue.value = listOf(task)
+        progress.value = 0 to 1
+        currentIndex = 0
+        stopRequested.value = false
+        isRunning.value = true
         processNextPost()
     }
 
@@ -248,7 +266,18 @@ class FbAutoService : AccessibilityService() {
     private fun startRetryChecker() {
         handler.postDelayed(object : Runnable {
             override fun run() {
-                if (!isRunning.value || currentStep == Step.IDLE || currentStep == Step.DONE) return
+                if (!isRunning.value || stopRequested.value || currentStep == Step.IDLE || currentStep == Step.DONE) return
+                
+                if (currentStep == Step.WAITING_FOR_FB_LOAD) {
+                    if (currentTask?.isScrapingGroup == true) {
+                        currentStep = Step.SCRAPING_GROUP_INFO
+                        return
+                    }
+                    if (currentTask?.isPublishingGroup == true) currentStep = Step.LOOKING_FOR_COMPOSER
+                    else currentStep = Step.LOOKING_FOR_LIKE
+                    return
+                }
+
                 retryCount++
                 if (retryCount > MAX_RETRIES) {
                     Log.w(TAG, "Timeout waiting for step: $currentStep")
@@ -286,9 +315,14 @@ class FbAutoService : AccessibilityService() {
 
     private fun handleWaitingForLoad() {
         val root = rootInActiveWindow ?: return
-        val task = currentTask ?: return
+        
+        if (currentTask?.isScrapingGroup == true) {
+            val hasGroupInfo = findAllNodes(root).any { it.text?.toString()?.contains("thành viên", ignoreCase = true) == true }
+            if (hasGroupInfo) currentStep = Step.SCRAPING_GROUP_INFO
+            return
+        }
 
-        if (task.isPublishingGroup) {
+        if (currentTask?.isPublishingGroup == true) {
             // Wait for group to load (composer placeholder visible)
             val composer = findGroupComposerPlaceholder(root)
             if (composer != null) {
@@ -313,6 +347,30 @@ class FbAutoService : AccessibilityService() {
             }
         }
         root.recycle()
+    }
+
+    private fun handleScrapingGroupInfo() {
+        if (currentStep != Step.SCRAPING_GROUP_INFO) return
+        val root = rootInActiveWindow ?: return
+        val nodes = findAllNodes(root)
+        
+        val textNodes = nodes.filter { !it.text.isNullOrBlank() }.map { it.text.toString().trim() }
+        val memberIdx = textNodes.indexOfFirst { it.contains("thành viên", ignoreCase = true) || it.contains("members", ignoreCase = true) }
+        
+        if (memberIdx != -1) {
+            val memberCountStr = textNodes[memberIdx]
+            val memberCount = Regex("""[0-9.,KkMm]+""").find(memberCountStr)?.value ?: ""
+            val nameCanditates = textNodes.subList(0, memberIdx).filter { it.length > 3 && !it.contains("Tham gia", true) && !it.contains("Join", true) }
+            val groupName = nameCanditates.lastOrNull() ?: "Nhóm Facebook"
+
+            Intent("com.example.commenthelper.GROUP_SCRAPED").apply {
+                putExtra("name", groupName)
+                putExtra("memberCount", memberCount.replace(",", "."))
+                putExtra("url", currentTask?.url ?: "")
+                sendBroadcast(this)
+            }
+            markCurrentDone(true)
+        }
     }
 
     private fun handleLookingForLike() {

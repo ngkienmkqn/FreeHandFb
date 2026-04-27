@@ -247,7 +247,33 @@ class AutoWakeReceiver : BroadcastReceiver() {
 class MainActivity : ComponentActivity() {
     private val localReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val postId = intent?.getStringExtra("postId") ?: return
+            if (intent == null) return
+            if (intent.action == "com.example.commenthelper.GROUP_SCRAPED") {
+                val name = intent.getStringExtra("name") ?: ""
+                val count = intent.getStringExtra("memberCount") ?: ""
+                val url = intent.getStringExtra("url") ?: ""
+                val token = context?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.getString(KEY_AUTH_TOKEN, "") ?: ""
+                if (token.isNotEmpty() && name.isNotEmpty() && context != null) {
+                    Thread {
+                        try {
+                            val js = JSONObject().apply { put("name", name); put("url", url); put("memberCount", count) }
+                            val conn = URL("$SERVER_URL/api/suggested-groups").openConnection() as HttpURLConnection
+                            conn.requestMethod = "POST"
+                            conn.setRequestProperty("Content-Type", "application/json")
+                            conn.setRequestProperty("Authorization", "Bearer $token")
+                            conn.doOutput = true
+                            java.io.OutputStreamWriter(conn.outputStream).use { it.write(js.toString()) }
+                            if (conn.responseCode in 200..299) {
+                                android.os.Handler(android.os.Looper.getMainLooper()).post { 
+                                    Toast.makeText(context, "Đã tự động lấy và đề xuất thông tin nhóm!", Toast.LENGTH_SHORT).show() 
+                                }
+                            }
+                        } catch (e: Exception) {}
+                    }.start()
+                }
+                return
+            }
+            val postId = intent.getStringExtra("postId") ?: return
             PostDoneReceiver.onPostDone?.invoke(postId, intent.getBooleanExtra("success", false))
         }
     }
@@ -295,7 +321,9 @@ class MainActivity : ComponentActivity() {
             else -> null
         }?.let { extractFirstUrl(it) }
 
-        val filter = IntentFilter("com.example.commenthelper.POST_DONE")
+        val filter = IntentFilter()
+        filter.addAction("com.example.commenthelper.POST_DONE")
+        filter.addAction("com.example.commenthelper.GROUP_SCRAPED")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) registerReceiver(localReceiver, filter, RECEIVER_NOT_EXPORTED)
         else registerReceiver(localReceiver, filter)
 
@@ -1091,31 +1119,23 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
     val visible = if (filterCategory != null) articles.filter { it.category == filterCategory } else articles
 
     if (showProposeDialog) {
-        var newSugName by remember { mutableStateOf("") }
         var newSugUrl by remember { mutableStateOf("") }
-        var newSugCount by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showProposeDialog = false },
             title = { Text("💡 Đề Xuất Nhóm Gợi Ý") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = newSugName, onValueChange = {newSugName=it}, label = {Text("Tên nhóm")})
-                    OutlinedTextField(value = newSugUrl, onValueChange = {newSugUrl=it}, label = {Text("Link Share Nhóm")})
-                    OutlinedTextField(value = newSugCount, onValueChange = {newSugCount=it}, label = {Text("Số member (vd: 15K)")})
+                    OutlinedTextField(value = newSugUrl, onValueChange = {newSugUrl=it}, label = {Text("Link Share Nhóm FB")})
+                    Text("Hệ thống sẽ tự động chuyển sang ứng dụng Facebook để lấy Tên và Số lượng thành viên của nhóm rùi gửi về Server.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    if (newSugName.isNotBlank() && newSugUrl.isNotBlank()) {
-                        scope.launch {
-                            val js = JSONObject().apply { put("name", newSugName); put("url", newSugUrl); put("memberCount", newSugCount) }
-                            val (c,_) = httpReq("$SERVER_URL/api/suggested-groups", "POST", js.toString(), authToken)
-                            if (c in 200..299) toast(context,"Đã gửi đề xuất! Admin sẽ duyệt sớm.")
-                            else toast(context, "Lỗi kết nối!")
-                            showProposeDialog = false
-                        }
-                    } else toast(context, "Nhập Tên và Link!")
-                }) { Text("Gửi đi") }
+                    if (newSugUrl.isNotBlank()) {
+                        FbAutoService.instance?.startScrapingGroup(newSugUrl)
+                        showProposeDialog = false
+                    } else toast(context, "Vui lòng nhập Link nhóm FB!")
+                }) { Text("Lấy Thông Tin") }
             },
             dismissButton = { TextButton({ showProposeDialog = false }) { Text("Đóng") } }
         )
