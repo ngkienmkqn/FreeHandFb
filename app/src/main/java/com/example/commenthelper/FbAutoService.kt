@@ -1131,7 +1131,9 @@ class FbAutoService : AccessibilityService() {
                 // Exclude buttons that falsely match (thu g\u1ECDn \u1EA3nh, ch\u1ECDn nhi\u1EC1u file, etc.)
                 if (!cd.contains("take") && !cd.contains("ch\u1EE5p") && !cd.contains("camera") &&
                     !cd.contains("thu g\u1ECDn") && !cd.contains("ch\u1ECDn nhi\u1EC1u") && !cd.contains("th\u00EAm v\u00E0o") &&
-                    !cd.contains("collapse") && !cd.contains("select multiple")) {
+                    !cd.contains("collapse") && !cd.contains("select multiple") &&
+                    !cd.contains("th\u01B0 vi\u1EC7n") && !cd.contains("library") && !cd.contains("pictures") &&
+                    !cd.contains("album") && !cd.contains("video")) {
                     list.add(AccessibilityNodeInfo.obtain(node))
                 }
             } else if (node.className?.toString() == "android.widget.CheckBox" && node.isVisibleToUser) {
