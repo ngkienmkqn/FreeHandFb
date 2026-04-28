@@ -740,39 +740,82 @@ class FbAutoService : AccessibilityService() {
         root.recycle()
     }
 
+    private var multiSelectClicked = false
+
     private fun handleSelectingPhotos() {
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
-        
+
+        // Step 0: If we need multiple photos, click "Chọn nhiều file" first
+        if (task.imageCount > 1 && !multiSelectClicked) {
+            val multiBtn = findNodeByText(root, listOf("chọn nhiều file", "chọn nhiều", "select multiple", "select multiple files"))
+                ?: findNodeByContentDescription(root, listOf("chọn nhiều file", "chọn nhiều", "select multiple"))
+            if (multiBtn != null) {
+                Log.d(TAG, "Clicking 'Chọn nhiều file' to enable multi-select")
+                multiBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (!multiBtn.isClickable) multiBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                multiBtn.recycle()
+                multiSelectClicked = true
+                root.recycle()
+                handler.postDelayed({ handleSelectingPhotos() }, 1500)
+                return
+            }
+            // If button not found after a few tries, proceed anyway (might already be in multi-select)
+            if (retryCount >= 5) multiSelectClicked = true
+        }
+
         val allImages = findAllGalleryImages(root)
         if (allImages.isNotEmpty()) {
             val count = Math.min(task.imageCount, allImages.size)
+            Log.d(TAG, "Found ${allImages.size} gallery images, selecting $count")
+
+            // Select photos with 400ms delay between each click
             for (i in 0 until count) {
                 val node = allImages[i]
-                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                if (!node.isClickable) node.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                node.recycle()
+                handler.postDelayed({
+                    try {
+                        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        if (!node.isClickable) node.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        Log.d(TAG, "Clicked photo $i/$count")
+                        node.recycle()
+                    } catch(e: Exception) { Log.e(TAG, "Photo click $i failed", e) }
+                }, i * 400L)
             }
             for (i in count until allImages.size) allImages[i].recycle()
 
-            val doneBtn = findNodeByContentDescription(root, listOf("next", "tiếp", "done", "xong"))
-                ?: findNodeByText(root, listOf("next", "tiếp", "done", "xong"))
-
-            if (doneBtn != null) {
-                doneBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                doneBtn.recycle()
-            } else {
-                // If "Next" is missing, we might already be out of gallery if the layout is different?
-                Log.w(TAG, "Missing NEXT button, will attempt posting anyway")
-            }
-
-            currentStep = Step.WAITING_FOR_COMMENT_SENT
-            retryCount = 0
-            handler.postDelayed({ findAndClickSend() }, 2000)
+            // After all selected, click Next/Done
+            val waitTime = count * 400L + 1500L
+            handler.postDelayed({
+                val r2 = rootInActiveWindow ?: return@postDelayed
+                val doneBtn = findNodeByContentDescription(r2, listOf("next", "ti\u1EBFp", "done", "xong", "ti\u1EBFp t\u1EE5c", "ho\u00E0n t\u1EA5t"))
+                    ?: findNodeByText(r2, listOf("next", "ti\u1EBFp", "done", "xong", "ti\u1EBFp t\u1EE5c", "ho\u00E0n t\u1EA5t"))
+                if (doneBtn != null) {
+                    Log.d(TAG, "Clicking gallery Done/Next")
+                    doneBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    doneBtn.recycle()
+                } else {
+                    Log.w(TAG, "Missing NEXT button, posting anyway")
+                }
+                r2.recycle()
+                currentStep = Step.WAITING_FOR_COMMENT_SENT
+                retryCount = 0
+                multiSelectClicked = false
+                handler.postDelayed({ findAndClickSend() }, 2000)
+            }, waitTime)
         } else {
             retryCount++
-            // If we timeout while searching for gallery nodes, we'll organically fail.
+            // Failsafe: stuck too long in gallery, skip photos
+            if (retryCount >= 15) {
+                Log.w(TAG, "Gallery stuck ${retryCount} retries. Posting text only.")
+                multiSelectClicked = false
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                handler.postDelayed({
+                    currentStep = Step.WAITING_FOR_COMMENT_SENT
+                    retryCount = 0
+                    findAndClickSend()
+                }, 1500)
+            }
         }
         root.recycle()
     }
@@ -1083,9 +1126,12 @@ class FbAutoService : AccessibilityService() {
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             val cd = node.contentDescription?.toString()?.lowercase() ?: ""
-            if ((cd.contains("photo") || cd.contains("ảnh") || cd.contains("chọn")) && 
+            if ((cd.contains("photo") || cd.contains("\u1EA3nh") || cd.contains("ch\u1ECDn")) && 
                 node.isVisibleToUser && (node.isClickable || node.isCheckable || node.parent?.isClickable == true)) {
-                if (!cd.contains("take") && !cd.contains("chụp") && !cd.contains("camera")) {
+                // Exclude buttons that falsely match (thu g\u1ECDn \u1EA3nh, ch\u1ECDn nhi\u1EC1u file, etc.)
+                if (!cd.contains("take") && !cd.contains("ch\u1EE5p") && !cd.contains("camera") &&
+                    !cd.contains("thu g\u1ECDn") && !cd.contains("ch\u1ECDn nhi\u1EC1u") && !cd.contains("th\u00EAm v\u00E0o") &&
+                    !cd.contains("collapse") && !cd.contains("select multiple")) {
                     list.add(AccessibilityNodeInfo.obtain(node))
                 }
             } else if (node.className?.toString() == "android.widget.CheckBox" && node.isVisibleToUser) {
