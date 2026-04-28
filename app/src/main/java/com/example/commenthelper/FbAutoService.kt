@@ -135,6 +135,11 @@ class FbAutoService : AccessibilityService() {
     private var currentTask: TaskItem? = null
     private var currentIndex = 0
     private var retryCount = 0
+    private var nextStepTime = 0L
+    private fun scheduleNextStep(delay: Long, action: () -> Unit) {
+        nextStepTime = System.currentTimeMillis() + delay
+        handler.postDelayed(action, delay)
+    }
     private val MAX_RETRIES = 40 // Allow 20s for upload to finish
     private val STEP_DELAY: Long
         get() = if (getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getBoolean("global_debug_mode", false)) 2500L else 800L
@@ -320,6 +325,10 @@ class FbAutoService : AccessibilityService() {
         handler.postDelayed(object : Runnable {
             override fun run() {
                 if (!isRunning.value || stopRequested.value || currentStep == Step.IDLE || currentStep == Step.DONE) return
+                if (System.currentTimeMillis() < nextStepTime) {
+                    handler.postDelayed(this, 500)
+                    return
+                }
 
                 val root = rootInActiveWindow
                 if (root != null) {
@@ -360,6 +369,7 @@ class FbAutoService : AccessibilityService() {
                         currentStep = Step.CLICKING_SHARE_AND_COPY
                         retryCount = 0
                         handleClickingShareAndCopy()
+                        nextStepTime = System.currentTimeMillis() + 500L
                         handler.postDelayed(this, 500)
                         return
                     }
@@ -525,7 +535,7 @@ class FbAutoService : AccessibilityService() {
                 composer.recycle()
                 currentStep = Step.LOOKING_FOR_COMPOSER
                 retryCount = 0
-                handler.postDelayed({ handleLookingForComposer() }, STEP_DELAY)
+                scheduleNextStep(STEP_DELAY) { handleLookingForComposer() }
             }
         } else {
             // Check if we can find any interactable content (Like button area or comment area)
@@ -538,7 +548,7 @@ class FbAutoService : AccessibilityService() {
                 commentArea?.recycle()
                 currentStep = Step.LOOKING_FOR_LIKE
                 retryCount = 0
-                handler.postDelayed({ handleLookingForLike() }, STEP_DELAY)
+                scheduleNextStep(STEP_DELAY) { handleLookingForLike() }
             }
         }
         root.recycle()
@@ -591,7 +601,7 @@ class FbAutoService : AccessibilityService() {
             // Move to comment step
             currentStep = Step.LOOKING_FOR_COMMENT_FIELD
             retryCount = 0
-            handler.postDelayed({ handleLookingForCommentField() }, STEP_DELAY)
+            scheduleNextStep(STEP_DELAY) { handleLookingForCommentField() }
         } else {
             // No like button found — maybe already liked or different layout
             // Skip to comment
@@ -623,7 +633,7 @@ class FbAutoService : AccessibilityService() {
                 root.recycle()
                 // Wait and retry
                 retryCount = 0
-                handler.postDelayed({ handleLookingForCommentField() }, STEP_DELAY)
+                scheduleNextStep(STEP_DELAY) { handleLookingForCommentField() }
                 return
             }
         }
@@ -645,7 +655,7 @@ class FbAutoService : AccessibilityService() {
             currentStep = Step.WAITING_FOR_COMMENT_SENT
             retryCount = 0
             // Give time for text to be set, then look for send button
-            handler.postDelayed({ findAndClickSend() }, STEP_DELAY)
+            scheduleNextStep(STEP_DELAY) { findAndClickSend() }
         }
         root.recycle()
     }
@@ -679,7 +689,7 @@ class FbAutoService : AccessibilityService() {
             // Retry finding send button
             retryCount++
             if (retryCount < 10) {
-                handler.postDelayed({ findAndClickSend() }, 500)
+                scheduleNextStep(500) { findAndClickSend() }
             } else {
                 Log.w(TAG, "Send button not found after retries")
                 markCurrentDone(success = false)
@@ -703,7 +713,7 @@ class FbAutoService : AccessibilityService() {
             
             currentStep = Step.WAITING_FOR_COMPOSER_INPUT
             retryCount = 0
-            handler.postDelayed({ handleWaitingForComposerInput() }, STEP_DELAY)
+            scheduleNextStep(STEP_DELAY) { handleWaitingForComposerInput() }
         } else {
             retryCount++
         }
@@ -728,11 +738,11 @@ class FbAutoService : AccessibilityService() {
             if (task.imageCount > 0) {
                 currentStep = Step.LOOKING_FOR_PHOTO_BUTTON
                 retryCount = 0
-                handler.postDelayed({ handleLookingForPhotoButton() }, STEP_DELAY)
+                scheduleNextStep(STEP_DELAY) { handleLookingForPhotoButton() }
             } else {
                 currentStep = Step.WAITING_FOR_COMMENT_SENT
                 retryCount = 0
-                handler.postDelayed({ findAndClickSend() }, STEP_DELAY)
+                scheduleNextStep(STEP_DELAY) { findAndClickSend() }
             }
         } else {
             retryCount++
@@ -754,7 +764,7 @@ class FbAutoService : AccessibilityService() {
             
             currentStep = Step.SELECTING_PHOTOS
             retryCount = 0
-            handler.postDelayed({ handleSelectingPhotos() }, 2500) // Gallery load buffer
+            scheduleNextStep(2500) { handleSelectingPhotos() } // Gallery load buffer
         } else {
             retryCount++
         }
@@ -786,7 +796,7 @@ class FbAutoService : AccessibilityService() {
                 multiBtn.recycle()
                 multiSelectClicked = true
                 root.recycle()
-                handler.postDelayed({ handleSelectingPhotos() }, 2000)
+                scheduleNextStep(2000) { handleSelectingPhotos() }
                 return
             }
             if (retryCount >= 5) {
@@ -819,6 +829,7 @@ class FbAutoService : AccessibilityService() {
             for (i in count until allImages.size) allImages[i].recycle()
 
             val waitTime = count * Engine.galleryClickDelay + 2000L
+            nextStepTime = System.currentTimeMillis() + waitTime + 1500L
             handler.postDelayed({
                 debugLog("📸 Đang tìm nút 'Tiếp'...")
                 val r2 = rootInActiveWindow ?: return@postDelayed
@@ -838,7 +849,7 @@ class FbAutoService : AccessibilityService() {
                 currentStep = Step.WAITING_FOR_COMMENT_SENT
                 retryCount = 0
                 multiSelectClicked = false
-                handler.postDelayed({ findAndClickSend() }, 2500)
+                scheduleNextStep(2500) { findAndClickSend() }
             }, waitTime)
         } else {
             retryCount++
@@ -882,7 +893,7 @@ class FbAutoService : AccessibilityService() {
             shareBtn.recycle()
             currentStep = Step.CLICKING_SHARE_AND_COPY
             retryCount = 0
-            handler.postDelayed({ handleClickingShareAndCopy() }, 1500)
+            scheduleNextStep(1500) { handleClickingShareAndCopy() }
         } else {
             // 2. Fallback for Private Groups (No share button -> Click "..." More options menu)
             // The content description on FB Android usually includes "options" or "tùy chọn"
@@ -897,7 +908,7 @@ class FbAutoService : AccessibilityService() {
                 currentStep = Step.CLICKING_SHARE_AND_COPY
                 retryCount = 0
                 // Takes slightly longer for the BottomSheet to render from the '...' menu
-                handler.postDelayed({ handleClickingShareAndCopy() }, 2000) 
+                scheduleNextStep(2000) { handleClickingShareAndCopy() } 
             } else {
                 retryCount++
             }
