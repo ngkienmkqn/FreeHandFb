@@ -1,4 +1,4 @@
-package com.example.commenthelper
+﻿package com.example.commenthelper
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -67,6 +67,10 @@ class FbAutoService : AccessibilityService() {
         var commentButton = listOf("bình luận", "comment", "viết bình luận", "write a comment")
         var sendComment = listOf("gửi", "send", "đăng", "post", "tiếp", "next")
         var photoButton = listOf("ảnh/video", "photo/video", "thêm vào bài viết", "add to your post", "ảnh", "photo")
+        var galleryExclude = listOf("take", "chụp", "camera", "thu gọn", "chọn nhiều", "thêm vào", "collapse", "select multiple", "thư viện", "library", "pictures", "album", "video", "quay lại", "back", "navigate", "bài viết mới", "new post")
+        var multiSelectButton = listOf("chọn nhiều file", "chọn nhiều", "select multiple", "select multiple files")
+        var galleryClickDelay = 800L
+        var galleryNextButton = listOf("next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất")
 
         fun load(context: Context) {
             try {
@@ -88,6 +92,10 @@ class FbAutoService : AccessibilityService() {
                 commentButton = getList("comment_button", commentButton)
                 sendComment = getList("send_comment", sendComment)
                 photoButton = getList("photo_button", photoButton)
+                galleryExclude = getList("gallery_exclude", galleryExclude)
+                multiSelectButton = getList("multi_select_button", multiSelectButton)
+                galleryNextButton = getList("gallery_next_button", galleryNextButton)
+                galleryClickDelay = j.optLong("gallery_click_delay", galleryClickDelay)
                 Log.d(TAG, "OTA Engine loaded successfully. Version: ${org.json.JSONObject(script).optString("version", "Unknown")}")
             } catch(e: Exception) { Log.e(TAG, "Failed loading OTA script", e) }
         }
@@ -752,8 +760,8 @@ class FbAutoService : AccessibilityService() {
 
         // Step 0: If we need multiple photos, click multi-select button first
         if (task.imageCount > 1 && !multiSelectClicked) {
-            val multiBtn = findNodeByText(root, listOf("chọn nhiều file", "chọn nhiều", "select multiple", "select multiple files"))
-                ?: findNodeByContentDescription(root, listOf("chọn nhiều file", "chọn nhiều", "select multiple"))
+            val multiBtn = findNodeByText(root, Engine.multiSelectButton)
+                ?: findNodeByContentDescription(root, Engine.multiSelectButton)
             if (multiBtn != null) {
                 showDebugToast("📸 Bấm 'Chọn nhiều file'...")
                 Log.d(TAG, "Clicking multi-select button")
@@ -790,16 +798,16 @@ class FbAutoService : AccessibilityService() {
                         Log.d(TAG, "Clicked photo $i/$count")
                         node.recycle()
                     } catch(e: Exception) { Log.e(TAG, "Photo click $i failed", e) }
-                }, i * 800L)
+                }, i * Engine.galleryClickDelay)
             }
             for (i in count until allImages.size) allImages[i].recycle()
 
-            val waitTime = count * 800L + 2000L
+            val waitTime = count * Engine.galleryClickDelay + 2000L
             handler.postDelayed({
                 showDebugToast("📸 Đang tìm nút 'Tiếp'...")
                 val r2 = rootInActiveWindow ?: return@postDelayed
-                val doneBtn = findNodeByContentDescription(r2, listOf("next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất"))
-                    ?: findNodeByText(r2, listOf("next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất"))
+                val doneBtn = findNodeByContentDescription(r2, Engine.galleryNextButton)
+                    ?: findNodeByText(r2, Engine.galleryNextButton)
                 if (doneBtn != null) {
                     showDebugToast("✅ Bấm 'Tiếp'!")
                     Log.d(TAG, "Clicking gallery Done/Next")
@@ -1143,12 +1151,8 @@ class FbAutoService : AccessibilityService() {
             val cd = node.contentDescription?.toString()?.lowercase() ?: ""
             if ((cd.contains("photo") || cd.contains("\u1EA3nh") || cd.contains("ch\u1ECDn")) && 
                 node.isVisibleToUser && (node.isClickable || node.isCheckable || node.parent?.isClickable == true)) {
-                // Exclude buttons that falsely match (thu g\u1ECDn \u1EA3nh, ch\u1ECDn nhi\u1EC1u file, etc.)
-                if (!cd.contains("take") && !cd.contains("ch\u1EE5p") && !cd.contains("camera") &&
-                    !cd.contains("thu g\u1ECDn") && !cd.contains("ch\u1ECDn nhi\u1EC1u") && !cd.contains("th\u00EAm v\u00E0o") &&
-                    !cd.contains("collapse") && !cd.contains("select multiple") &&
-                    !cd.contains("th\u01B0 vi\u1EC7n") && !cd.contains("library") && !cd.contains("pictures") &&
-                    !cd.contains("album") && !cd.contains("video")) {
+                // OTA-configurable exclusion list - update via server, no APK rebuild
+                if (Engine.galleryExclude.none { cd.contains(it) }) {
                     list.add(AccessibilityNodeInfo.obtain(node))
                 }
             } else if (node.className?.toString() == "android.widget.CheckBox" && node.isVisibleToUser) {
