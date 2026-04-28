@@ -1575,6 +1575,20 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
         if (visible.isEmpty()) {
             Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { Text("Chưa có bài mẫu.") }
         } else {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val allVisibleIds = visible.map { it.id }.toSet()
+                val allSelected = allVisibleIds.all { selectedArticleIds.contains(it) }
+                OutlinedButton(onClick = {
+                    val newSet = selectedArticleIds.toMutableSet()
+                    if (allSelected) newSet.removeAll(allVisibleIds) else newSet.addAll(allVisibleIds)
+                    selectedArticleIds = newSet
+                    prefs.edit().putString("selected_article_ids", newSet.joinToString(",")).apply()
+                    onSettingsChanged()
+                }, modifier = Modifier.weight(1f)) {
+                    Text(if (allSelected) "❌ Bỏ chọn tất cả" else "✅ Chọn tất cả (${visible.size})")
+                }
+                Text("\uD83D\uDCCB Đã chọn: ${selectedArticleIds.size}/${articles.size}", style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.align(Alignment.CenterVertically))
+            }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(visible, key = { it.id }) { art ->
                     ElevatedCard(Modifier.fillMaxWidth()) {
