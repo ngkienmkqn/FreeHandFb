@@ -1,71 +1,132 @@
-# 📱 C2 Auto-Interaction Farm (Phone Farm)
+# 📱 FreeHand (C2 Auto-Interaction Farm) - Master Documentation
 
-## Giới Thiệu
-Hệ thống Automation "cày cmt/like" theo mô hình **Command and Control (C2)** tiên tiến nhất. Cấu trúc hệ thống bao gồm một Trạm Điều Khiển (Server) quản lý toàn bộ một tập hợp lớn các Thiết Bị Di Động (Worker Nodes) để thực hiện các thao tác trên mạng xã hội Facebook hoàn toàn ẩn danh, chạy ngầm dưới background, bảo vệ 100% tài khoản.
+> **LƯU Ý DÀNH CHO AI AGENTS VÀ DEVELOPERS:** Tài liệu này được thiết kế theo cấu trúc Context-Rich nhằm cung cấp toàn bộ bối cảnh hệ thống, cấu trúc thư mục, quy trình deploy và khóa SSH bảo mật. Khi đọc tài liệu này, bạn phải tuân thủ nghiêm ngặt các quy tắc kiến trúc đã được định hình.
 
-## 🏗️ Kiến Trúc Hệ Thống (Architecture)
-
-### 1. Central Server (VPS / Cloud) - Thư mục \`server/\`
-- **Công nghệ:** Node.js, Express, Socket.io
-- **Nhiệm vụ:** Hoạt động như trạm chỉ huy. Giao diện Web Dashboard dùng để theo dõi bao nhiêu điện thoại đang cắm Tool, truyền lệnh chứa Link bài viết bài nội dung Comment xuống tất cả các thiết bị.
-
-### 2. Client Node (Android App) - Thư mục \`mobile-client/\`
-- **Công nghệ:** React Native (Expo), WebView, Socket.io-client
-- **Nhiệm vụ:**
-  - Nhúng trình duyệt ẩn (WebView) lưu lại Cookie và Fingerprint thật của điện thoại để bypass AI Facebook.
-  - Kết nối vĩnh viễn với Server qua WebSockets.
-  - Nhận lệnh -> Tải link -> Bơm Javascript Injection vào trang `mbasic.facebook.com` để tự động click Like và nhập Form Bình Luận một cách trơn tru ở chế độ ngầm.
+## 1. Tổng Quan Dự Án (Project Overview)
+- **Tên dự án**: FreeHandFb (Trước đây là Comment Helper)
+- **Mục tiêu**: Một hệ thống Command and Control (C2) Phone Farm. Hệ thống này điều phối hàng loạt các thiết bị Android vật lý để thực hiện các thao tác tương tác trên Facebook (Like, Comment, Đăng Bài Group) một cách hoàn toàn tự động, chạy ngầm (Headless) dựa trên `Android Accessibility Services`.
+- **Cơ chế an toàn**: Hoàn toàn **KHÔNG** sử dụng WebView, **KHÔNG** cắm API Token, **KHÔNG** dùng DOM Scraping bằng JS. Hệ thống mô phỏng thao tác vuốt chạm vật lý trực tiếp trên ứng dụng Facebook gốc (Katana/Lite) nhằm vượt qua 100% thuật toán chống Bot của Meta.
+- **Quản lý mã nguồn (VCS)**: GitHub Private Repository tại `https://github.com/ngkienmkqn/FreeHandFb.git`. Branch chính: `main`. Local path (Google Drive Sync): `g:\Other computers\My Computer\antigravity\FreeHandFb`.
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt (Deployment Guide)
+## 2. Kiến Trúc Hệ Thống & Tech Stack (Architecture)
 
-### Môi trường Local (Máy chạy Windows)
-1. Dựng Server: `cd server && npm install && node index.js`
-2. Dựng App Expo: Vào thư mục `mobile-client`, thiết lập `npx create-expo-app` sau đó ném file `App.js` vào để chạy `npx expo start`.
-
-### Môi trường VPS Ubuntu (Cloud Deployment)
-
-**Bước 1: Setup Keys để SSH không cần mật khẩu**
-Hệ thống đã gen sẵn key tại thư mục `deploy/`. Anh copy toàn bộ nội dung file `vps_key.pub` rồi lên VPS chạy lệnh:
-```bash
-mkdir -p ~/.ssh && echo "NỘI DUNG FILE PUB KEY VÀO ĐÂY" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  VPS Cloud (dt.ungthien.com:3000)               │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  server/index.js  (Node.js + Express - Monolith API)     │  │
+│  │  ├── REST: /api/login, /api/me, /api/posts, /api/articles│  │
+│  │  ├── OTA:  /api/engine/script?version=xxx                │  │
+│  │  │         /api/engine/scripts (danh sách phiên bản)     │  │
+│  │  ├── Data: server/data/*.json (users, posts, articles)   │  │
+│  │  └── Web:  server/public/admin.html (Admin Dashboard)    │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│         ▲ HTTP REST (Bearer Token Auth)    ▲                    │
+└─────────┼──────────────────────────────────┼────────────────────┘
+          │                                  │
+    ┌─────┴──────┐                    ┌──────┴─────┐
+    │ Android #1 │                    │ Android #N │
+    │ FbAutoSvc  │        ...        │ FbAutoSvc  │
+    │ (Kotlin)   │                    │ (Kotlin)   │
+    └────────────┘                    └────────────┘
 ```
 
-**Bước 2: Cài đặt Nodejs & PM2**
-```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-npm install -g pm2
-```
+### A. Central Server (VPS / Cloud) — Thư mục `server/`
+- **Vai trò**: Trạm Chỉ Huy Trung Tâm (The Brain). Cung cấp REST API cho dàn Android và giao diện Web Dashboard cho Admin.
+- **Công nghệ**: `Node.js v20+`, `Express`, `HTML/Vanilla CSS` (Thiết kế PWA Glassmorphism). Không sử dụng Webpack/Vite để giữ sự tối giản và khả năng hot-edit trực tiếp trên server.
+- **File chính**: `server/index.js` — tệp backend nguyên khối (monolith) xử lý toàn bộ logic API, phân quyền Admin/User, và I/O dữ liệu JSON.
+- **Web Dashboard**: `server/public/admin.html` — giao diện Admin quản lý thành viên, duyệt nhóm gợi ý, duyệt bài mẫu và cấu hình hạn mức.
+- **Tính năng Cốt lõi**:
+  - **REST Endpoints**: `/api/login`, `/api/me` (GET/PUT sync cấu hình), `/api/posts`, `/api/posts/bulk`, `/api/articles`, `/api/templates`, `/api/suggested-groups`.
+  - **Over-The-Air (OTA) Multi-Version Scripting**: 
+    - `GET /api/engine/scripts` → trả danh sách tất cả các phiên bản script đã đánh số (VD: `v1.0.1_OTA_VPS`, `v1.1.0_OTA_VPS`) kèm con trỏ `latest`.
+    - `GET /api/engine/script?version=xxx` → trả nội dung JSON Anchors của phiên bản được chỉ định. Nếu `version=latest` hoặc bỏ trống, trả phiên bản mới nhất.
+    - JSON Anchors bao gồm: `wrong_screen`, `block_dialog`, `group_join`, `dead_link`, `compose_button`, `post_button`, `comment_button`, `send_comment`, `photo_button`.
+    - **Khi Facebook đổi giao diện**: Chỉ cần thêm version mới vào object `ENGINE_SCRIPTS.versions` trong `server/index.js`, cập nhật trường `latest`, rồi `pm2 restart C2-Dashboard`. Toàn bộ máy Android sẽ tự động nhận script mới mà không cần build lại APK.
+    - **Khi cần Rollback**: Người dùng vào Cài đặt App → OTA Accessibility Engine → Dropdown chọn lại phiên bản cũ → bấm Sync.
+  - **Data Persistence**: Lưu trữ dữ liệu bằng file JSON phẳng (`users.json`, `posts.json`, `articles.json`) tại thư mục `server/data/`. Không dùng database.
+  - **Universal Cloud Synchronization**: Cấu hình của app điện thoại (`SharedPreferences` như SĐT, Zalo, Lịch hẹn giờ, Bài viết Spintax đã chọn) được đồng bộ hóa toàn diện vào `user.settings` trên VPS qua `PUT /api/me`. Khi cài lại thiết bị, chế độ **Zero-Touch Recovery** tự động pull `GET /api/me` lấy lại cấu hình.
 
-**Bước 3: Đẩy Code và Chạy Runtime 24/24**
-Đẩy thư mục `server/` từ máy tính lên VPS. Trong thư mục server trên VPS:
-```bash
-npm install
-pm2 start index.js --name "C2-Dashboard"
-pm2 save
-pm2 startup
-```
-🚀 Server sẽ luôn chạy ngay cả khi VPS reset! Mở port 3000 để truy cập. Dưới App chỉ cần đổi IP thành IP của cái VPS là hệ thống kết nối thành công.
+### B. Client Node (Native Android App) — Thư mục `app/`
+- **Vai trò**: Máy Cày (The Worker). Ứng dụng chạy nền, thu nhận lệnh và thực thi trên điện thoại.
+- **Công nghệ**: `Kotlin`, `Jetpack Compose` (UI), `Android AccessibilityService`, `AlarmManager`, `Coroutines`.
+- **Files chính**:
+  - `app/src/main/java/com/example/commenthelper/MainActivity.kt` — Toàn bộ UI Jetpack Compose (Dashboard, Cài đặt, Spintax Composer). Xử lý chu trình `syncWithServer()`, lưu trữ Token, và đồng bộ Cloud.
+  - `app/src/main/java/com/example/commenthelper/FbAutoService.kt` — Trái tim của kịch bản Auto. Chứa State Machine phân tích màn hình (`Step.LOOKING_FOR_COMPOSER`, `Step.LOOKING_FOR_LIKE`, v.v..) và singleton `Engine` object nạp Text Anchors từ OTA Server qua `Engine.load()`.
+  - `app/src/main/java/com/example/commenthelper/AutoPublishWorker.kt` — Tạo gói dữ liệu `TaskItem` (bài viết, link hình) và kích hoạt `FbAutoService` chạy trong nền.
+- **Tính năng Cốt lõi**:
+  - **Headless Execution**: `AlarmManager` đánh thức điện thoại định kỳ theo phút (cấu hình được). App tự động bật sáng màn hình (WakeLock) và thực thi.
+  - **OTA Version Selector**: Dropdown trong Settings UI cho phép user chọn phiên bản Script OTA cụ thể (mặc định `latest`). Giá trị lưu tại `SharedPreferences["selected_ota_version"]`, được truyền qua query param khi gọi API.
+  - **Spintax Engine**: Trình soạn thảo trực quan hỗ trợ biến `{PHONE}`, `{ZALO}` và spin `{A|B|C}` ngay trên thiết bị.
+  - **Auto Image Picker**: Tự động lưu hình vào `MediaStore` rồi dùng Accessibility chọc vào Android Gallery.
+  - **DOM Interceptor & Safety**: Quét bố cục màn hình để phát hiện cửa sổ chặn (Action Block), Dead Links, hoặc màn hình lạ (Share Sheet/Messenger) để tự động Halt, bảo vệ tài khoản.
 
 ---
 
-## 📸 3. Mô-đun Quản Lý Homestay (Zalo Caching Crawler)
-- **Công cụ:** `group_selector.js` (Web UI Môi giới) & `homestay_extractor.js` (Lõi xử lý JXL).
-- **Quy trình:**
-  - Bỏ qua API Zalo chính thức (tránh bị khoá tài khoản).
-  - Web UI (Port 3005) quét toàn bộ ổ cứng để lôi ra các `_group` bị ẩn và cho người dùng chọn bằng mắt.
-  - Lõi Node.js phân tích siêu dữ liệu thời gian (`mtimeMs` < 120s) để bó những bức hình ghim chung với nhau thành các Album độc lập (3-15 ảnh/album).
-  - Tích hợp công cụ `djxl` để De-compress tệp JXL ẩn của Zalo Desktop siêu nén 40KB lại thành file Web chuẩn.
+## 3. Cấu Trúc Thư Mục Chi Tiết (Directory Layout)
+
+```
+FreeHandFb/
+├── app/                                    # Android App (Kotlin + Jetpack Compose)
+│   ├── build.gradle.kts                    # Android dependencies & SDK config
+│   └── src/main/
+│       ├── AndroidManifest.xml             # Permissions & Accessibility declaration
+│       └── java/com/example/commenthelper/
+│           ├── MainActivity.kt             # ★ UI + Sync + Cloud Settings (Compose)
+│           ├── FbAutoService.kt            # ★ Accessibility Engine + OTA Anchors
+│           └── AutoPublishWorker.kt        # ★ Background task scheduler
+├── server/                                 # VPS Backend (Node.js)
+│   ├── index.js                            # ★ Monolith API (Express + OTA Engine)
+│   ├── package.json                        # Node dependencies
+│   ├── data/                               # Persistent JSON storage (auto-created)
+│   │   ├── users.json
+│   │   ├── posts.json
+│   │   └── articles.json
+│   └── public/                             # Static web files
+│       └── admin.html                      # ★ Admin Dashboard (Glassmorphism PWA)
+├── docs/
+│   └── README.md                           # ← Bạn đang đọc file này
+├── .gitignore
+└── gradle/                                 # Gradle wrapper
+```
 
 ---
 
-## 🔑 4. Cấu hình bảo mật Cloud (TrumVPS SSH)
-Theo yêu cầu Developer hand-off, dưới đây là Private Key duy nhất dùng để Remote trực tiếp vào hệ thống Cloud `dt.ungthien.com`.
+## 4. Quản Lý Triển Khai & Server (Deployment & SSH)
 
-**SSH Key (Ed25519 - TrumVPS / Deploy Key)**
-\`\`\`text
+| Thông tin | Giá trị |
+|-----------|---------|
+| **Domain/IP** | `dt.ungthien.com` |
+| **Port** | `3000` (API & WebApp) |
+| **Process Manager** | `PM2` (tên: `C2-Dashboard`) |
+| **Đường dẫn code trên VPS** | `/root/server/` |
+| **GitHub Repo** | `https://github.com/ngkienmkqn/FreeHandFb.git` (Private) |
+| **Branch** | `main` |
+
+### Quy trình Deploy lên VPS
+```bash
+# 1. SSH vào server
+ssh -i ~/.ssh/id_ed25519 root@dt.ungthien.com
+
+# 2. Pull code mới từ GitHub (nếu đã clone)
+cd /root/server && git pull origin main
+
+# 3. Hoặc copy thủ công từ local
+scp -i ~/.ssh/id_ed25519 -r ./server/* root@dt.ungthien.com:/root/server/
+
+# 4. Restart service
+pm2 restart C2-Dashboard
+
+# 5. Xem logs nếu cần debug
+pm2 logs C2-Dashboard --lines 50
+```
+
+### Thông tin chứng thực SSH (Dành cho Cập Nhật tự động)
+Để AI Agents hoặc Developer truy cập và deploy code lên máy chủ Cloud `dt.ungthien.com`, sử dụng **Ed25519 Private Key** (quyền root) dưới đây:
+
+```text
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
 QyNTUxOQAAACBZRuU9+SFB0s90uPMGCuBddTGhOq5lwm2v25alICPnOQAAAJA/MDPNPzAz
@@ -73,6 +134,56 @@ zQAAAAtzc2gtZWQyNTUxOQAAACBZRuU9+SFB0s90uPMGCuBddTGhOq5lwm2v25alICPnOQ
 AAAEDPknHep38u8c8z6QnMD1Vm6s3USldnnPknpp4vYb4HyVlG5T35IUHSz3S48wYK4F11
 MaE6rmXCba/blqUgI+c5AAAADHZwcy1jMi1hZG1pbgE=
 -----END OPENSSH PRIVATE KEY-----
-\`\`\`
+```
 
-> ⚠️ Vui lòng sao chép đoạn Key trên lưu dưới định dạng tệp `id_ed25519` để sử dụng cùng MobaXTerm hoặc Terminal: `ssh -i id_ed25519 root@dt.ungthien.com`
+**Cách sử dụng:**
+1. Lưu nội dung trên vào tệp `~/.ssh/id_ed25519`.
+2. `chmod 600 ~/.ssh/id_ed25519`
+3. `ssh -i ~/.ssh/id_ed25519 root@dt.ungthien.com`
+
+---
+
+## 5. API Reference (Tóm tắt)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| POST | `/api/login` | Đăng nhập (username/password) → trả Bearer token |
+| GET | `/api/me` | Lấy profile + settings người dùng |
+| PUT | `/api/me` | Cập nhật settings (SĐT, Zalo, lịch hẹn giờ...) |
+| GET | `/api/posts` | Danh sách bài cần tương tác |
+| POST | `/api/posts/bulk` | Thêm nhiều bài viết cùng lúc |
+| POST | `/api/posts/:id/done` | Đánh dấu bài viết đã xong |
+| GET | `/api/templates` | Danh sách comment template |
+| GET | `/api/articles` | Danh sách bài mẫu Spintax |
+| POST | `/api/articles` | Gửi bài mẫu mới (user đóng góp) |
+| GET | `/api/suggested-groups` | Danh sách nhóm gợi ý (đã duyệt) |
+| GET | `/api/engine/scripts` | Danh sách tất cả phiên bản OTA Script |
+| GET | `/api/engine/script?version=xxx` | Tải nội dung Anchors theo phiên bản |
+
+---
+
+## 6. Sổ tay Quy trình (Developer Workflows)
+
+### Workflow 1: Facebook đổi tên nút bấm (VD: "Đăng" → "Chia sẻ")
+1. **KHÔNG CẦN BUILD LẠI APK**.
+2. Mở `server/index.js`, tìm object `ENGINE_SCRIPTS`.
+3. Tạo phiên bản mới trong `versions` (VD: `"v1.2.0_OTA_VPS": {...}`).
+4. Cập nhật trường `latest` trỏ đến version mới.
+5. `pm2 restart C2-Dashboard` → Toàn bộ điện thoại nhận script mới khi Sync!
+
+### Workflow 2: Thay đổi Logic UI trên Android
+1. Chỉnh sửa `MainActivity.kt` hoặc `FbAutoService.kt` trong Android Studio.
+2. Build → Generate Signed APK.
+3. Gửi file APK cho user cài lại.
+
+### Workflow 3: Push code lên GitHub
+```bash
+git add -A
+git commit -m "feat: mô tả thay đổi"
+git push origin main
+```
+
+### ⚠️ Quy tắc kiến trúc bắt buộc
+- **KHÔNG** được dùng `ACTION_SEND` intent vì sẽ kẹt ở màn hình chọn nhóm.
+- Cốt lõi công nghệ: nhảy thẳng vào FB App (Katana) rồi cho Accessibility chọc trực tiếp vào `AccessibilityNodeInfo.ACTION_CLICK`. **Bảo tồn cấu trúc này.**
+- Mọi text anchor (nút bấm, dialog chặn, v.v.) phải được quản lý qua OTA `Engine` object, **KHÔNG hardcode** trong Kotlin.

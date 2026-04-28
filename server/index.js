@@ -500,7 +500,8 @@ app.get('/api/me', authMiddleware, (req, res) => {
 
     res.json({
         id: user.id, username: user.username, group: user.group, role: user.role,
-        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || ''
+        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '',
+        settings: user.settings || {}
     });
 });
 
@@ -508,11 +509,15 @@ app.put('/api/me', authMiddleware, (req, res) => {
     const user = users.find(u => u.username === req.user.username);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { phone, zaloLink } = req.body;
+    const { phone, zaloLink, settings } = req.body;
     const changes = [];
     
     if (phone !== undefined && phone !== user.phone) { changes.push(`SĐT: ${user.phone||'[Trống]'} -> ${phone}`); user.phone = phone; }
     if (zaloLink !== undefined && zaloLink !== user.zaloLink) { changes.push(`Zalo: ${user.zaloLink||'[Trống]'} -> ${zaloLink}`); user.zaloLink = zaloLink; }
+    if (settings !== undefined) {
+        user.settings = { ...(user.settings || {}), ...settings };
+        if (!changes.includes("Cập nhật Cloud Settings")) changes.push("Cập nhật Cloud Settings");
+    }
     
     if (changes.length > 0) {
         if (!user.history) user.history = [];
@@ -523,7 +528,8 @@ app.put('/api/me', authMiddleware, (req, res) => {
     
     res.json({
         id: user.id, username: user.username, group: user.group, role: user.role,
-        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || ''
+        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '',
+        settings: user.settings || {}
     });
 });
 
@@ -555,16 +561,28 @@ app.put('/api/config/comments', authMiddleware, adminOnly, (req, res) => {
 
 // Articles (Bài viết mẫu) API
 app.get('/api/articles', authMiddleware, (req, res) => {
-    res.json(articles);
+    if (req.user.role === 'admin') return res.json(articles);
+    const visible = articles.filter(a => 
+        (a.scope === 'personal' && a.addedBy === req.user.username) || 
+        (a.scope !== 'personal' && a.status === 'approved') || 
+        // Migrate legacy ones without scope/status transparently
+        (!a.scope && !a.status)
+    );
+    res.json(visible);
 });
 
 app.post('/api/articles', authMiddleware, (req, res) => {
-    const { category, title, content, images, base64Images } = req.body;
+    const { category, title, content, images, base64Images, scope } = req.body;
     let finalImages = images || [];
     if (base64Images && Array.isArray(base64Images)) {
         base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("http://dt.ungthien.com" + u); });
     }
-    const article = { id: genId(), category, title, content, images: finalImages, createdAt: Date.now() };
+    const finalScope = scope === 'personal' ? 'personal' : 'global';
+    const status = (finalScope === 'personal' || req.user.role === 'admin') ? 'approved' : 'pending';
+    const article = { 
+        id: genId(), category, title, content, images: finalImages, 
+        createdAt: Date.now(), addedBy: req.user.username, scope: finalScope, status 
+    };
     articles.push(article);
     saveJson(ARTICLES_FILE, articles);
     res.json(article);
@@ -573,18 +591,32 @@ app.post('/api/articles', authMiddleware, (req, res) => {
 app.put('/api/articles/:id', authMiddleware, adminOnly, (req, res) => {
     const idx = articles.findIndex(a => a.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: 'Not found' });
-    const { category, title, content, images, base64Images } = req.body;
-    let finalImages = images || [];
+    const { category, title, content, images, base64Images, status, scope } = req.body;
+    let finalImages = images || articles[idx].images || [];
     if (base64Images && Array.isArray(base64Images)) {
         base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("http://dt.ungthien.com" + u); });
     }
-    articles[idx] = { ...articles[idx], category, title, content, images: finalImages, id: req.params.id };
+    articles[idx] = { 
+        ...articles[idx], 
+        category: category || articles[idx].category, 
+        title: title || articles[idx].title, 
+        content: content || articles[idx].content, 
+        images: finalImages, 
+        status: status || articles[idx].status,
+        scope: scope || articles[idx].scope,
+        id: req.params.id 
+    };
     saveJson(ARTICLES_FILE, articles);
     res.json(articles[idx]);
 });
 
-app.delete('/api/articles/:id', authMiddleware, adminOnly, (req, res) => {
-    articles = articles.filter(a => a.id !== req.params.id);
+app.delete('/api/articles/:id', authMiddleware, (req, res) => {
+    const idx = articles.findIndex(a => a.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    if (req.user.role !== 'admin' && !(articles[idx].addedBy === req.user.username && articles[idx].scope === 'personal')) {
+        return res.status(403).json({ error: 'Admin only' });
+    }
+    articles.splice(idx, 1);
     saveJson(ARTICLES_FILE, articles);
     res.json({ ok: true });
 });
@@ -667,6 +699,53 @@ function saveBase64Image(dataStr) {
         return `/uploads/${fileName}`; // Changed to relative server path
     } catch(e) { return null; }
 }
+
+/* ================== OTA SCRIPT ENGINE ================== */
+
+// OTA Script parameters dictating dynamic Android Accessibility heuristics
+const ENGINE_SCRIPTS = {
+    latest: "v1.1.0_OTA_VPS",
+    versions: {
+        "v1.0.1_OTA_VPS": {
+            wrong_screen: ["gửi bằng messenger", "gửi trong messenger", "chia sẻ lên tin", "share to story", "gửi cho", "tìm kiếm người", "search people"],
+            block_dialog: ["bạn đang tạm thời bị chặn", "tài khoản của bạn bị hạn chế", "you can't post right now", "temporarily blocked", "restricted"],
+            group_join: ["tham gia nhóm", "join group"],
+            questionnaire_submit: ["gửi", "đồng ý", "submit", "i agree"],
+            dead_link: ["không khả dụng", "không tồn tại", "đã bị gỡ", "content isn't available", "content not found"],
+            compose_button: ["bài viết mới...", "viết gì đó...", "bạn đang nghĩ gì", "tạo bài viết", "write something", "what's on your mind", "create post"],
+            post_button: ["đăng", "post"],
+            comment_button: ["bình luận", "comment"],
+            send_comment: ["gửi", "send"],
+            photo_button: ["ảnh/video", "photo/video", "thêm vào bài viết", "add to your post", "ảnh", "photo"]
+        },
+        "v1.1.0_OTA_VPS": {
+            wrong_screen: ["gửi bằng messenger", "gửi trong messenger", "chia sẻ lên tin", "share to story", "gửi cho", "tìm kiếm người", "search people"],
+            block_dialog: ["bạn đang tạm thời bị chặn", "tài khoản của bạn bị hạn chế", "you can't post right now", "temporarily blocked", "restricted"],
+            group_join: ["tham gia nhóm", "join group", "gia nhập nhóm"],
+            questionnaire_submit: ["gửi", "đồng ý", "submit", "i agree"],
+            dead_link: ["không khả dụng", "không tồn tại", "đã bị gỡ", "content isn't available", "content not found"],
+            compose_button: ["bài viết mới...", "viết gì đó...", "bạn đang nghĩ gì", "tạo bài viết", "write something", "what's on your mind", "create post"],
+            post_button: ["đăng", "post"],
+            comment_button: ["bình luận", "comment"],
+            send_comment: ["gửi", "send"],
+            photo_button: ["ảnh/video", "photo/video", "thêm vào bài viết", "add to your post", "ảnh", "photo"]
+        }
+    }
+};
+
+app.get('/api/engine/scripts', (req, res) => {
+    res.json({
+        latest: ENGINE_SCRIPTS.latest,
+        available: Object.keys(ENGINE_SCRIPTS.versions)
+    });
+});
+
+app.get('/api/engine/script', (req, res) => {
+    let v = req.query.version || "latest";
+    if (v === "latest") v = ENGINE_SCRIPTS.latest;
+    const script = ENGINE_SCRIPTS.versions[v] || ENGINE_SCRIPTS.versions[ENGINE_SCRIPTS.latest];
+    res.json({ version: v, anchors: script });
+});
 
 /* ================== MIDDLEWARE ================== */
 

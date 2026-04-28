@@ -90,7 +90,10 @@ data class Article(
     val category: String,
     val title: String,
     val content: String,
-    val images: List<String>
+    val images: List<String>,
+    val scope: String = "global",
+    val status: String = "approved",
+    val addedBy: String = ""
 )
 
 data class SuggestedGroup(val id: String, val name: String, val memberCount: String, val url: String, val addedBy: String)
@@ -211,7 +214,10 @@ private fun parseServerArticles(json: String): List<Article> {
             Article(
                 id = o.getString("id"), category = o.getString("category"),
                 title = o.getString("title"), content = o.getString("content"),
-                images = imgs
+                images = imgs,
+                scope = o.optString("scope", "global"),
+                status = o.optString("status", "approved"),
+                addedBy = o.optString("addedBy", "")
             )
         }
     } catch (e: Exception) { emptyList() }
@@ -597,10 +603,21 @@ fun MainApp(
                     role = j.getString("role")
                     val phone = j.optString("phone", "")
                     val zalo = j.optString("zaloLink", "")
-                    prefs.edit()
-                        .putString(KEY_PHONE, phone)
-                        .putString(KEY_ZALO, zalo)
-                        .apply()
+                    val e = prefs.edit()
+                    e.putString(KEY_PHONE, phone).putString(KEY_ZALO, zalo)
+                    
+                    val settings = j.optJSONObject("settings")
+                    if (settings != null) {
+                        if (settings.has("start_active_hour")) e.putInt("start_active_hour", settings.getInt("start_active_hour"))
+                        if (settings.has("end_active_hour")) e.putInt("end_active_hour", settings.getInt("end_active_hour"))
+                        if (settings.has("block_timeout_hours")) e.putInt("block_timeout_hours", settings.getInt("block_timeout_hours"))
+                        if (settings.has("notify_interval")) e.putInt("notify_interval", settings.getInt("notify_interval"))
+                        if (settings.has("autowake_interval_hours")) e.putInt("autowake_interval_hours", settings.getInt("autowake_interval_hours"))
+                        if (settings.has("autopublish_interval_minutes")) e.putInt("autopublish_interval_minutes", settings.getInt("autopublish_interval_minutes"))
+                        if (settings.has("publish_groups")) e.putString("publish_groups", settings.getString("publish_groups"))
+                        if (settings.has("selected_article_ids")) e.putString("selected_article_ids", settings.getString("selected_article_ids"))
+                    }
+                    e.apply()
                 } catch (_: Exception) {}
             }
 
@@ -609,11 +626,17 @@ fun MainApp(
             val (ac, ab) = httpReq("$SERVER_URL/api/articles", token = authToken)
             val (sgc, sgb) = httpReq("$SERVER_URL/api/suggested-groups", token = authToken)
 
+            val selectedOta = prefs.getString("selected_ota_version", "latest") ?: "latest"
+            val (ecList, ebList) = httpReq("$SERVER_URL/api/engine/scripts", token = authToken)
+            val (ec, eb) = httpReq("$SERVER_URL/api/engine/script?version=$selectedOta", token = authToken)
+
             if (pc == 401) { onLogout(); return@launch }
 
             if (pc == 200 && pb != null) { posts = parseServerPosts(pb, username); savePosts(prefs, posts) }
             if (tc == 200 && tb != null) { templates = parseServerTemplates(tb); saveTemplates(prefs, templates) }
             if (ac == 200 && ab != null) { articles = parseServerArticles(ab) }
+            if (ecList == 200 && ebList != null) { prefs.edit().putString("ota_available_versions", ebList).apply() }
+            if (ec == 200 && eb != null) { prefs.edit().putString("engine_script", eb).apply() }
             if (sgc == 200 && sgb != null) {
                 try {
                     val arr = JSONObject(sgb).optJSONArray("approved")
@@ -707,6 +730,28 @@ fun MainApp(
         }
     }
 
+    fun pushSettingsToServer() {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val json = JSONObject()
+                val setList = JSONObject()
+                setList.put("start_active_hour", prefs.getInt("start_active_hour", 7))
+                setList.put("end_active_hour", prefs.getInt("end_active_hour", 23))
+                setList.put("block_timeout_hours", prefs.getInt("block_timeout_hours", 24))
+                setList.put("notify_interval", prefs.getInt("notify_interval", 0))
+                setList.put("autowake_interval_hours", prefs.getInt("autowake_interval_hours", 0))
+                setList.put("autopublish_interval_minutes", prefs.getInt("autopublish_interval_minutes", 0))
+                setList.put("publish_groups", prefs.getString("publish_groups", ""))
+                setList.put("selected_article_ids", prefs.getString("selected_article_ids", ""))
+                
+                json.put("settings", setList)
+                json.put("phone", prefs.getString(KEY_PHONE, ""))
+                json.put("zaloLink", prefs.getString(KEY_ZALO, ""))
+                httpReq("$SERVER_URL/api/me", "PUT", json.toString(), authToken)
+            } catch (_: Exception) {}
+        }
+    }
+
     LaunchedEffect(isServiceEnabled) { if (!isServiceEnabled) showPermissionDialog = true }
 
     Scaffold(
@@ -769,25 +814,27 @@ fun MainApp(
                     onStopAuto = { FbAutoService.instance?.stopProcessing() }
                 )
                 1 -> TemplatesScreen(templates, authToken, onRefresh = { syncWithServer() })
-                2 -> ArticlesScreen(articles, suggestedGroups, prefs, authToken)
+                2 -> ArticlesScreen(articles, suggestedGroups, prefs, authToken, onSettingsChanged = { pushSettingsToServer() })
                 3 -> LeaderboardScreen(authToken)
                 4 -> SettingsScreen(isSyncing, lastSyncStatus, isServiceEnabled,
                     startActiveHour = prefs.getInt("start_active_hour", 7),
-                    onStartActiveHourChange = { v -> prefs.edit().putInt("start_active_hour", v).apply() },
+                    onStartActiveHourChange = { v -> prefs.edit().putInt("start_active_hour", v).apply(); pushSettingsToServer() },
                     endActiveHour = prefs.getInt("end_active_hour", 23),
-                    onEndActiveHourChange = { v -> prefs.edit().putInt("end_active_hour", v).apply() },
+                    onEndActiveHourChange = { v -> prefs.edit().putInt("end_active_hour", v).apply(); pushSettingsToServer() },
                     notifyInterval = notifyInterval,
-                    onIntervalChange = { v -> notifyInterval = v; prefs.edit().putInt("notify_interval", v).apply() },
+                    onIntervalChange = { v -> notifyInterval = v; prefs.edit().putInt("notify_interval", v).apply(); pushSettingsToServer() },
                     autoWakeIntervalHours = autoWakeIntervalHours,
                     onAutoWakeIntervalChange = { v -> 
                         autoWakeIntervalHours = v
                         prefs.edit().putInt("autowake_interval_hours", v).apply()
+                        pushSettingsToServer()
                         AutoWakeReceiver.scheduleAutoWake(context, v)
                     },
                     autoPublishIntervalMinutes = autoPublishIntervalMinutes,
                     onAutoPublishIntervalChange = { v ->
                         autoPublishIntervalMinutes = v
                         prefs.edit().putInt("autopublish_interval_minutes", v).apply()
+                        pushSettingsToServer()
                         AutoPublishReceiver.schedule(context, v)
                     },
                     onTriggerNow = {
@@ -799,7 +846,8 @@ fun MainApp(
                     onTestNotify = { showNotification(context, "Test thông báo FreeHand thành công!\nHiện có ${posts.count { it.status == PostStatus.PENDING && it.addedBy != username }} bài đang PENDING.") },
                     onSync = { syncWithServer() },
                     onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
-                    prefs = prefs
+                    prefs = prefs,
+                    onExplicitSave = { pushSettingsToServer() }
                 )
             }
         }
@@ -1019,13 +1067,14 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
         confirmButton = { TextButton(onDismiss) { Text("Đóng") } })
 }
 
-@Composable fun SpintaxComposerDialog(onAdd: (String, String, String, List<String>, List<String>) -> Unit, onDismiss: () -> Unit) {
+@Composable fun SpintaxComposerDialog(onAdd: (String, String, String, List<String>, List<String>, String) -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var cat by remember { mutableStateOf("Chung") }
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
     var imageUrls by remember { mutableStateOf("") }
+    var scopeState by remember { mutableStateOf("global") }
 
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var isCompressing by remember { mutableStateOf(false) }
@@ -1057,6 +1106,16 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                             AsyncImage(model = uri, contentDescription = null, modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
                         }
                     }
+                }
+                
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = scopeState == "global", onCheckedChange = { if(it) scopeState = "global" })
+                    Text("Lưu làm Bài Chung (Gửi duyệt)", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = scopeState == "personal", onCheckedChange = { if(it) scopeState = "personal" })
+                    Text("Lưu nháp Cá nhân (Tự tôi dùng auto)", style = MaterialTheme.typography.bodyMedium)
                 }
 
                 Text(if (isCompressing) "Đang nén ảnh..." else "Công cụ Hỗ Trợ (Spintax):", style = MaterialTheme.typography.labelMedium)
@@ -1091,11 +1150,11 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                         }
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                             isCompressing = false
-                            onAdd(cat, title, content, imgs, base64List)
+                            onAdd(cat, title, content, imgs, base64List, scopeState)
                         }
                     }
                 }
-            }) { Text("Gửi Chờ Duyệt") }
+            }) { Text(if (scopeState == "global") "Gửi Chờ Duyệt" else "Lưu Bài Cá Nhân") }
         },
         dismissButton = { TextButton(enabled = !isCompressing, onClick = onDismiss) { Text("Huỷ") } }
     )
@@ -1145,7 +1204,7 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
     onTriggerNow: () -> Unit,
     onTestNotify: () -> Unit,
     onSync: () -> Unit, onRequestPermission: () -> Unit,
-    prefs: SharedPreferences
+    prefs: SharedPreferences, onExplicitSave: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var phone by remember { mutableStateOf(prefs.getString(KEY_PHONE, "") ?: "") }
@@ -1161,6 +1220,55 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 OutlinedTextField(value = phone, onValueChange = { phone = it; prefs.edit().putString(KEY_PHONE, it).apply() }, label = { Text("Số điện thoại của bạn") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = zalo, onValueChange = { zalo = it; prefs.edit().putString(KEY_ZALO, it).apply() }, label = { Text("Link Zalo của bạn") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = { onExplicitSave(); toast(context, "Đã lưu lên Cloud") }, modifier = Modifier.fillMaxWidth()) { Text("💾 Đồng bộ Cấu hình lên Cloud") }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        
+        val otaScript = prefs.getString("engine_script", "{}") ?: "{}"
+        val otaVersion = try { org.json.JSONObject(otaScript).optString("version", "Mặc định (Chưa tải OTA)") } catch(e: Exception) { "Không rõ" }
+        
+        val availableOtaStr = prefs.getString("ota_available_versions", "{}") ?: "{}"
+        var selectedOta by remember { mutableStateOf(prefs.getString("selected_ota_version", "latest") ?: "latest") }
+        var expandedOta by remember { mutableStateOf(false) }
+        val availableVersions = try { 
+            val j = org.json.JSONObject(availableOtaStr)
+            val arr = j.optJSONArray("available")
+            if (arr != null) {
+                val l = mutableListOf<String>("latest")
+                for (i in 0 until arr.length()) l.add(arr.getString(i))
+                l.distinct()
+            } else listOf("latest")
+        } catch(e: Exception) { listOf("latest") }
+
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("📡 OTA Accessibility Engine", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Phiên bản Script OTA đang chạy: ", style = MaterialTheme.typography.bodyMedium)
+                    Text(otaVersion, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(8.dp))
+                
+                Box {
+                    androidx.compose.material3.OutlinedButton(onClick = { expandedOta = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Chọn phiên bản Script (Tùy chọn): $selectedOta")
+                    }
+                    androidx.compose.material3.DropdownMenu(expanded = expandedOta, onDismissRequest = { expandedOta = false }) {
+                        availableVersions.forEach { v ->
+                            androidx.compose.material3.DropdownMenuItem(text = { Text(v) }, onClick = {
+                                selectedOta = v
+                                prefs.edit().putString("selected_ota_version", v).apply()
+                                expandedOta = false
+                                toast(context, "Đã lưu. Vui lòng bấm Sync để tải kịch bản mới.")
+                            })
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Các nút bấm trên màn hình Facebook được tải nối mạng trực tiếp từ máy chủ VPS. Cập nhật chữ từ Server không bắt buộc build lại App Android.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -1350,7 +1458,7 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
 /* ---------- ARTICLES TAB ---------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun ArticlesScreen(articles: List<Article>, suggestedGroups: List<SuggestedGroup>, prefs: SharedPreferences, authToken: String) {
+@Composable fun ArticlesScreen(articles: List<Article>, suggestedGroups: List<SuggestedGroup>, prefs: SharedPreferences, authToken: String, onSettingsChanged: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var filterCategory by remember { mutableStateOf<String?>(null) }
@@ -1362,13 +1470,13 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
 
     if (showSpintaxDialog) {
         SpintaxComposerDialog(
-            onAdd = { cat, title, content, imgs, b64s ->
+            onAdd = { cat, title, content, imgs, b64s, sc ->
                 showSpintaxDialog = false
                 scope.launch {
                     toast(context, "Đang tải ảnh lên máy chủ...")
                     val imgJsonArray = org.json.JSONArray(imgs).toString()
                     val b64JsonArray = org.json.JSONArray(b64s).toString()
-                    val body = """{"category":"${cat}","title":"${title}","content":"${content.replace("\"", "\\\"").replace("\n", "\\n")}","images":$imgJsonArray,"base64Images":$b64JsonArray}"""
+                    val body = """{"category":"${cat}","title":"${title}","content":"${content.replace("\"", "\\\"").replace("\n", "\\n")}","images":$imgJsonArray,"base64Images":$b64JsonArray,"scope":"$sc"}"""
                     val (code, _) = httpReq("$SERVER_URL/api/articles", "POST", body, authToken)
                     if (code in 200..299) toast(context, "Đã gửi bài mẫu thành công!")
                     else toast(context, "Lỗi khi gửi bài: $code")
@@ -1418,9 +1526,10 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
         }
 
         var groupLinks by remember { mutableStateOf(prefs.getString("publish_groups", "") ?: "") }
+        var selectedArticleIds by remember { mutableStateOf(prefs.getString("selected_article_ids", "")?.split(",")?.filter { it.isNotBlank() }?.toMutableSet() ?: mutableSetOf()) }
         OutlinedTextField(
             value = groupLinks,
-            onValueChange = { groupLinks = it; prefs.edit().putString("publish_groups", it).apply() },
+            onValueChange = { groupLinks = it; prefs.edit().putString("publish_groups", it).apply(); onSettingsChanged() },
             label = { Text("Link Nhóm Zalo/Facebook cần auto đăng bài (Mỗi dòng 1 link)") },
             modifier = Modifier.fillMaxWidth().height(90.dp),
             maxLines = 5,
@@ -1470,7 +1579,16 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
                 items(visible, key = { it.id }) { art ->
                     ElevatedCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
-                            Text("[${art.category}] ${art.title}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            val isPersonal = art.scope == "personal"
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isPersonal) {
+                                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(4.dp)) {
+                                        Text("Cá Nhân", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp), color=MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
+                                    Spacer(Modifier.width(6.dp))
+                                }
+                                Text("[${art.category}] ${art.title}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
                             Spacer(Modifier.height(4.dp))
                             Text(art.content, style = MaterialTheme.typography.bodyMedium)
                             Spacer(Modifier.height(8.dp))
@@ -1486,6 +1604,22 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
                                             modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp))
                                         )
                                     }
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().clickable {
+                                val newSet = selectedArticleIds.toMutableSet()
+                                if (selectedArticleIds.contains(art.id)) newSet.remove(art.id) else newSet.add(art.id)
+                                selectedArticleIds = newSet
+                                prefs.edit().putString("selected_article_ids", newSet.joinToString(",")).apply()
+                                onSettingsChanged()
+                            }) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal=8.dp, vertical=4.dp)) {
+                                    Checkbox(checked = selectedArticleIds.contains(art.id), onCheckedChange = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Gán vào Robot Auto (Hẹn Giờ)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(Modifier.weight(1f))
+                                    if (art.status == "pending") Text("⏳ Chờ Admin duyệt", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF59E0B))
                                 }
                             }
                             Spacer(Modifier.height(8.dp))

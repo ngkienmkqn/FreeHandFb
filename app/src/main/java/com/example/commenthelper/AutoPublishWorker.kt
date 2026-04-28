@@ -99,14 +99,29 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
         if (targetGroups.isEmpty()) return@withContext Result.success()
         val groupToPost = targetGroups.random()
 
-        // 4. Fetch Articles & Pick Random
+        // 4. Fetch Articles & Pick Explicit Selection
         val articlesRes = httpReq("$SERVER_URL/api/articles", "GET", null, token)
         if (articlesRes.first != 200 || articlesRes.second.isNullOrBlank()) return@withContext Result.retry()
+        
+        val selectedArticleIds = prefs.getString("selected_article_ids", "")?.split(",")?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
         
         try {
             val arr = JSONArray(articlesRes.second!!)
             if (arr.length() == 0) return@withContext Result.success()
-            val pick = arr.getJSONObject((0 until arr.length()).random())
+            
+            val validArticles = mutableListOf<JSONObject>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                if (selectedArticleIds.isEmpty() || selectedArticleIds.contains(obj.getString("id"))) {
+                    validArticles.add(obj)
+                }
+            }
+            if (validArticles.isEmpty()) {
+                Log.d("AutoPublishWorker", "Empty Matrix: No articles match explicit selected_article_ids. Halting publish pipeline.")
+                return@withContext Result.success()
+            }
+
+            val pick = validArticles.random()
             val content = pick.getString("content")
             
             val images = mutableListOf<String>()

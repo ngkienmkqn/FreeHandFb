@@ -56,6 +56,43 @@ class FbAutoService : AccessibilityService() {
         }
     }
 
+    object Engine {
+        var wrongScreen = listOf("gửi bằng messenger", "gửi trong messenger", "chia sẻ lên tin", "share to story", "gửi cho", "tìm kiếm người", "search people")
+        var blockDialog = listOf("bạn đang tạm thời bị chặn", "tài khoản của bạn bị hạn chế", "you can't post right now", "temporarily blocked", "restricted")
+        var groupJoin = listOf("tham gia nhóm", "join group")
+        var questionnaireSubmit = listOf("gửi", "đồng ý", "submit", "i agree")
+        var deadLink = listOf("không khả dụng", "không tồn tại", "đã bị gỡ", "content isn't available", "content not found")
+        var composeButton = listOf("bài viết mới...", "viết gì đó...", "bạn đang nghĩ gì", "tạo bài viết", "write something", "what's on your mind", "create post")
+        var postButton = listOf("đăng", "post")
+        var commentButton = listOf("bình luận", "comment")
+        var sendComment = listOf("gửi", "send")
+        var photoButton = listOf("ảnh/video", "photo/video", "thêm vào bài viết", "add to your post", "ảnh", "photo")
+
+        fun load(context: Context) {
+            try {
+                val script = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getString("engine_script", "{}") ?: "{}"
+                val j = org.json.JSONObject(script).optJSONObject("anchors") ?: return
+                
+                fun getList(key: String, default: List<String>): List<String> {
+                    val a = j.optJSONArray(key) ?: return default
+                    return (0 until a.length()).map { a.getString(it).lowercase() }
+                }
+
+                wrongScreen = getList("wrong_screen", wrongScreen)
+                blockDialog = getList("block_dialog", blockDialog)
+                groupJoin = getList("group_join", groupJoin)
+                questionnaireSubmit = getList("questionnaire_submit", questionnaireSubmit)
+                deadLink = getList("dead_link", deadLink)
+                composeButton = getList("compose_button", composeButton)
+                postButton = getList("post_button", postButton)
+                commentButton = getList("comment_button", commentButton)
+                sendComment = getList("send_comment", sendComment)
+                photoButton = getList("photo_button", photoButton)
+                Log.d(TAG, "OTA Engine loaded successfully. Version: ${org.json.JSONObject(script).optString("version", "Unknown")}")
+            } catch(e: Exception) { Log.e(TAG, "Failed loading OTA script", e) }
+        }
+    }
+
     data class TaskItem(
         val postId: String,
         val url: String,
@@ -93,6 +130,7 @@ class FbAutoService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Engine.load(this)
         Log.d(TAG, "Service connected")
     }
 
@@ -338,9 +376,7 @@ class FbAutoService : AccessibilityService() {
         val nodes = findAllNodes(root)
         val isWrongScreen = nodes.any { 
             val txt = it.text?.toString()?.lowercase() ?: ""
-            txt.contains("gửi bằng messenger") || txt.contains("gửi trong messenger") || 
-            txt.contains("chia sẻ lên tin") || txt.contains("share to story") ||
-            txt.contains("gửi cho") || txt.contains("tìm kiếm người") || txt.contains("search people")
+            Engine.wrongScreen.any { wrongStr -> txt.contains(wrongStr) }
         }
         if (isWrongScreen) {
             Log.w(TAG, "Intercepted Wrong Screen (Share/Messenger Sheet). Pressing BACK.")
@@ -351,10 +387,9 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun interceptBlockDialog(root: AccessibilityNodeInfo): Boolean {
-        val blockTexts = listOf("bạn đang tạm thời bị chặn", "tài khoản của bạn bị hạn chế", "you can't post right now", "temporarily blocked", "restricted")
         val isBlocked = findAllNodes(root).any { 
             val text = it.text?.toString()?.lowercase() ?: ""
-            blockTexts.any { blockTxt -> text.contains(blockTxt) }
+            Engine.blockDialog.any { blockTxt -> text.contains(blockTxt) }
         }
         if (isBlocked) {
             Log.w(TAG, "Facebook Block Detected! Enforcing Cooldown.")
@@ -384,7 +419,7 @@ class FbAutoService : AccessibilityService() {
         // 1. Click "Tham gia nhóm" (Join Group)
         val joinBtn = nodes.firstOrNull { 
             val txt = it.text?.toString()?.lowercase() ?: ""
-            (txt == "tham gia nhóm" || txt == "join group") && (it.isClickable || it.parent?.isClickable == true)
+            (Engine.groupJoin.contains(txt)) && (it.isClickable || it.parent?.isClickable == true)
         }
         if (joinBtn != null) {
             Log.d(TAG, "Intercepted Join Group Request")
@@ -393,12 +428,11 @@ class FbAutoService : AccessibilityService() {
         }
 
         // 2. Look for Questionnaire Items (Only fill if we see Submit buttons or Checkboxes)
-        val submitCanditates = listOf("gửi", "đồng ý", "submit", "i agree")
         val submitBtn = nodes.firstOrNull { 
             val txt = it.text?.toString()?.lowercase() ?: ""
             val cd = it.contentDescription?.toString()?.lowercase() ?: ""
-            ((submitCanditates.contains(txt)) && (it.isClickable || it.parent?.isClickable == true)) ||
-            ((submitCanditates.contains(cd)) && (it.isClickable || it.parent?.isClickable == true))
+            ((Engine.questionnaireSubmit.contains(txt)) && (it.isClickable || it.parent?.isClickable == true)) ||
+            ((Engine.questionnaireSubmit.contains(cd)) && (it.isClickable || it.parent?.isClickable == true))
         }
 
         val editTexts = nodes.filter { it.className?.toString() == "android.widget.EditText" }
@@ -439,13 +473,7 @@ class FbAutoService : AccessibilityService() {
     /* ================== DEAD LINK INTERCEPTOR ================== */
     private fun interceptDeadLink(root: AccessibilityNodeInfo): Boolean {
         // Detect "This content isn't available right now" / "Bài viết không khả dụng"
-        val isDead = findNodeByText(root, listOf(
-            "không khả dụng",
-            "không tồn tại",
-            "đã bị gỡ",
-            "content isn't available",
-            "content not found"
-        )) != null
+        val isDead = findNodeByText(root, Engine.deadLink) != null
 
         if (isDead) {
             Log.w(TAG, "DEAD LINK detected! Aborting interaction to preserve safety.")
@@ -694,8 +722,8 @@ class FbAutoService : AccessibilityService() {
 
     private fun handleLookingForPhotoButton() {
         val root = rootInActiveWindow ?: return
-        val photoBtn = findNodeByContentDescription(root, listOf("photo", "video", "ảnh", "video"))
-            ?: findNodeByHint(root, listOf("photo", "ảnh", "video"))
+        val photoBtn = findNodeByContentDescription(root, Engine.photoButton)
+            ?: findNodeByHint(root, Engine.photoButton)
 
         if (photoBtn != null) {
             Log.d(TAG, "Found Photo Picker trigger")
@@ -881,18 +909,13 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun findCommentInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val hints = listOf(
-            "write a comment", "viết bình luận",
-            "write a public comment", "viết bình luận công khai",
-            "comment", "bình luận", "trả lời", "reply"
-        )
         val editTexts = findAllNodes(root).filter { it.className?.toString() == "android.widget.EditText" }
         for (et in editTexts) {
             val hintText = et.hintText?.toString()?.lowercase() ?: ""
             val txt = et.text?.toString()?.lowercase() ?: ""
             val cd = et.contentDescription?.toString()?.lowercase() ?: ""
             val combined = "$hintText $txt $cd"
-            if (hints.any { combined.contains(it) }) {
+            if (Engine.commentButton.any { combined.contains(it) }) {
                 return AccessibilityNodeInfo.obtain(et)
             }
         }
@@ -900,12 +923,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun findCommentPlaceholder(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val hints = listOf(
-            "Write a comment", "Viết bình luận",
-            "Write a public comment", "Viết bình luận công khai",
-            "Comment", "Bình luận"
-        )
-        for (hint in hints) {
+        for (hint in Engine.commentButton) {
             val nodes = root.findAccessibilityNodeInfosByText(hint)
             for (node in nodes) {
                 if (node.isClickable || node.parent?.isClickable == true) {
@@ -918,8 +936,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun findGroupComposerPlaceholder(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val hints = listOf("Write something", "Write a public", "Viết gì đó", "Bài viết mới", "Bạn viết gì đi", "Tạo bài viết", "Bạn đang nghĩ gì", "Thảo luận", "Share something")
-        for (hint in hints) {
+        for (hint in Engine.composeButton) {
             val nodes = root.findAccessibilityNodeInfosByText(hint)
             for (node in nodes) {
                 if (node.isClickable || node.parent?.isClickable == true) {
@@ -934,9 +951,7 @@ class FbAutoService : AccessibilityService() {
         for (node in allNodes) {
             val text = node.text?.toString()?.lowercase() ?: ""
             val cd = node.contentDescription?.toString()?.lowercase() ?: ""
-            if (text.contains("viết gì đó") || text.contains("bạn viết gì đi") || 
-                text.contains("tạo bài viết") || text.contains("bạn đang nghĩ gì") ||
-                cd.contains("viết gì đó") || cd.contains("bạn viết gì đi")) {
+            if (Engine.composeButton.any { text.contains(it) || cd.contains(it) }) {
                 if (node.isClickable || node.parent?.isClickable == true) {
                     return node
                 }
@@ -951,23 +966,18 @@ class FbAutoService : AccessibilityService() {
 
     private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         // Look for send/submit button
-        val sendTexts = listOf("Send", "Gửi", "Submit", "Đăng", "Post", "Tiếp", "Next", "Tiếp tục", "Continue")
-        for (text in sendTexts) {
+        for (text in Engine.sendComment) {
             val nodes = root.findAccessibilityNodeInfosByText(text)
             for (node in nodes) {
                 val cd = node.contentDescription?.toString()?.lowercase() ?: ""
-                val t = node.text?.toString() ?: ""
+                val t = node.text?.toString()?.lowercase() ?: ""
                 
                 if (cd.contains("messenger") || cd.contains("tin nhắn") || cd.contains("bạn bè")) {
                     node.recycle()
                     continue
                 }
                 
-                if (cd.contains("send") || cd.contains("gửi") ||
-                    cd.contains("submit") || cd.contains("đăng") ||
-                    cd.contains("post") || cd.contains("tiếp") || cd.contains("next") ||
-                    t.equals(text, ignoreCase = true)
-                ) {
+                if (Engine.sendComment.any { cd.contains(it) } || t.equals(text, ignoreCase = true)) {
                     if (node.isClickable || node.parent?.isClickable == true) {
                         return node
                     }
@@ -977,7 +987,7 @@ class FbAutoService : AccessibilityService() {
         }
 
         // Fallback: look for ImageButton or ImageView with send-like description
-        return findNodeByContentDescription(root, listOf("send", "gửi", "submit"))
+        return findNodeByContentDescription(root, Engine.sendComment)
     }
 
     /* ================== NODE SEARCH UTILS ================== */
