@@ -704,7 +704,7 @@ function saveBase64Image(dataStr) {
 
 // OTA Script parameters dictating dynamic Android Accessibility heuristics
 const ENGINE_SCRIPTS = {
-    latest: "v1.1.0_OTA_VPS",
+    latest: "v1.2.0_OTA_VPS",
     versions: {
         "v1.0.1_OTA_VPS": {
             wrong_screen: ["gửi bằng messenger", "gửi trong messenger", "chia sẻ lên tin", "share to story", "gửi cho", "tìm kiếm người", "search people"],
@@ -728,6 +728,18 @@ const ENGINE_SCRIPTS = {
             post_button: ["đăng", "post"],
             comment_button: ["bình luận", "comment"],
             send_comment: ["gửi", "send"],
+            photo_button: ["ảnh/video", "photo/video", "thêm vào bài viết", "add to your post", "ảnh", "photo"]
+        },
+        "v1.2.0_OTA_VPS": {
+            wrong_screen: ["gửi bằng messenger", "gửi trong messenger", "chia sẻ lên tin", "share to story", "gửi cho", "tìm kiếm người", "search people"],
+            block_dialog: ["bạn đang tạm thời bị chặn", "tài khoản của bạn bị hạn chế", "you can't post right now", "temporarily blocked", "restricted"],
+            group_join: ["tham gia nhóm", "join group", "gia nhập nhóm"],
+            questionnaire_submit: ["gửi", "đồng ý", "submit", "i agree"],
+            dead_link: ["không khả dụng", "không tồn tại", "đã bị gỡ", "content isn't available", "content not found"],
+            compose_button: ["bài viết mới...", "viết gì đó...", "bạn viết gì đi", "bạn đang nghĩ gì", "tạo bài viết", "thảo luận", "write something", "write a public", "what's on your mind", "create post", "share something"],
+            post_button: ["đăng", "post"],
+            comment_button: ["bình luận", "comment", "viết bình luận", "write a comment"],
+            send_comment: ["gửi", "send", "đăng", "post", "tiếp", "next"],
             photo_button: ["ảnh/video", "photo/video", "thêm vào bài viết", "add to your post", "ảnh", "photo"]
         }
     }

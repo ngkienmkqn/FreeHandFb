@@ -62,10 +62,10 @@ class FbAutoService : AccessibilityService() {
         var groupJoin = listOf("tham gia nhóm", "join group")
         var questionnaireSubmit = listOf("gửi", "đồng ý", "submit", "i agree")
         var deadLink = listOf("không khả dụng", "không tồn tại", "đã bị gỡ", "content isn't available", "content not found")
-        var composeButton = listOf("bài viết mới...", "viết gì đó...", "bạn đang nghĩ gì", "tạo bài viết", "write something", "what's on your mind", "create post")
+        var composeButton = listOf("bài viết mới...", "viết gì đó...", "bạn viết gì đi", "bạn đang nghĩ gì", "tạo bài viết", "thảo luận", "write something", "write a public", "what's on your mind", "create post", "share something")
         var postButton = listOf("đăng", "post")
-        var commentButton = listOf("bình luận", "comment")
-        var sendComment = listOf("gửi", "send")
+        var commentButton = listOf("bình luận", "comment", "viết bình luận", "write a comment")
+        var sendComment = listOf("gửi", "send", "đăng", "post", "tiếp", "next")
         var photoButton = listOf("ảnh/video", "photo/video", "thêm vào bài viết", "add to your post", "ảnh", "photo")
 
         fun load(context: Context) {
