@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http, { cors: { origin: "*" } });
@@ -178,7 +178,7 @@ app.post('/api/settings', authMiddleware, adminOnly, (req, res) => {
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, isLocked: !!u.isLocked, history: u.history || [] })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, isLocked: !!u.isLocked, isDebug: !!u.isDebug, history: u.history || [] })));
 });
 
 app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
@@ -196,10 +196,15 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     const user = users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink, isLocked } = req.body;
+    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink, isLocked, isDebug } = req.body;
+    const changes = [];
     if (deviceId === null || deviceId === "") user.deviceId = null;
     if (webDeviceId === null || webDeviceId === "") user.webDeviceId = null;
     if (isLocked !== undefined) user.isLocked = isLocked;
+    if (isDebug !== undefined) {
+        if (!!user.isDebug !== !!isDebug) changes.push(`Debug Mode: ${!!user.isDebug ? 'BẬT' : 'TẮT'} -> ${isDebug ? 'BẬT' : 'TẮT'}`);
+        user.isDebug = isDebug;
+    }
     if (username && username !== user.username) {
         if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
         const oldUsername = user.username;
@@ -218,7 +223,6 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     if (password) user.password = hashPw(password);
 
     // Audit Trailing logic for Phone/Zalo/Points updates
-    const changes = [];
     if (group && group !== user.group) { changes.push(`Group: ${user.group||''} -> ${group}`); user.group = group; }
     if (role && role !== user.role) { changes.push(`Role: ${user.role||''} -> ${role}`); user.role = role; }
     if (phone !== undefined && phone !== user.phone) { changes.push(`SĐT: ${user.phone||'[Trống]'} -> ${phone}`); user.phone = phone; }
@@ -236,7 +240,7 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     }
 
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, history: user.history });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, isLocked: !!user.isLocked, isDebug: !!user.isDebug, history: user.history });
 });
 
 app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
@@ -501,6 +505,7 @@ app.get('/api/me', authMiddleware, (req, res) => {
     res.json({
         id: user.id, username: user.username, group: user.group, role: user.role,
         points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '',
+        isDebug: !!user.isDebug,
         settings: user.settings || {}
     });
 });

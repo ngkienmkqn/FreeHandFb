@@ -136,7 +136,11 @@ class FbAutoService : AccessibilityService() {
     private var currentIndex = 0
     private var retryCount = 0
     private val MAX_RETRIES = 40 // Allow 20s for upload to finish
-    private val STEP_DELAY = 800L 
+    private val STEP_DELAY: Long
+        get() = if (getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getBoolean("global_debug_mode", false)) 2500L else 800L
+    
+    private val isDebugMode: Boolean
+        get() = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getBoolean("global_debug_mode", false)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -498,6 +502,7 @@ class FbAutoService : AccessibilityService() {
     /* ================== STEP HANDLERS ================== */
 
     private fun handleWaitingForLoad() {
+        debugLog("Đang chờ Facebook tải xong...")
         val root = rootInActiveWindow ?: return
         
         // Dead link check takes absolute priority
@@ -565,6 +570,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun handleLookingForLike() {
+        debugLog("Đang tìm nút Like...")
         val root = rootInActiveWindow ?: return
 
         val likeNode = findLikeButton(root)
@@ -597,6 +603,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun handleLookingForCommentField() {
+        debugLog("Đang tìm ô Bình luận...")
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
 
@@ -685,6 +692,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun handleLookingForComposer() {
+        debugLog("Đang tìm ô Soạn bài...")
         val root = rootInActiveWindow ?: return
         val composer = findGroupComposerPlaceholder(root)
         if (composer != null) {
@@ -703,6 +711,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun handleWaitingForComposerInput() {
+        debugLog("Đang gõ nội dung bài viết...")
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
 
@@ -732,6 +741,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun handleLookingForPhotoButton() {
+        debugLog("Đang tìm nút Thêm Ảnh...")
         val root = rootInActiveWindow ?: return
         val photoBtn = findNodeByContentDescription(root, Engine.photoButton)
             ?: findNodeByHint(root, Engine.photoButton)
@@ -753,8 +763,11 @@ class FbAutoService : AccessibilityService() {
 
     private var multiSelectClicked = false
 
-    private fun showDebugToast(msg: String) {
-        try { handler.post { android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show() } } catch(_: Exception) {}
+    private fun debugLog(msg: String, alwaysToast: Boolean = false) {
+        Log.d(TAG, "DEBUG_TRACE: $msg")
+        if (isDebugMode || alwaysToast) {
+            try { handler.post { android.widget.Toast.makeText(this, "🐢 $msg", android.widget.Toast.LENGTH_SHORT).show() } } catch(_: Exception) {}
+        }
     }
 
     private fun handleSelectingPhotos() {
@@ -766,7 +779,7 @@ class FbAutoService : AccessibilityService() {
             val multiBtn = findNodeByText(root, Engine.multiSelectButton)
                 ?: findNodeByContentDescription(root, Engine.multiSelectButton)
             if (multiBtn != null) {
-                showDebugToast("📸 Bấm 'Chọn nhiều file'...")
+                debugLog("📸 Bấm 'Chọn nhiều file'...")
                 Log.d(TAG, "Clicking multi-select button")
                 multiBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 if (!multiBtn.isClickable) multiBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -777,7 +790,7 @@ class FbAutoService : AccessibilityService() {
                 return
             }
             if (retryCount >= 5) {
-                showDebugToast("⚠️ Không tìm thấy nút Chọn nhiều, bỏ qua...")
+                debugLog("⚠️ Không tìm thấy nút Chọn nhiều, bỏ qua...")
                 multiSelectClicked = true
             }
         }
@@ -785,7 +798,7 @@ class FbAutoService : AccessibilityService() {
         val allImages = findAllGalleryImages(root)
         if (allImages.isNotEmpty()) {
             val count = Math.min(task.imageCount, allImages.size)
-            showDebugToast("📸 Tìm thấy ${allImages.size} ảnh, chọn $count...")
+            debugLog("📸 Tìm thấy ${allImages.size} ảnh, chọn $count...")
             Log.d(TAG, "Found ${allImages.size} gallery images, selecting $count")
             allImages.forEachIndexed { idx, n ->
                 Log.d(TAG, "  Node $idx: cd='${n.contentDescription}' class=${n.className} click=${n.isClickable}")
@@ -797,7 +810,7 @@ class FbAutoService : AccessibilityService() {
                     try {
                         node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                         if (!node.isClickable) node.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        showDebugToast("✅ Chọn ảnh ${i + 1}/$count")
+                        debugLog("✅ Chọn ảnh ${i + 1}/$count")
                         Log.d(TAG, "Clicked photo $i/$count")
                         node.recycle()
                     } catch(e: Exception) { Log.e(TAG, "Photo click $i failed", e) }
@@ -807,18 +820,18 @@ class FbAutoService : AccessibilityService() {
 
             val waitTime = count * Engine.galleryClickDelay + 2000L
             handler.postDelayed({
-                showDebugToast("📸 Đang tìm nút 'Tiếp'...")
+                debugLog("📸 Đang tìm nút 'Tiếp'...")
                 val r2 = rootInActiveWindow ?: return@postDelayed
                 val doneBtn = findNodeByContentDescription(r2, Engine.galleryNextButton)
                     ?: findNodeByText(r2, Engine.galleryNextButton)
                 if (doneBtn != null) {
-                    showDebugToast("✅ Bấm 'Tiếp'!")
+                    debugLog("✅ Bấm 'Tiếp'!")
                     Log.d(TAG, "Clicking gallery Done/Next")
                     doneBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     doneBtn.recycle()
                 } else {
-                    showDebugToast("⚠️ Không thấy nút Tiếp, đăng luôn...")
+                    debugLog("⚠️ Không thấy nút Tiếp, đăng luôn...")
                     Log.w(TAG, "Missing NEXT button, posting anyway")
                 }
                 r2.recycle()
@@ -829,9 +842,9 @@ class FbAutoService : AccessibilityService() {
             }, waitTime)
         } else {
             retryCount++
-            if (retryCount % 5 == 0) showDebugToast("📸 Đang tìm ảnh... (lần $retryCount)")
+            if (retryCount % 5 == 0) debugLog("📸 Đang tìm ảnh... (lần $retryCount)")
             if (retryCount >= 15) {
-                showDebugToast("❌ Không tìm được ảnh, đăng text!")
+                debugLog("❌ Không tìm được ảnh, đăng text!")
                 Log.w(TAG, "Gallery stuck $retryCount retries. Posting text only.")
                 multiSelectClicked = false
                 performGlobalAction(GLOBAL_ACTION_BACK)
@@ -847,6 +860,7 @@ class FbAutoService : AccessibilityService() {
 
 
     private fun handleWaitingForPostToUpload() {
+        debugLog("Đang chờ bài đăng upload...")
         val root = rootInActiveWindow ?: return
         
         val submittedTexts = listOf("bài viết của bạn đã được gửi", "submitted to admins", "đã gửi", "chờ phê duyệt", "pending")
@@ -892,6 +906,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun handleClickingShareAndCopy() {
+        debugLog("Đang xử lý lấy link bài viết...")
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
 

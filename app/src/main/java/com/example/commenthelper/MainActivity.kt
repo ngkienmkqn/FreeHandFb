@@ -605,6 +605,7 @@ fun MainApp(
                     val zalo = j.optString("zaloLink", "")
                     val e = prefs.edit()
                     e.putString(KEY_PHONE, phone).putString(KEY_ZALO, zalo)
+                    e.putBoolean("global_debug_mode", j.optBoolean("isDebug", false))
                     
                     val settings = j.optJSONObject("settings")
                     if (settings != null) {

@@ -521,17 +521,20 @@ async function fetchUsers() {
     list.innerHTML = users.map(u => `
         <div class="user-item" id="user-row-${u.id}">
             <div class="user-info">
-                <div class="user-name">${esc(u.username)} ${u.role === 'admin' ? '👑' : ''}</div>
+                <div class="user-name">${esc(u.username)} ${u.role === 'admin' ? '👑' : ''} ${u.isDebug ? '<span style="background:#f59e0b;color:#fff;font-size:0.65rem;padding:2px 6px;border-radius:4px;margin-left:8px;vertical-align:middle">🐢 DEBUG</span>' : ''}</div>
                 <div class="user-meta">Group: ${esc(u.group)} · Role: ${u.role} · Điểm: <b>${u.points || 0}</b></div>
                 <div class="user-meta" style="color:var(--primary)">SĐT: ${esc(u.phone || 'Chưa có')} · Zalo: ${esc(u.zaloLink || 'Chưa có')}</div>
                 ${u.isLocked ? '<div class="user-meta" style="color:#ef4444;font-weight:bold">Tài khoản này đang bị khóa!</div>' : ''}
             </div>
-            <div style="display:flex;gap:6px">
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
                 <button class="btn btn-primary btn-small" onclick="showEditUser('${u.id}', \`${escJs(u.username)}\`, \`${escJs(u.group)}\`, '${u.role}')">✏️ Sửa</button>
                 <button class="btn btn-outline btn-small" onclick="resetDevice('${u.id}')" title="Trường hợp User mượn máy người khác hoặc mua ĐTDĐ mới">📱 Reset Máy</button>
                 ${u.isLocked ? 
                     `<button class="btn btn-success btn-small" onclick="toggleLock('${u.id}', false)">🔓 Mở khoá</button>` : 
                     `<button class="btn btn-warning btn-small" onclick="toggleLock('${u.id}', true)">🔒 Khoá</button>`}
+                ${u.isDebug ? 
+                    `<button class="btn btn-outline btn-small" style="color:#f59e0b;border-color:rgba(245,158,11,0.3)" onclick="toggleDebug('${u.id}', false)">⚡ Tắt Debug</button>` : 
+                    `<button class="btn btn-outline btn-small" style="color:#f59e0b;border-color:rgba(245,158,11,0.3)" onclick="toggleDebug('${u.id}', true)">🐢 Bật Debug</button>`}
                 <button class="btn btn-danger btn-small" onclick="deleteUser('${u.id}')">Xoá</button>
             </div>
         </div>
@@ -619,6 +622,10 @@ async function resetDevice(id) {
 async function toggleLock(id, status) {
     if (status && !confirm('Bạn muốn tạm khóa tài khoản này? Ứng dụng của họ sẽ văng ra màn hình đăng nhập lập tức.')) return;
     await apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify({ isLocked: status }) });
+    fetchUsers();
+}
+async function toggleDebug(id, status) {
+    await apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify({ isDebug: status }) });
     fetchUsers();
 }
 
