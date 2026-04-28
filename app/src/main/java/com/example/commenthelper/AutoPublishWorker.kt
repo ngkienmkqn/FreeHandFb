@@ -21,21 +21,22 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val prefs = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+        val forceRun = inputData.getBoolean("FORCE_RUN", false)
         val startHour = prefs.getInt("start_active_hour", 7)
         val endHour = prefs.getInt("end_active_hour", 23)
         val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        if (currentHour < startHour || currentHour >= endHour) {
+        if (!forceRun && (currentHour < startHour || currentHour >= endHour)) {
             Log.d("AutoPublishWorker", "Outside operating hours ($startHour - $endHour). Sleeping.")
             return@withContext Result.success()
         }
 
         val blockTimeout = prefs.getLong("block_timeout_epoch", 0L)
-        if (System.currentTimeMillis() < blockTimeout) {
+        if (!forceRun && System.currentTimeMillis() < blockTimeout) {
             Log.w("AutoPublishWorker", "Currently serving Facebook Sandbox Blockade. Aborting publish cycle until epoch $blockTimeout")
-            return@withContext Result.success() // Fail cleanly so we don't retry and trigger more warnings
+            return@withContext Result.success()
         }
 
-        Log.d("AutoPublishWorker", "Waking up to perform auto-publish...")
+        Log.d("AutoPublishWorker", "Waking up to perform auto-publish... (forceRun=$forceRun)")
         
         val token = prefs.getString("auth_token", null) ?: return@withContext Result.failure()
         val username = prefs.getString("username", "") ?: ""
