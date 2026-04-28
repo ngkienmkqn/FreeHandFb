@@ -1,4 +1,4 @@
-﻿package com.example.commenthelper
+package com.example.commenthelper
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -96,7 +96,10 @@ class FbAutoService : AccessibilityService() {
                 multiSelectButton = getList("multi_select_button", multiSelectButton)
                 galleryNextButton = getList("gallery_next_button", galleryNextButton)
                 galleryClickDelay = j.optLong("gallery_click_delay", galleryClickDelay)
-                Log.d(TAG, "OTA Engine loaded successfully. Version: ${org.json.JSONObject(script).optString("version", "Unknown")}")
+                // Allow local override from Settings UI
+                val localDelay = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getLong("local_gallery_delay", 0L)
+                if (localDelay > 0) galleryClickDelay = localDelay
+                Log.d(TAG, "OTA Engine loaded. Version: ${org.json.JSONObject(script).optString("version", "?")}. GalleryDelay: ${galleryClickDelay}ms")
             } catch(e: Exception) { Log.e(TAG, "Failed loading OTA script", e) }
         }
     }

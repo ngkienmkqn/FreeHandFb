@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http, { cors: { origin: "*" } });
@@ -756,7 +756,7 @@ const ENGINE_SCRIPTS = {
             gallery_exclude: ["take", "chụp", "camera", "thu gọn", "chọn nhiều", "thêm vào", "collapse", "select multiple", "thư viện", "library", "pictures", "album", "video", "quay lại", "back", "navigate", "bài viết mới", "new post"],
             multi_select_button: ["chọn nhiều file", "chọn nhiều", "select multiple", "select multiple files"],
             gallery_next_button: ["next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất"],
-            gallery_click_delay: 800
+            gallery_click_delay: 3000
         }
     }
 };

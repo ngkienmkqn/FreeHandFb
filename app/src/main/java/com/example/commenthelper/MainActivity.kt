@@ -1269,6 +1269,50 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("Các nút bấm trên màn hình Facebook được tải nối mạng trực tiếp từ máy chủ VPS. Cập nhật chữ từ Server không bắt buộc build lại App Android.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                
+                Spacer(Modifier.height(12.dp))
+                Divider()
+                Spacer(Modifier.height(12.dp))
+                Text("🐢 Tốc độ chọn ảnh Gallery", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text("Delay giữa mỗi lần chọn ảnh (ms). Tăng lên 3000-5000 để debug xem bot chọn nhầm chỗ nào.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(Modifier.height(8.dp))
+                var delayTxt by remember { mutableStateOf(prefs.getLong("local_gallery_delay", 0L).let { if (it > 0) it.toString() else "" }) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = delayTxt,
+                        onValueChange = { v ->
+                            delayTxt = v
+                            val ms = v.toLongOrNull()
+                            if (ms != null && ms > 0) {
+                                prefs.edit().putLong("local_gallery_delay", ms).apply()
+                                FbAutoService.Engine.galleryClickDelay = ms
+                                toast(context, "Gallery delay: ${ms}ms")
+                            } else if (v.isBlank()) {
+                                prefs.edit().remove("local_gallery_delay").apply()
+                                toast(context, "Gallery delay: dùng OTA mặc định")
+                            }
+                        },
+                        label = { Text("Delay (ms)") },
+                        placeholder = { Text("Mặc định: OTA (${FbAutoService.Engine.galleryClickDelay}ms)") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = {
+                        delayTxt = "3000"
+                        prefs.edit().putLong("local_gallery_delay", 3000L).apply()
+                        FbAutoService.Engine.galleryClickDelay = 3000L
+                        toast(context, "🐢 Debug mode: 3000ms")
+                    }) { Text("🐢 Debug") }
+                    Spacer(Modifier.width(4.dp))
+                    Button(onClick = {
+                        delayTxt = ""
+                        prefs.edit().remove("local_gallery_delay").apply()
+                        FbAutoService.Engine.load(context)
+                        toast(context, "⚡ Tốc độ bình thường")
+                    }) { Text("⚡ Reset") }
+                }
             }
         }
         Spacer(Modifier.height(16.dp))
