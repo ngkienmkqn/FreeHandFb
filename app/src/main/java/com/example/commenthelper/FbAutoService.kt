@@ -742,72 +742,86 @@ class FbAutoService : AccessibilityService() {
 
     private var multiSelectClicked = false
 
+    private fun showDebugToast(msg: String) {
+        try { handler.post { android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show() } } catch(_: Exception) {}
+    }
+
     private fun handleSelectingPhotos() {
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
 
-        // Step 0: If we need multiple photos, click "Chọn nhiều file" first
+        // Step 0: If we need multiple photos, click multi-select button first
         if (task.imageCount > 1 && !multiSelectClicked) {
             val multiBtn = findNodeByText(root, listOf("chọn nhiều file", "chọn nhiều", "select multiple", "select multiple files"))
                 ?: findNodeByContentDescription(root, listOf("chọn nhiều file", "chọn nhiều", "select multiple"))
             if (multiBtn != null) {
-                Log.d(TAG, "Clicking 'Chọn nhiều file' to enable multi-select")
+                showDebugToast("📸 Bấm 'Chọn nhiều file'...")
+                Log.d(TAG, "Clicking multi-select button")
                 multiBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 if (!multiBtn.isClickable) multiBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 multiBtn.recycle()
                 multiSelectClicked = true
                 root.recycle()
-                handler.postDelayed({ handleSelectingPhotos() }, 1500)
+                handler.postDelayed({ handleSelectingPhotos() }, 2000)
                 return
             }
-            // If button not found after a few tries, proceed anyway (might already be in multi-select)
-            if (retryCount >= 5) multiSelectClicked = true
+            if (retryCount >= 5) {
+                showDebugToast("⚠️ Không tìm thấy nút Chọn nhiều, bỏ qua...")
+                multiSelectClicked = true
+            }
         }
 
         val allImages = findAllGalleryImages(root)
         if (allImages.isNotEmpty()) {
             val count = Math.min(task.imageCount, allImages.size)
+            showDebugToast("📸 Tìm thấy ${allImages.size} ảnh, chọn $count...")
             Log.d(TAG, "Found ${allImages.size} gallery images, selecting $count")
+            allImages.forEachIndexed { idx, n ->
+                Log.d(TAG, "  Node $idx: cd='${n.contentDescription}' class=${n.className} click=${n.isClickable}")
+            }
 
-            // Select photos with 400ms delay between each click
             for (i in 0 until count) {
                 val node = allImages[i]
                 handler.postDelayed({
                     try {
                         node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                         if (!node.isClickable) node.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        showDebugToast("✅ Chọn ảnh ${i + 1}/$count")
                         Log.d(TAG, "Clicked photo $i/$count")
                         node.recycle()
                     } catch(e: Exception) { Log.e(TAG, "Photo click $i failed", e) }
-                }, i * 400L)
+                }, i * 800L)
             }
             for (i in count until allImages.size) allImages[i].recycle()
 
-            // After all selected, click Next/Done
-            val waitTime = count * 400L + 1500L
+            val waitTime = count * 800L + 2000L
             handler.postDelayed({
+                showDebugToast("📸 Đang tìm nút 'Tiếp'...")
                 val r2 = rootInActiveWindow ?: return@postDelayed
-                val doneBtn = findNodeByContentDescription(r2, listOf("next", "ti\u1EBFp", "done", "xong", "ti\u1EBFp t\u1EE5c", "ho\u00E0n t\u1EA5t"))
-                    ?: findNodeByText(r2, listOf("next", "ti\u1EBFp", "done", "xong", "ti\u1EBFp t\u1EE5c", "ho\u00E0n t\u1EA5t"))
+                val doneBtn = findNodeByContentDescription(r2, listOf("next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất"))
+                    ?: findNodeByText(r2, listOf("next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất"))
                 if (doneBtn != null) {
+                    showDebugToast("✅ Bấm 'Tiếp'!")
                     Log.d(TAG, "Clicking gallery Done/Next")
                     doneBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     doneBtn.recycle()
                 } else {
+                    showDebugToast("⚠️ Không thấy nút Tiếp, đăng luôn...")
                     Log.w(TAG, "Missing NEXT button, posting anyway")
                 }
                 r2.recycle()
                 currentStep = Step.WAITING_FOR_COMMENT_SENT
                 retryCount = 0
                 multiSelectClicked = false
-                handler.postDelayed({ findAndClickSend() }, 2000)
+                handler.postDelayed({ findAndClickSend() }, 2500)
             }, waitTime)
         } else {
             retryCount++
-            // Failsafe: stuck too long in gallery, skip photos
+            if (retryCount % 5 == 0) showDebugToast("📸 Đang tìm ảnh... (lần $retryCount)")
             if (retryCount >= 15) {
-                Log.w(TAG, "Gallery stuck ${retryCount} retries. Posting text only.")
+                showDebugToast("❌ Không tìm được ảnh, đăng text!")
+                Log.w(TAG, "Gallery stuck $retryCount retries. Posting text only.")
                 multiSelectClicked = false
                 performGlobalAction(GLOBAL_ACTION_BACK)
                 handler.postDelayed({
@@ -819,6 +833,7 @@ class FbAutoService : AccessibilityService() {
         }
         root.recycle()
     }
+
 
     private fun handleWaitingForPostToUpload() {
         val root = rootInActiveWindow ?: return
