@@ -360,15 +360,7 @@ class FbAutoService : AccessibilityService() {
                     root.recycle()
                 }
                 
-                if (currentStep == Step.WAITING_FOR_FB_LOAD) {
-                    if (currentTask?.isScrapingGroup == true) {
-                        currentStep = Step.SCRAPING_GROUP_INFO
-                        return
-                    }
-                    if (currentTask?.isPublishingGroup == true) currentStep = Step.LOOKING_FOR_COMPOSER
-                    else currentStep = Step.LOOKING_FOR_LIKE
-                    return
-                }
+
 
                 retryCount++
                 if (retryCount > MAX_RETRIES) {
@@ -726,6 +718,7 @@ class FbAutoService : AccessibilityService() {
             setNextStepDelay(STEP_DELAY)
         } else {
             retryCount++
+            setNextStepDelay(500)
         }
         root.recycle()
     }
@@ -756,6 +749,7 @@ class FbAutoService : AccessibilityService() {
             }
         } else {
             retryCount++
+            setNextStepDelay(500)
         }
         root.recycle()
     }
@@ -777,6 +771,7 @@ class FbAutoService : AccessibilityService() {
             setNextStepDelay(2500) // Gallery load buffer
         } else {
             retryCount++
+            setNextStepDelay(500)
         }
         root.recycle()
     }
@@ -880,6 +875,8 @@ class FbAutoService : AccessibilityService() {
                 currentStep = Step.WAITING_FOR_COMMENT_SENT
                 retryCount = 0
                 setNextStepDelay(1500)
+            } else {
+                setNextStepDelay(500)
             }
         }
         root.recycle()
@@ -927,6 +924,7 @@ class FbAutoService : AccessibilityService() {
                 setNextStepDelay(2000) 
             } else {
                 retryCount++
+                setNextStepDelay(500)
             }
         }
         root.recycle()
@@ -955,6 +953,7 @@ class FbAutoService : AccessibilityService() {
             }, 1500)
         } else {
             retryCount++
+            setNextStepDelay(500)
         }
         root.recycle()
     }
@@ -1075,7 +1074,24 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun findGroupComposerInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        return findNodeByClassName(root, "android.widget.EditText")
+        val nodes = findAllNodes(root)
+        val editNode = nodes.firstOrNull { 
+            it.isEditable || 
+            it.className?.toString() == "android.widget.EditText" || 
+            it.className?.toString() == "android.widget.MultiAutoCompleteTextView" 
+        }
+        if (editNode != null) return editNode
+
+        // Fallback: look for common composer hints
+        val hints = listOf("tạo bài viết", "bạn đang nghĩ gì", "viết gì đó", "chia sẻ với", "write something", "create a public post")
+        for (hint in hints) {
+            val found = root.findAccessibilityNodeInfosByText(hint)
+            for (node in found) {
+                if (node.isClickable || node.parent?.isClickable == true) return node
+                node.recycle()
+            }
+        }
+        return null
     }
 
     private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
