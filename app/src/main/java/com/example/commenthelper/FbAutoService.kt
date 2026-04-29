@@ -320,10 +320,17 @@ class FbAutoService : AccessibilityService() {
         }, 500) // Small delay after back press
     }
 
+    private var isRetryCheckerRunning = false
+
     private fun startRetryChecker() {
+        if (isRetryCheckerRunning) return
+        isRetryCheckerRunning = true
         handler.postDelayed(object : Runnable {
             override fun run() {
-                if (!isRunning.value || stopRequested.value || currentStep == Step.IDLE || currentStep == Step.DONE) return
+                if (!isRunning.value || stopRequested.value || currentStep == Step.IDLE || currentStep == Step.DONE) {
+                    isRetryCheckerRunning = false
+                    return
+                }
                 if (System.currentTimeMillis() < nextStepTime) {
                     handler.postDelayed(this, 500)
                     return
@@ -674,15 +681,16 @@ class FbAutoService : AccessibilityService() {
             root.recycle()
 
             // Wait a moment for the comment to be submitted
-            handler.postDelayed({
-                if (task.isPublishingGroup) {
-                    // Shift to URL extraction phase
-                    currentStep = Step.WAITING_FOR_POST_TO_UPLOAD
-                    retryCount = 0
-                } else {
+            if (task.isPublishingGroup) {
+                currentStep = Step.WAITING_FOR_POST_TO_UPLOAD
+                retryCount = 0
+                setNextStepDelay(3000)
+            } else {
+                setNextStepDelay(3000)
+                handler.postDelayed({
                     markCurrentDone(success = true)
-                }
-            }, 3000)
+                }, 3000)
+            }
         } else {
             root.recycle()
             // Retry finding send button
@@ -934,6 +942,9 @@ class FbAutoService : AccessibilityService() {
             copyBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (!copyBtn.isClickable) copyBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             copyBtn.recycle()
+            
+            // Set nextStepTime to prevent duplicate runs while waiting
+            setNextStepDelay(1500)
             
             // Wait 1.5s for clipboard to populate, then send to API and proceed
             handler.postDelayed({
