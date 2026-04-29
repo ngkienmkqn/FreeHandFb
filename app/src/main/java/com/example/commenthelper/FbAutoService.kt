@@ -774,6 +774,14 @@ class FbAutoService : AccessibilityService() {
 
     private fun debugLog(msg: String, alwaysToast: Boolean = false) {
         Log.d(TAG, "DEBUG_TRACE: $msg")
+        try {
+            val file = java.io.File(filesDir, "debug_logs.txt")
+            val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+            file.appendText("[$timestamp] $msg\n")
+            if (file.length() > 500 * 1024) { // Keep log under 500KB
+                file.writeText("--- Log Truncated ---\n")
+            }
+        } catch (e: Exception) {}
         if (isDebugMode || alwaysToast) {
             try { handler.post { android.widget.Toast.makeText(this, "🐢 $msg", android.widget.Toast.LENGTH_SHORT).show() } } catch(_: Exception) {}
         }
@@ -858,11 +866,9 @@ class FbAutoService : AccessibilityService() {
                 Log.w(TAG, "Gallery stuck $retryCount retries. Posting text only.")
                 multiSelectClicked = false
                 performGlobalAction(GLOBAL_ACTION_BACK)
-                handler.postDelayed({
-                    currentStep = Step.WAITING_FOR_COMMENT_SENT
-                    retryCount = 0
-                    findAndClickSend()
-                }, 1500)
+                currentStep = Step.WAITING_FOR_COMMENT_SENT
+                retryCount = 0
+                setNextStepDelay(1500)
             }
         }
         root.recycle()

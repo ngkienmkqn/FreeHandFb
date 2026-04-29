@@ -1474,6 +1474,48 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 }
             }
         }
+        Spacer(Modifier.height(16.dp))
+        var showLogs by remember { mutableStateOf(false) }
+        var logsContent by remember { mutableStateOf("") }
+        
+        if (showLogs) {
+            AlertDialog(
+                onDismissRequest = { showLogs = false },
+                title = { Text("Debug Logs") },
+                text = { 
+                    Column(Modifier.verticalScroll(rememberScrollState()).fillMaxHeight(0.7f)) {
+                        Text(logsContent, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { 
+                        copyToClipboard(context, logsContent)
+                        toast(context, "Đã copy Logs!")
+                    }) { Text("Copy") }
+                },
+                dismissButton = {
+                    Button(onClick = { showLogs = false }) { Text("Đóng") }
+                }
+            )
+        }
+        
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("🛠️ Debug Logs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { 
+                    try {
+                        logsContent = java.io.File(context.filesDir, "debug_logs.txt").readText()
+                        if (logsContent.isBlank()) logsContent = "Chưa có log nào."
+                    } catch (e: Exception) {
+                        logsContent = "Chưa có log nào."
+                    }
+                    showLogs = true
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Xem Debug Logs")
+                }
+            }
+        }
     }
 }
 
