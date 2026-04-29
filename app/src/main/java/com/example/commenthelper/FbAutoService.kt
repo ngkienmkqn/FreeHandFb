@@ -145,6 +145,48 @@ class FbAutoService : AccessibilityService() {
     
     private val isDebugMode: Boolean
         get() = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getBoolean("global_debug_mode", false)
+    enum class ScreenType { UNKNOWN, FEED, COMPOSER, GALLERY, POST_SHEET }
+
+    private fun evaluateCurrentScreen(root: AccessibilityNodeInfo): ScreenType {
+        val nodes = findAllNodes(root)
+        
+        // 1. Gallery check (Top right "Chọn nhiều file" or "Tiếp")
+        val hasGalleryUI = nodes.any { 
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            val cd = it.contentDescription?.toString()?.lowercase() ?: ""
+            txt.contains("tiếp") || cd.contains("tiếp") || txt.contains("chọn nhiều") || cd.contains("chọn nhiều")
+        }
+        if (hasGalleryUI) return ScreenType.GALLERY
+
+        // 2. Composer check (Tạo bài viết, Bạn đang nghĩ gì, or Thêm ảnh)
+        val hasComposerUI = nodes.any {
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            val cd = it.contentDescription?.toString()?.lowercase() ?: ""
+            Engine.composeButton.any { cb -> txt.contains(cb) || cd.contains(cb) } ||
+            Engine.photoButton.any { pb -> txt.contains(pb) || cd.contains(pb) }
+        }
+        if (hasComposerUI) return ScreenType.COMPOSER
+
+        // 3. Post options sheet (Share/Copy link)
+        val hasPostSheet = nodes.any {
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            val cd = it.contentDescription?.toString()?.lowercase() ?: ""
+            txt.contains("sao chép liên kết") || cd.contains("sao chép liên kết") || 
+            txt.contains("copy link") || cd.contains("copy link")
+        }
+        if (hasPostSheet) return ScreenType.POST_SHEET
+
+        // 4. Feed check (Bảng tin, Like, Comment buttons)
+        val hasFeedUI = nodes.any {
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            val cd = it.contentDescription?.toString()?.lowercase() ?: ""
+            txt == "thích" || txt == "bình luận" || cd == "like" || cd == "comment" || txt.contains("bảng tin")
+        }
+        if (hasFeedUI) return ScreenType.FEED
+
+        return ScreenType.UNKNOWN
+    }
+
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -770,7 +812,28 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             setNextStepDelay(2500) // Gallery load buffer
         } else {
-            retryCount++
+            // Wait, we don't increment retryCount here because startRetryChecker does it!
+            if (retryCount == 10) {
+                debugLog("⚠️ Đang thử đóng bàn phím để tìm nút ảnh...")
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
+            if (retryCount == 20) {
+                // Dump DOM
+                val nodes = findAllNodes(root)
+                debugLog("--- X-RAY COMPOSER BẮT ĐẦU ---")
+                var count = 0
+                for (n in nodes) {
+                    if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
+                        val c = n.className?.toString() ?: ""
+                        val d = n.contentDescription?.toString() ?: ""
+                        val t = n.text?.toString() ?: ""
+                        debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
+                        count++
+                        if (count >= 20) break
+                    }
+                }
+                debugLog("--- X-RAY COMPOSER KẾT THÚC ---")
+            }
             setNextStepDelay(500)
         }
         root.recycle()
