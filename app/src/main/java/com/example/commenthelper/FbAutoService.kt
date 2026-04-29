@@ -139,7 +139,8 @@ class FbAutoService : AccessibilityService() {
     private fun setNextStepDelay(delay: Long) {
         nextStepTime = System.currentTimeMillis() + delay
     }
-    private val MAX_RETRIES = 40 // Allow 20s for upload to finish
+    private val MAX_RETRIES: Int
+        get() = if (currentStep == Step.WAITING_FOR_POST_TO_UPLOAD || currentStep == Step.WAITING_FOR_COMMENT_SENT) 80 else 40 // 40s for upload, 20s for other steps
     private val STEP_DELAY: Long
         get() = if (getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getBoolean("global_debug_mode", false)) 2500L else 800L
     
@@ -465,6 +466,25 @@ class FbAutoService : AccessibilityService() {
         }
         
         debugLog("🛠 Kích hoạt Tự chữa lành (Lần $healingCount)...")
+        val rootXray = rootInActiveWindow
+        if (rootXray != null) {
+            val nodes = findAllNodes(rootXray)
+            debugLog("--- X-RAY $screen BẮT ĐẦU ---")
+            var count = 0
+            for (n in nodes) {
+                if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
+                    val c = n.className?.toString() ?: ""
+                    val d = n.contentDescription?.toString() ?: ""
+                    val t = n.text?.toString() ?: ""
+                    debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
+                    count++
+                    if (count >= 20) break
+                }
+            }
+            debugLog("--- X-RAY $screen KẾT THÚC ---")
+            rootXray.recycle()
+        }
+
         when (screen) {
             ScreenType.FEED -> {
                 if (currentStep != Step.WAITING_FOR_FB_LOAD && currentStep != Step.LOOKING_FOR_COMPOSER) {
@@ -1270,7 +1290,7 @@ class FbAutoService : AccessibilityService() {
                     continue
                 }
                 
-                if (Engine.sendComment.any { cd.contains(it) } || t.equals(text, ignoreCase = true)) {
+                if (Engine.sendComment.any { cd.contains(it) } || t.contains(text)) {
                     if (node.isClickable || node.parent?.isClickable == true) {
                         return node
                     }
