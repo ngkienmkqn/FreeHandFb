@@ -136,9 +136,8 @@ class FbAutoService : AccessibilityService() {
     private var currentIndex = 0
     private var retryCount = 0
     private var nextStepTime = 0L
-    private fun scheduleNextStep(delay: Long, action: () -> Unit) {
+    private fun setNextStepDelay(delay: Long) {
         nextStepTime = System.currentTimeMillis() + delay
-        handler.postDelayed(action, delay)
     }
     private val MAX_RETRIES = 40 // Allow 20s for upload to finish
     private val STEP_DELAY: Long
