@@ -487,6 +487,11 @@ class FbAutoService : AccessibilityService() {
 
         when (screen) {
             ScreenType.FEED -> {
+                if (currentStep == Step.CLICKING_SHARE_AND_COPY || currentStep == Step.WAITING_FOR_POST_TO_UPLOAD) {
+                    debugLog("⚠️ Lỗi lấy link (không mở được menu bài viết). Bỏ qua lấy link.")
+                    markCurrentDone(success = true)
+                    return true
+                }
                 if (currentStep != Step.WAITING_FOR_FB_LOAD && currentStep != Step.LOOKING_FOR_COMPOSER) {
                     debugLog("⚠️ Bị văng ra Bảng tin. Thử tìm lại ô Soạn bài...")
                     currentStep = Step.LOOKING_FOR_COMPOSER
@@ -1155,14 +1160,33 @@ class FbAutoService : AccessibilityService() {
             if (!copyBtn.isClickable) copyBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             copyBtn.recycle()
             
-            // Set nextStepTime to prevent duplicate runs while waiting
             setNextStepDelay(1500)
-            
-            // Wait 1.5s for clipboard to populate, then send to API and proceed
             handler.postDelayed({
                 submitCopiedLinkToBackend(task)
             }, 1500)
         } else {
+            // Menu might be closed or click missed. Retry opening the menu every 5 retries!
+            if (retryCount > 0 && retryCount % 5 == 0) {
+                debugLog("⚠️ Vẫn chưa thấy nút Copy, thử bấm lại nút Chia sẻ/Menu...")
+                val allNodes = findAllNodes(root)
+                val shareBtn = findNodeByContentDescription(root, listOf("share", "chia sẻ"))
+                    ?: findNodeByText(root, listOf("share", "chia sẻ"))
+                if (shareBtn != null) {
+                    shareBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if (!shareBtn.isClickable) shareBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    shareBtn.recycle()
+                } else {
+                    val menuBtn = allNodes.firstOrNull { 
+                        val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+                        desc.contains("lựa chọn khác cho bài viết của") || desc.contains("more options for") || desc == "tùy chọn" || desc == "options"
+                    }
+                    if (menuBtn != null) {
+                        menuBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        if (!menuBtn.isClickable) menuBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        menuBtn.recycle()
+                    }
+                }
+            }
             setNextStepDelay(500)
         }
         root.recycle()
