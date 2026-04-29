@@ -758,7 +758,7 @@ const ENGINE_SCRIPTS = {
             comment_button: ["bình luận", "comment", "viết bình luận", "write a comment"],
             send_comment: ["gửi", "send", "đăng", "post", "tiếp", "next"],
             photo_button: ["ảnh/video", "photo/video", "thêm vào bài viết", "add to your post", "ảnh", "photo"],
-            gallery_exclude: ["take", "chụp", "camera", "thu gọn", "chọn nhiều", "thêm vào", "collapse", "select multiple", "thư viện", "library", "pictures", "album", "video", "quay lại", "back", "navigate", "bài viết mới", "new post", "đóng", "close", "thoát", "hủy", "cancel", "khung", "chọn thư mục"],
+            gallery_exclude: ["take", "camera", "thu gọn", "chọn nhiều", "collapse", "select multiple", "thư viện", "library", "pictures", "album", "video", "quay lại", "back", "navigate", "bài viết mới", "new post", "đóng", "close", "thoát", "hủy", "cancel", "khung", "chọn thư mục"],
             multi_select_button: ["chọn nhiều file", "chọn nhiều", "select multiple", "select multiple files"],
             gallery_next_button: ["next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất"],
             gallery_click_delay: 3000
