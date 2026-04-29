@@ -796,18 +796,13 @@ class FbAutoService : AccessibilityService() {
             }
         } else {
             root.recycle()
-            // Retry finding send button
-            if (retryCount < 10) {
-                setNextStepDelay(500)
-            } else {
-                Log.w(TAG, "Send button not found after retries")
-                markCurrentDone(success = false)
-            }
+            setNextStepDelay(500)
         }
     }
 
     private fun handleWaitingForCommentSent() {
-        // Handled by findAndClickSend callback
+        debugLog("Đang tìm nút Đăng...")
+        findAndClickSend()
     }
 
     private fun handleLookingForComposer() {
@@ -982,8 +977,22 @@ class FbAutoService : AccessibilityService() {
                         if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                         doneBtn.recycle()
                     } else {
-                        debugLog("⚠️ Không thấy nút Tiếp, đăng luôn...")
-                        Log.w(TAG, "Missing NEXT button, posting anyway")
+                        debugLog("⚠️ Không thấy nút Tiếp! Đang chụp X-Quang...")
+                        Log.w(TAG, "Missing NEXT button, dumping X-Ray")
+                        val nodes = findAllNodes(r2)
+                        debugLog("--- X-RAY GALLERY BẮT ĐẦU ---")
+                        var count = 0
+                        for (n in nodes) {
+                            if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
+                                val c = n.className?.toString() ?: ""
+                                val d = n.contentDescription?.toString() ?: ""
+                                val t = n.text?.toString() ?: ""
+                                debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
+                                count++
+                                if (count >= 20) break
+                            }
+                        }
+                        debugLog("--- X-RAY GALLERY KẾT THÚC ---")
                     }
                     r2.recycle()
                 } else {
