@@ -1503,16 +1503,26 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
             Column(Modifier.padding(16.dp)) {
                 Text("🛠️ Debug Logs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = { 
-                    try {
-                        logsContent = java.io.File(context.filesDir, "debug_logs.txt").readText()
-                        if (logsContent.isBlank()) logsContent = "Chưa có log nào."
-                    } catch (e: Exception) {
-                        logsContent = "Chưa có log nào."
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { 
+                        try {
+                            logsContent = java.io.File(context.filesDir, "debug_logs.txt").readText()
+                            if (logsContent.isBlank()) logsContent = "Chưa có log nào."
+                        } catch (e: Exception) {
+                            logsContent = "Chưa có log nào."
+                        }
+                        showLogs = true
+                    }, modifier = Modifier.weight(1f)) {
+                        Text("Xem Logs")
                     }
-                    showLogs = true
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Xem Debug Logs")
+                    OutlinedButton(onClick = { 
+                        try {
+                            java.io.File(context.filesDir, "debug_logs.txt").writeText("")
+                            toast(context, "Đã xóa Logs!")
+                        } catch (e: Exception) {}
+                    }, modifier = Modifier.weight(1f)) {
+                        Text("Xóa Logs")
+                    }
                 }
             }
         }

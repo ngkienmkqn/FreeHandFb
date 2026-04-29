@@ -1269,9 +1269,10 @@ class FbAutoService : AccessibilityService() {
         // Fallback: look for common composer hints dynamically synced from server
         for (hint in Engine.composeButton) {
             val found = root.findAccessibilityNodeInfosByText(hint)
-            for (node in found) {
-                if (node.isClickable || node.parent?.isClickable == true) return node
-                node.recycle()
+            if (found.isNotEmpty()) {
+                val node = found[0]
+                for (i in 1 until found.size) found[i].recycle()
+                return node
             }
         }
         return null
