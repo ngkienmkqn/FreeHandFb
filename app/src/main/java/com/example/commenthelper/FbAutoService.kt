@@ -1098,35 +1098,54 @@ class FbAutoService : AccessibilityService() {
 
         if (ourPostNode != null) {
             debugLog("Đã thấy bài đăng của mình! Đang tìm nút chia sẻ...")
-            // Find the closest "Share" or "More options" button below this node
-            // Since we can't easily traverse up/down dynamically, we will just look for the first menu/share button 
-            // that is in the same area or just pick the first one we find AFTER our text node.
             
-            // 1. Try finding Share button (Public groups)
-            val shareBtn = findNodeByContentDescription(root, listOf("share", "chia sẻ"))
-                ?: findNodeByText(root, listOf("share", "chia sẻ"))
+            val nodeIndex = allNodes.indexOf(ourPostNode)
+            
+            // "Share" button (Public groups) usually appears AFTER the text node
+            var shareBtn: AccessibilityNodeInfo? = null
+            for (i in nodeIndex until minOf(allNodes.size, nodeIndex + 50)) {
+                val node = allNodes[i]
+                val txt = node.text?.toString()?.lowercase() ?: ""
+                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                if (txt == "chia sẻ" || txt == "share" || desc == "chia sẻ" || desc == "share") {
+                    shareBtn = node
+                    break
+                }
+            }
 
             if (shareBtn != null) {
-                Log.d(TAG, "Found Share button, clicking it...")
+                Log.d(TAG, "Found Share button near our post, clicking it...")
                 shareBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 if (!shareBtn.isClickable) shareBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                shareBtn.recycle()
                 currentStep = Step.CLICKING_SHARE_AND_COPY
                 retryCount = 0
                 setNextStepDelay(2000)
             } else {
-                // 2. Fallback for Private Groups (No share button -> Click "..." More options menu)
-                // We want to find "Lựa chọn khác cho bài viết của [Tên chúng ta]"
-                val menuBtn = allNodes.firstOrNull { 
-                    val desc = it.contentDescription?.toString()?.lowercase() ?: ""
-                    desc.contains("lựa chọn khác cho bài viết của") || desc.contains("more options for") || desc == "tùy chọn" || desc == "options"
+                // Private groups: "..." More options menu usually appears BEFORE the text node
+                var menuBtn: AccessibilityNodeInfo? = null
+                for (i in nodeIndex downTo maxOf(0, nodeIndex - 30)) {
+                    val node = allNodes[i]
+                    val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                    if (desc.contains("lựa chọn khác cho bài viết của") || desc.contains("more options for") || desc == "tùy chọn" || desc == "options") {
+                        menuBtn = node
+                        break
+                    }
+                }
+                if (menuBtn == null) {
+                    for (i in nodeIndex until minOf(allNodes.size, nodeIndex + 30)) {
+                        val node = allNodes[i]
+                        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                        if (desc.contains("lựa chọn khác cho bài viết của") || desc.contains("more options for") || desc == "tùy chọn" || desc == "options") {
+                            menuBtn = node
+                            break
+                        }
+                    }
                 }
 
                 if (menuBtn != null) {
-                    Log.d(TAG, "Private group detected. Found '...' menu, clicking...")
+                    Log.d(TAG, "Found '...' menu near our post, clicking...")
                     menuBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if (!menuBtn.isClickable) menuBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    menuBtn.recycle()
                     currentStep = Step.CLICKING_SHARE_AND_COPY
                     retryCount = 0
                     setNextStepDelay(2500) 
@@ -1134,6 +1153,8 @@ class FbAutoService : AccessibilityService() {
                     setNextStepDelay(1000)
                 }
             }
+
+
         } else {
             // Our post hasn't appeared yet. Wait.
             if (retryCount >= 25) {
