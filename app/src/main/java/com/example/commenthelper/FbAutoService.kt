@@ -406,6 +406,22 @@ class FbAutoService : AccessibilityService() {
 
                 retryCount++
                 if (retryCount > MAX_RETRIES) {
+                    val root2 = rootInActiveWindow
+                    if (root2 != null) {
+                        val screen = evaluateCurrentScreen(root2)
+                        debugLog("⚠️ Kẹt ở bước $currentStep. Màn hình hiện tại: $screen")
+                        if (screen != ScreenType.UNKNOWN) {
+                            val healed = attemptSelfHealing(screen)
+                            if (healed) {
+                                retryCount = 0
+                                root2.recycle()
+                                handler.postDelayed(this, 1000)
+                                return
+                            }
+                        }
+                        root2.recycle()
+                    }
+                    
                     Log.w(TAG, "Timeout waiting for step: $currentStep")
                     // If we timeout on upload, try grabbing anyway
                     if (currentStep == Step.WAITING_FOR_POST_TO_UPLOAD) {
@@ -436,6 +452,56 @@ class FbAutoService : AccessibilityService() {
                 handler.postDelayed(this, 500)
             }
         }, 1500) // Initial delay to let FB open
+    }
+
+    private var healingCount = 0
+
+    private fun attemptSelfHealing(screen: ScreenType): Boolean {
+        healingCount++
+        if (healingCount > 3) {
+            debugLog("❌ Tự chữa lành thất bại sau 3 lần. Hủy bài viết.")
+            healingCount = 0
+            return false
+        }
+        
+        debugLog("🛠 Kích hoạt Tự chữa lành (Lần $healingCount)...")
+        when (screen) {
+            ScreenType.FEED -> {
+                if (currentStep != Step.WAITING_FOR_FB_LOAD && currentStep != Step.LOOKING_FOR_COMPOSER) {
+                    debugLog("⚠️ Bị văng ra Bảng tin. Thử tìm lại ô Soạn bài...")
+                    currentStep = Step.LOOKING_FOR_COMPOSER
+                    return true
+                }
+            }
+            ScreenType.COMPOSER -> {
+                if (currentStep == Step.SELECTING_PHOTOS || currentStep == Step.WAITING_FOR_COMMENT_SENT) {
+                    debugLog("⚠️ Kẹt ở Soạn bài. Đang thử đóng bàn phím và sửa tiến trình...")
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    if (currentStep == Step.SELECTING_PHOTOS) currentStep = Step.LOOKING_FOR_PHOTO_BUTTON
+                    if (currentStep == Step.WAITING_FOR_COMMENT_SENT) currentStep = Step.WAITING_FOR_COMPOSER_INPUT
+                    return true
+                }
+            }
+            ScreenType.GALLERY -> {
+                if (currentStep != Step.SELECTING_PHOTOS) {
+                    debugLog("⚠️ Khay ảnh mở sai thời điểm. Đang sửa lại tiến trình...")
+                    currentStep = Step.SELECTING_PHOTOS
+                    return true
+                }
+            }
+            ScreenType.POST_SHEET -> {
+                if (currentStep != Step.CLICKING_SHARE_AND_COPY) {
+                    debugLog("⚠️ Kẹt ở Menu Share. Đang thử đóng...")
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    return true
+                }
+            }
+            else -> {}
+        }
+        
+        // Fallback
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        return true
     }
 
     /* ================== DOM INTERCEPTOR ================== */
@@ -731,7 +797,6 @@ class FbAutoService : AccessibilityService() {
         } else {
             root.recycle()
             // Retry finding send button
-            retryCount++
             if (retryCount < 10) {
                 setNextStepDelay(500)
             } else {
@@ -759,7 +824,6 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             setNextStepDelay(STEP_DELAY)
         } else {
-            retryCount++
             setNextStepDelay(500)
         }
         root.recycle()
@@ -790,7 +854,6 @@ class FbAutoService : AccessibilityService() {
                 setNextStepDelay(STEP_DELAY)
             }
         } else {
-            retryCount++
             setNextStepDelay(500)
         }
         root.recycle()
@@ -1017,7 +1080,6 @@ class FbAutoService : AccessibilityService() {
                 // Takes slightly longer for the BottomSheet to render from the '...' menu
                 setNextStepDelay(2000) 
             } else {
-                retryCount++
                 setNextStepDelay(500)
             }
         }
@@ -1046,7 +1108,6 @@ class FbAutoService : AccessibilityService() {
                 submitCopiedLinkToBackend(task)
             }, 1500)
         } else {
-            retryCount++
             setNextStepDelay(500)
         }
         root.recycle()
