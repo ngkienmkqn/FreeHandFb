@@ -172,6 +172,9 @@ class FbAutoService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         if (pkg != "com.facebook.katana" && pkg != "com.facebook.lite") return
 
+        // Respect the synchronization delay across all events
+        if (System.currentTimeMillis() < nextStepTime) return
+
         // Process based on current step
         when (currentStep) {
             Step.WAITING_FOR_FB_LOAD -> handleWaitingForLoad()
