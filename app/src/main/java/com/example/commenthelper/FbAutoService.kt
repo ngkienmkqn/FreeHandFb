@@ -1072,6 +1072,7 @@ class FbAutoService : AccessibilityService() {
     private fun handleWaitingForPostToUpload() {
         debugLog("Đang chờ bài đăng upload...")
         val root = rootInActiveWindow ?: return
+        val task = currentTask ?: return
         
         val submittedTexts = listOf("bài viết của bạn đã được gửi", "submitted to admins", "đã gửi", "chờ phê duyệt", "pending")
         if (findNodeByText(root, submittedTexts) != null) {
@@ -1081,35 +1082,60 @@ class FbAutoService : AccessibilityService() {
             return
         }
 
-        // 1. Try finding Share button (Public groups)
-        val shareBtn = findNodeByContentDescription(root, listOf("share", "chia sẻ"))
-            ?: findNodeByText(root, listOf("share", "chia sẻ"))
+        // Wait for OUR post text to appear on the feed
+        val snippet = task.comment.take(30).trim()
+        val allNodes = findAllNodes(root)
+        val ourPostNode = allNodes.firstOrNull { 
+            val t = it.text?.toString() ?: ""
+            val cd = it.contentDescription?.toString() ?: ""
+            t.contains(snippet, ignoreCase = true) || cd.contains(snippet, ignoreCase = true) 
+        }
 
-        if (shareBtn != null) {
-            Log.d(TAG, "Found Share button, clicking it...")
-            shareBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (!shareBtn.isClickable) shareBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            shareBtn.recycle()
-            currentStep = Step.CLICKING_SHARE_AND_COPY
-            retryCount = 0
-            setNextStepDelay(1500)
-        } else {
-            // 2. Fallback for Private Groups (No share button -> Click "..." More options menu)
-            // The content description on FB Android usually includes "options" or "tùy chọn"
-            val menuBtn = findNodeByContentDescription(root, listOf("post options", "tùy chọn bài viết", "tùy chọn khác", "more options"))
-                ?: findNodeByContentDescription(root, listOf("tùy chọn", "options"))
+        if (ourPostNode != null) {
+            debugLog("Đã thấy bài đăng của mình! Đang tìm nút chia sẻ...")
+            // Find the closest "Share" or "More options" button below this node
+            // Since we can't easily traverse up/down dynamically, we will just look for the first menu/share button 
+            // that is in the same area or just pick the first one we find AFTER our text node.
+            
+            // 1. Try finding Share button (Public groups)
+            val shareBtn = findNodeByContentDescription(root, listOf("share", "chia sẻ"))
+                ?: findNodeByText(root, listOf("share", "chia sẻ"))
 
-            if (menuBtn != null) {
-                Log.d(TAG, "Private group detected (No Share). Found '...' menu, clicking...")
-                menuBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                if (!menuBtn.isClickable) menuBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                menuBtn.recycle()
+            if (shareBtn != null) {
+                Log.d(TAG, "Found Share button, clicking it...")
+                shareBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (!shareBtn.isClickable) shareBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                shareBtn.recycle()
                 currentStep = Step.CLICKING_SHARE_AND_COPY
                 retryCount = 0
-                // Takes slightly longer for the BottomSheet to render from the '...' menu
-                setNextStepDelay(2000) 
+                setNextStepDelay(2000)
             } else {
-                setNextStepDelay(500)
+                // 2. Fallback for Private Groups (No share button -> Click "..." More options menu)
+                // We want to find "Lựa chọn khác cho bài viết của [Tên chúng ta]"
+                val menuBtn = allNodes.firstOrNull { 
+                    val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+                    desc.contains("lựa chọn khác cho bài viết của") || desc.contains("more options for") || desc == "tùy chọn" || desc == "options"
+                }
+
+                if (menuBtn != null) {
+                    Log.d(TAG, "Private group detected. Found '...' menu, clicking...")
+                    menuBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if (!menuBtn.isClickable) menuBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    menuBtn.recycle()
+                    currentStep = Step.CLICKING_SHARE_AND_COPY
+                    retryCount = 0
+                    setNextStepDelay(2500) 
+                } else {
+                    setNextStepDelay(1000)
+                }
+            }
+        } else {
+            // Our post hasn't appeared yet. Wait.
+            if (retryCount >= 25) {
+                debugLog("⚠️ Đợi lâu không thấy bài đăng, có thể đang chờ duyệt. Bỏ qua lấy link.")
+                markCurrentDone(success = true) // Treat as success because we clicked Post
+            } else {
+                setNextStepDelay(1000)
             }
         }
         root.recycle()
