@@ -1087,9 +1087,8 @@ class FbAutoService : AccessibilityService() {
         }
         if (editNode != null) return editNode
 
-        // Fallback: look for common composer hints
-        val hints = listOf("tạo bài viết", "bạn đang nghĩ gì", "viết gì đó", "chia sẻ với", "write something", "create a public post")
-        for (hint in hints) {
+        // Fallback: look for common composer hints dynamically synced from server
+        for (hint in Engine.composeButton) {
             val found = root.findAccessibilityNodeInfosByText(hint)
             for (node in found) {
                 if (node.isClickable || node.parent?.isClickable == true) return node
