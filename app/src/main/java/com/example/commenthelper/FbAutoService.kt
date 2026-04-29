@@ -845,20 +845,25 @@ class FbAutoService : AccessibilityService() {
             nextStepTime = System.currentTimeMillis() + waitTime + 1500L
             handler.postDelayed({
                 debugLog("📸 Đang tìm nút 'Tiếp'...")
-                val r2 = rootInActiveWindow ?: return@postDelayed
-                val doneBtn = findNodeByContentDescription(r2, Engine.galleryNextButton)
-                    ?: findNodeByText(r2, Engine.galleryNextButton)
-                if (doneBtn != null) {
-                    debugLog("✅ Bấm 'Tiếp'!")
-                    Log.d(TAG, "Clicking gallery Done/Next")
-                    doneBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    doneBtn.recycle()
+                val r2 = rootInActiveWindow
+                if (r2 != null) {
+                    val doneBtn = findNodeByContentDescription(r2, Engine.galleryNextButton)
+                        ?: findNodeByText(r2, Engine.galleryNextButton)
+                    if (doneBtn != null) {
+                        debugLog("✅ Bấm 'Tiếp'!")
+                        Log.d(TAG, "Clicking gallery Done/Next")
+                        doneBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        doneBtn.recycle()
+                    } else {
+                        debugLog("⚠️ Không thấy nút Tiếp, đăng luôn...")
+                        Log.w(TAG, "Missing NEXT button, posting anyway")
+                    }
+                    r2.recycle()
                 } else {
-                    debugLog("⚠️ Không thấy nút Tiếp, đăng luôn...")
-                    Log.w(TAG, "Missing NEXT button, posting anyway")
+                    debugLog("⚠️ rootInActiveWindow null, bỏ qua tìm nút Tiếp...")
                 }
-                r2.recycle()
+                
                 currentStep = Step.WAITING_FOR_COMMENT_SENT
                 retryCount = 0
                 multiSelectClicked = false
