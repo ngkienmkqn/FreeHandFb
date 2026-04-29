@@ -872,6 +872,23 @@ class FbAutoService : AccessibilityService() {
         } else {
             retryCount++
             if (retryCount % 5 == 0) debugLog("📸 Đang tìm ảnh... (lần $retryCount)")
+            
+            if (retryCount == 5) {
+                // Dump DOM to debug log to see why it fails
+                val nodes = findAllNodes(root)
+                var count = 0
+                for (n in nodes) {
+                    if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
+                        val c = n.className?.toString() ?: ""
+                        val d = n.contentDescription?.toString() ?: ""
+                        val t = n.text?.toString() ?: ""
+                        debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
+                        count++
+                        if (count >= 15) break
+                    }
+                }
+            }
+
             if (retryCount >= 15) {
                 debugLog("❌ Không tìm được ảnh, đăng text!")
                 Log.w(TAG, "Gallery stuck $retryCount retries. Posting text only.")
