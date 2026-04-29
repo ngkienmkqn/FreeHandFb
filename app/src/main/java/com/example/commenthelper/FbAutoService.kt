@@ -178,7 +178,7 @@ class FbAutoService : AccessibilityService() {
             Step.WAITING_FOR_FB_LOAD -> handleWaitingForLoad()
             Step.LOOKING_FOR_LIKE -> handleLookingForLike()
             Step.LOOKING_FOR_COMMENT_FIELD -> handleLookingForCommentField()
-            Step.WAITING_FOR_COMMENT_SENT -> handleWaitingForCommentSent()
+            Step.WAITING_FOR_COMMENT_SENT -> findAndClickSend()
             Step.LOOKING_FOR_COMPOSER -> handleLookingForComposer()
             Step.WAITING_FOR_COMPOSER_INPUT -> handleWaitingForComposerInput()
             Step.LOOKING_FOR_PHOTO_BUTTON -> { handleLookingForPhotoButton() }
@@ -535,7 +535,7 @@ class FbAutoService : AccessibilityService() {
                 composer.recycle()
                 currentStep = Step.LOOKING_FOR_COMPOSER
                 retryCount = 0
-                scheduleNextStep(STEP_DELAY) { handleLookingForComposer() }
+                setNextStepDelay(STEP_DELAY)
             }
         } else {
             // Check if we can find any interactable content (Like button area or comment area)
@@ -548,7 +548,7 @@ class FbAutoService : AccessibilityService() {
                 commentArea?.recycle()
                 currentStep = Step.LOOKING_FOR_LIKE
                 retryCount = 0
-                scheduleNextStep(STEP_DELAY) { handleLookingForLike() }
+                setNextStepDelay(STEP_DELAY)
             }
         }
         root.recycle()
@@ -601,7 +601,7 @@ class FbAutoService : AccessibilityService() {
             // Move to comment step
             currentStep = Step.LOOKING_FOR_COMMENT_FIELD
             retryCount = 0
-            scheduleNextStep(STEP_DELAY) { handleLookingForCommentField() }
+            setNextStepDelay(STEP_DELAY)
         } else {
             // No like button found — maybe already liked or different layout
             // Skip to comment
@@ -633,7 +633,7 @@ class FbAutoService : AccessibilityService() {
                 root.recycle()
                 // Wait and retry
                 retryCount = 0
-                scheduleNextStep(STEP_DELAY) { handleLookingForCommentField() }
+                setNextStepDelay(STEP_DELAY)
                 return
             }
         }
@@ -655,7 +655,7 @@ class FbAutoService : AccessibilityService() {
             currentStep = Step.WAITING_FOR_COMMENT_SENT
             retryCount = 0
             // Give time for text to be set, then look for send button
-            scheduleNextStep(STEP_DELAY) { findAndClickSend() }
+            setNextStepDelay(STEP_DELAY)
         }
         root.recycle()
     }
@@ -689,7 +689,7 @@ class FbAutoService : AccessibilityService() {
             // Retry finding send button
             retryCount++
             if (retryCount < 10) {
-                scheduleNextStep(500) { findAndClickSend() }
+                setNextStepDelay(500)
             } else {
                 Log.w(TAG, "Send button not found after retries")
                 markCurrentDone(success = false)
@@ -713,7 +713,7 @@ class FbAutoService : AccessibilityService() {
             
             currentStep = Step.WAITING_FOR_COMPOSER_INPUT
             retryCount = 0
-            scheduleNextStep(STEP_DELAY) { handleWaitingForComposerInput() }
+            setNextStepDelay(STEP_DELAY)
         } else {
             retryCount++
         }
@@ -738,11 +738,11 @@ class FbAutoService : AccessibilityService() {
             if (task.imageCount > 0) {
                 currentStep = Step.LOOKING_FOR_PHOTO_BUTTON
                 retryCount = 0
-                scheduleNextStep(STEP_DELAY) { handleLookingForPhotoButton() }
+                setNextStepDelay(STEP_DELAY)
             } else {
                 currentStep = Step.WAITING_FOR_COMMENT_SENT
                 retryCount = 0
-                scheduleNextStep(STEP_DELAY) { findAndClickSend() }
+                setNextStepDelay(STEP_DELAY)
             }
         } else {
             retryCount++
@@ -764,7 +764,7 @@ class FbAutoService : AccessibilityService() {
             
             currentStep = Step.SELECTING_PHOTOS
             retryCount = 0
-            scheduleNextStep(2500) { handleSelectingPhotos() } // Gallery load buffer
+            setNextStepDelay(2500) // Gallery load buffer
         } else {
             retryCount++
         }
@@ -796,7 +796,7 @@ class FbAutoService : AccessibilityService() {
                 multiBtn.recycle()
                 multiSelectClicked = true
                 root.recycle()
-                scheduleNextStep(2000) { handleSelectingPhotos() }
+                setNextStepDelay(2000)
                 return
             }
             if (retryCount >= 5) {
@@ -849,7 +849,7 @@ class FbAutoService : AccessibilityService() {
                 currentStep = Step.WAITING_FOR_COMMENT_SENT
                 retryCount = 0
                 multiSelectClicked = false
-                scheduleNextStep(2500) { findAndClickSend() }
+                setNextStepDelay(2500)
             }, waitTime)
         } else {
             retryCount++
@@ -893,7 +893,7 @@ class FbAutoService : AccessibilityService() {
             shareBtn.recycle()
             currentStep = Step.CLICKING_SHARE_AND_COPY
             retryCount = 0
-            scheduleNextStep(1500) { handleClickingShareAndCopy() }
+            setNextStepDelay(1500)
         } else {
             // 2. Fallback for Private Groups (No share button -> Click "..." More options menu)
             // The content description on FB Android usually includes "options" or "tùy chọn"
@@ -908,7 +908,7 @@ class FbAutoService : AccessibilityService() {
                 currentStep = Step.CLICKING_SHARE_AND_COPY
                 retryCount = 0
                 // Takes slightly longer for the BottomSheet to render from the '...' menu
-                scheduleNextStep(2000) { handleClickingShareAndCopy() } 
+                setNextStepDelay(2000) 
             } else {
                 retryCount++
             }
