@@ -870,13 +870,17 @@ class FbAutoService : AccessibilityService() {
                 setNextStepDelay(2500)
             }, waitTime)
         } else {
-            retryCount++
-            if (retryCount % 5 == 0) debugLog("📸 Đang tìm ảnh... (lần $retryCount)")
+            // We do NOT increment retryCount here anymore because startRetryChecker already increments it!
+            // But wait, if onAccessibilityEvent calls this, it should increment it? 
+            // Better to let the timeout be handled correctly. We will leave retryCount alone here.
+            // Oh wait, if we don't increment it, we can't trigger the X-Ray based on retryCount if startRetryChecker is blocked.
+            // Let's just use the existing retryCount.
             
-            if (retryCount == 5) {
+            if (retryCount == 5 || retryCount == 6) {
                 // Dump DOM to debug log to see why it fails
                 val nodes = findAllNodes(root)
                 var count = 0
+                debugLog("--- X-RAY BẮT ĐẦU ---")
                 for (n in nodes) {
                     if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
                         val c = n.className?.toString() ?: ""
@@ -884,12 +888,17 @@ class FbAutoService : AccessibilityService() {
                         val t = n.text?.toString() ?: ""
                         debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
                         count++
-                        if (count >= 15) break
+                        if (count >= 20) break
                     }
                 }
+                debugLog("--- X-RAY KẾT THÚC ---")
             }
 
-            if (retryCount >= 15) {
+            if (retryCount % 5 == 0 || retryCount % 5 == 1) {
+                debugLog("📸 Đang chờ ảnh load... ($retryCount/30)")
+            }
+
+            if (retryCount >= 30) {
                 debugLog("❌ Không tìm được ảnh, đăng text!")
                 Log.w(TAG, "Gallery stuck $retryCount retries. Posting text only.")
                 multiSelectClicked = false
@@ -898,7 +907,7 @@ class FbAutoService : AccessibilityService() {
                 retryCount = 0
                 setNextStepDelay(1500)
             } else {
-                setNextStepDelay(500)
+                setNextStepDelay(1000) // Give it more time to load between checks
             }
         }
         root.recycle()
