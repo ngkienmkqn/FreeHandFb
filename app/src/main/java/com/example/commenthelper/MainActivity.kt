@@ -619,6 +619,7 @@ fun MainApp(
     val isAutoRunning by FbAutoService.isRunning.collectAsState()
     val currentPostId by FbAutoService.currentPostId.collectAsState()
     val autoProgress by FbAutoService.progress.collectAsState()
+    val currentStatusText by FbAutoService.currentStatusText.collectAsState()
 
     // Auto-update check
     var showUpdateDialog by remember { mutableStateOf(false) }
@@ -875,15 +876,19 @@ fun MainApp(
                 // Master status bar
                 if (isAutoRunning) {
                     Surface(color = Color(0xFF065F46), modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("⚡ Đang chạy: ${autoProgress.first}/${autoProgress.second}", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.weight(1f))
-                            LinearProgressIndicator(
-                                progress = { if (autoProgress.second > 0) autoProgress.first.toFloat() / autoProgress.second else 0f },
-                                modifier = Modifier.width(100.dp).height(6.dp),
-                                color = Color(0xFF10B981),
-                                trackColor = Color(0xFF134E4A)
-                            )
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("⚡ Đang chạy: ${autoProgress.first}/${autoProgress.second}", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.weight(1f))
+                                LinearProgressIndicator(
+                                    progress = { if (autoProgress.second > 0) autoProgress.first.toFloat() / autoProgress.second else 0f },
+                                    modifier = Modifier.width(100.dp).height(6.dp),
+                                    color = Color(0xFF10B981),
+                                    trackColor = Color(0xFF134E4A)
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(currentStatusText, color = Color(0xFFA7F3D0), style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
@@ -1333,343 +1338,104 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
     val context = androidx.compose.ui.platform.LocalContext.current
     var phone by remember { mutableStateOf(prefs.getString(KEY_PHONE, "") ?: "") }
     var zalo by remember { mutableStateOf(prefs.getString(KEY_ZALO, "") ?: "") }
+    var wakeHoursTxt by remember { mutableStateOf(autoWakeIntervalHours.toString()) }
+    var publishMinTxt by remember { mutableStateOf(autoPublishIntervalMinutes.toString()) }
+    var notifyTxt by remember { mutableStateOf(notifyInterval.toString()) }
+    var startHourTxt by remember { mutableStateOf(startActiveHour.toString()) }
+    var endHourTxt by remember { mutableStateOf(endActiveHour.toString()) }
+    var blockHourTxt by remember { mutableStateOf(prefs.getInt("block_timeout_hours", 24).toString()) }
+    var delayTxt by remember { mutableStateOf(prefs.getLong("local_gallery_delay", 0L).let { if (it > 0) it.toString() else "" }) }
+    val otaScript = prefs.getString("engine_script", "{}") ?: "{}"
+    val otaVersion = try { org.json.JSONObject(otaScript).optString("version", "Chưa tải") } catch(e: Exception) { "?" }
+    var selectedOta by remember { mutableStateOf(prefs.getString("selected_ota_version", "latest") ?: "latest") }
+    var expandedOta by remember { mutableStateOf(false) }
+    val availableVersions = try { val j = org.json.JSONObject(prefs.getString("ota_available_versions", "{}") ?: "{}"); val arr = j.optJSONArray("available"); if (arr != null) { val l = mutableListOf("latest"); for (i in 0 until arr.length()) l.add(arr.getString(i)); l.distinct() } else listOf("latest") } catch(e: Exception) { listOf("latest") }
+    val cn = android.content.ComponentName(context, FbNotificationListener::class.java)
+    val enabledListeners = android.provider.Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+    val isNotifEnabled = enabledListeners != null && enabledListeners.contains(cn.flattenToString())
+    var showLogs by remember { mutableStateOf(false) }
+    var logsContent by remember { mutableStateOf("") }
+    if (showLogs) { AlertDialog(onDismissRequest = { showLogs = false }, title = { Text("Debug Logs") }, text = { Column(Modifier.verticalScroll(rememberScrollState()).fillMaxHeight(0.7f)) { Text(logsContent, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth()) } }, confirmButton = { Button(onClick = { copyToClipboard(context, logsContent); toast(context, "Đã copy!") }) { Text("Copy") } }, dismissButton = { Button(onClick = { showLogs = false }) { Text("Đóng") } }) }
 
-    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text("Cài đặt", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(24.dp))
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("📱 Cấu hình Cá nhân (Tự động trộn SĐT)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).padding(horizontal = 16.dp).verticalScroll(rememberScrollState())) {
+            Spacer(Modifier.height(12.dp))
+            // == PERMISSIONS ==
+            Text("⚡ Quyền Hệ Thống", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("♿ Accessibility:", style = MaterialTheme.typography.bodyMedium); Spacer(Modifier.weight(1f)); Text(if (isServiceEnabled) "✅ Bật" else "❌ Tắt", color = if (isServiceEnabled) Color(0xFF2E7D32) else Color(0xFFB71C1C)); if (!isServiceEnabled) { Spacer(Modifier.width(8.dp)); FilledTonalButton(onClick = onRequestPermission) { Text("Bật", style = MaterialTheme.typography.labelSmall) } } }
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("🔔 Đọc Thông Báo:", style = MaterialTheme.typography.bodyMedium); Spacer(Modifier.weight(1f)); Text(if (isNotifEnabled) "✅ Bật" else "❌ Tắt", color = if (isNotifEnabled) Color(0xFF2E7D32) else Color(0xFFB71C1C)); if (!isNotifEnabled) { Spacer(Modifier.width(8.dp)); FilledTonalButton(onClick = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }) { Text("Bật", style = MaterialTheme.typography.labelSmall) } } }
+            } }
+            Spacer(Modifier.height(16.dp))
+            // == SCHEDULING ==
+            Text("⏰ Lịch Trình Tự Động", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text("Tải từ Server · Tùy chỉnh rồi bấm Lưu ở dưới", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Spacer(Modifier.height(8.dp))
+            ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("🔄 Check bài mới", style = MaterialTheme.typography.bodyMedium); Text("Tự dậy đi comment", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }; OutlinedTextField(value = wakeHoursTxt, onValueChange = { wakeHoursTxt = it }, modifier = Modifier.width(65.dp), singleLine = true); Text(" giờ") }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("📝 Đăng bài nhóm", style = MaterialTheme.typography.bodyMedium); Text("Tự chọn bài mẫu + nhóm", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }; OutlinedTextField(value = publishMinTxt, onValueChange = { publishMinTxt = it }, modifier = Modifier.width(65.dp), singleLine = true); Text(" phút") }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("🔔 Nhắc nhở", style = MaterialTheme.typography.bodyMedium); Text("Push notification", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }; OutlinedTextField(value = notifyTxt, onValueChange = { notifyTxt = it }, modifier = Modifier.width(65.dp), singleLine = true); Text(" phút") }
+                Spacer(Modifier.height(10.dp)); Divider(); Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("🕒 Hoạt động từ "); OutlinedTextField(value = startHourTxt, onValueChange = { startHourTxt = it }, modifier = Modifier.width(50.dp), singleLine = true); Text("h → "); OutlinedTextField(value = endHourTxt, onValueChange = { endHourTxt = it }, modifier = Modifier.width(50.dp), singleLine = true); Text("h") }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("🛑 Nghỉ khi Block"); Spacer(Modifier.weight(1f)); OutlinedTextField(value = blockHourTxt, onValueChange = { blockHourTxt = it }, modifier = Modifier.width(65.dp), singleLine = true); Text(" giờ") }
+                Spacer(Modifier.height(6.dp)); Text("Nhập 0 để tắt.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
+            } }
+            Spacer(Modifier.height(16.dp))
+            // == PERSONAL ==
+            Text("📱 Cá Nhân", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("SĐT (tự trộn vào comment)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(value = phone, onValueChange = { phone = it; prefs.edit().putString(KEY_PHONE, it).apply() }, label = { Text("Số điện thoại của bạn") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = zalo, onValueChange = { zalo = it }, label = { Text("Link Zalo") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            } }
+            Spacer(Modifier.height(16.dp))
+            // == ADVANCED ==
+            Text("🔧 Nâng Cao", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("📡 Script OTA: "); Text(otaVersion, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(value = zalo, onValueChange = { zalo = it; prefs.edit().putString(KEY_ZALO, it).apply() }, label = { Text("Link Zalo của bạn") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = { onExplicitSave(); toast(context, "Đã lưu lên Cloud") }, modifier = Modifier.fillMaxWidth()) { Text("💾 Đồng bộ Cấu hình lên Cloud") }
+                Box { OutlinedButton(onClick = { expandedOta = true }, modifier = Modifier.fillMaxWidth()) { Text("Phiên bản: $selectedOta") }; DropdownMenu(expanded = expandedOta, onDismissRequest = { expandedOta = false }) { availableVersions.forEach { v -> DropdownMenuItem(text = { Text(v) }, onClick = { selectedOta = v; prefs.edit().putString("selected_ota_version", v).apply(); expandedOta = false }) } } }
+                Spacer(Modifier.height(10.dp)); Divider(); Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("🐢 Tốc độ chọn ảnh (ms)"); Text("Tăng 3000-5000 để debug", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }; OutlinedTextField(value = delayTxt, onValueChange = { delayTxt = it }, modifier = Modifier.width(80.dp), singleLine = true, placeholder = { Text("Auto") }) }
+            } }
+            Spacer(Modifier.height(16.dp))
+            // == TOOLS ==
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onSync, modifier = Modifier.weight(1f), enabled = !isSyncing) { Text(if (isSyncing) "⏳..." else "🔄 Sync") }
+                OutlinedButton(onClick = onTestNotify, modifier = Modifier.weight(1f)) { Text("🔔 Test") }
+                OutlinedButton(onClick = onTriggerNow, modifier = Modifier.weight(1f)) { Text("📝 Đăng ngay") }
             }
-        }
-        Spacer(Modifier.height(16.dp))
-        
-        val otaScript = prefs.getString("engine_script", "{}") ?: "{}"
-        val otaVersion = try { org.json.JSONObject(otaScript).optString("version", "Mặc định (Chưa tải OTA)") } catch(e: Exception) { "Không rõ" }
-        
-        val availableOtaStr = prefs.getString("ota_available_versions", "{}") ?: "{}"
-        var selectedOta by remember { mutableStateOf(prefs.getString("selected_ota_version", "latest") ?: "latest") }
-        var expandedOta by remember { mutableStateOf(false) }
-        val availableVersions = try { 
-            val j = org.json.JSONObject(availableOtaStr)
-            val arr = j.optJSONArray("available")
-            if (arr != null) {
-                val l = mutableListOf<String>("latest")
-                for (i in 0 until arr.length()) l.add(arr.getString(i))
-                l.distinct()
-            } else listOf("latest")
-        } catch(e: Exception) { listOf("latest") }
-
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("📡 OTA Accessibility Engine", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Phiên bản Script OTA đang chạy: ", style = MaterialTheme.typography.bodyMedium)
-                    Text(otaVersion, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.height(8.dp))
-                
-                Box {
-                    androidx.compose.material3.OutlinedButton(onClick = { expandedOta = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Chọn phiên bản Script (Tùy chọn): $selectedOta")
-                    }
-                    androidx.compose.material3.DropdownMenu(expanded = expandedOta, onDismissRequest = { expandedOta = false }) {
-                        availableVersions.forEach { v ->
-                            androidx.compose.material3.DropdownMenuItem(text = { Text(v) }, onClick = {
-                                selectedOta = v
-                                prefs.edit().putString("selected_ota_version", v).apply()
-                                expandedOta = false
-                                toast(context, "Đã lưu. Vui lòng bấm Sync để tải kịch bản mới.")
-                            })
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("Các nút bấm trên màn hình Facebook được tải nối mạng trực tiếp từ máy chủ VPS. Cập nhật chữ từ Server không bắt buộc build lại App Android.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                
-                Spacer(Modifier.height(12.dp))
-                Divider()
-                Spacer(Modifier.height(12.dp))
-                Text("🐢 Tốc độ chọn ảnh Gallery", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text("Delay giữa mỗi lần chọn ảnh (ms). Tăng lên 3000-5000 để debug xem bot chọn nhầm chỗ nào.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Spacer(Modifier.height(8.dp))
-                var delayTxt by remember { mutableStateOf(prefs.getLong("local_gallery_delay", 0L).let { if (it > 0) it.toString() else "" }) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = delayTxt,
-                        onValueChange = { v ->
-                            delayTxt = v
-                            val ms = v.toLongOrNull()
-                            if (ms != null && ms > 0) {
-                                prefs.edit().putLong("local_gallery_delay", ms).apply()
-                                FbAutoService.Engine.galleryClickDelay = ms
-                                toast(context, "Gallery delay: ${ms}ms")
-                            } else if (v.isBlank()) {
-                                prefs.edit().remove("local_gallery_delay").apply()
-                                toast(context, "Gallery delay: dùng OTA mặc định")
-                            }
-                        },
-                        label = { Text("Delay (ms)") },
-                        placeholder = { Text("Mặc định: OTA (${FbAutoService.Engine.galleryClickDelay}ms)") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Button(onClick = {
-                        delayTxt = "3000"
-                        prefs.edit().putLong("local_gallery_delay", 3000L).apply()
-                        FbAutoService.Engine.galleryClickDelay = 3000L
-                        toast(context, "🐢 Debug mode: 3000ms")
-                    }) { Text("🐢 Debug") }
-                    Spacer(Modifier.width(4.dp))
-                    Button(onClick = {
-                        delayTxt = ""
-                        prefs.edit().remove("local_gallery_delay").apply()
-                        FbAutoService.Engine.load(context)
-                        toast(context, "⚡ Tốc độ bình thường")
-                    }) { Text("⚡ Reset") }
-                }
+            if (lastSyncStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(lastSyncStatus, style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
+            Spacer(Modifier.height(16.dp))
+            // == LOGS ==
+            Text("🛠 Debug Logs", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { try { logsContent = java.io.File(context.filesDir, "debug_logs.txt").readText(); if (logsContent.isBlank()) logsContent = "Chưa có." } catch (e: Exception) { logsContent = "Chưa có." }; showLogs = true }, modifier = Modifier.weight(1f)) { Text("Xem Logs") }
+                OutlinedButton(onClick = { try { java.io.File(context.filesDir, "debug_logs.txt").writeText(""); toast(context, "Đã xóa!") } catch (e: Exception) {} }, modifier = Modifier.weight(1f)) { Text("Xóa Logs") }
             }
+            Spacer(Modifier.height(24.dp))
         }
-        Spacer(Modifier.height(16.dp))
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("🔄 Đồng bộ Server", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onSync, modifier = Modifier.fillMaxWidth(), enabled = !isSyncing) {
-                    if (isSyncing) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White); Spacer(Modifier.width(8.dp)); Text("Đang sync...") }
-                    else Text("🔄 Sync từ Server")
-                }
-                if (lastSyncStatus.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(lastSyncStatus, style = MaterialTheme.typography.bodySmall) }
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("🤖 Hẹn Giờ Máy Tự Cày", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Text("Đánh thức máy dậy mở app và tự đi comment", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Kiểm tra nhiệm vụ mỗi (giờ):")
-                    Spacer(Modifier.weight(1f))
-                    var txt by remember { mutableStateOf(autoWakeIntervalHours.toString()) }
-                    OutlinedTextField(
-                        value = txt,
-                        onValueChange = { txt = it; it.toIntOrNull()?.let { v -> onAutoWakeIntervalChange(v) } },
-                        modifier = Modifier.width(70.dp),
-                        singleLine = true
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
-                Text("Yêu cầu gỡ sạch PIN khóa màn hình máy để chạy. Nhập 0 để TẮT.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("🚀 Hẹn Giờ Tự Lấy Bài Đăng Group", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(8.dp))
-                Text("Tự động chọn 1 bài Mẫu và 1 Nhóm gợi ý để bung lên Group Facebook ngầm (Từ A - Z)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Spacer(Modifier.height(8.dp))
-                var txt by remember { mutableStateOf(autoPublishIntervalMinutes.toString()) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Khoảng cách đăng (phút):")
-                    Spacer(Modifier.weight(1f))
-                    OutlinedTextField(
-                        value = txt,
-                        onValueChange = { txt = it },
-                        modifier = Modifier.width(70.dp),
-                        singleLine = true
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Button(onClick = { 
-                        txt.toIntOrNull()?.let { v -> onAutoPublishIntervalChange(v) }
-                        toast(context, "Đã lưu cài đặt hẹn giờ!")
-                    }, modifier = Modifier.weight(1f)) {
-                        Text("💾 Lưu Mức Giờ")
-                    }
-                    Button(onClick = {
-                        onTriggerNow()
-                    }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))) {
-                        Text("▶️ Chạy Ngay")
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("Nhập 0 và Lưu để tắt vòng lặp. 'Chạy Ngay' sẽ lập tức tung 1 bài giấu nền.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("🕒 Khung Giờ Hoạt Động", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(8.dp))
-                Text("Ứng dụng tự động bỏ qua chu kỳ chạy Auto-Publish ngoài khung giờ này.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Spacer(Modifier.height(8.dp))
-                var stxt by remember { mutableStateOf(startActiveHour.toString()) }
-                var etxt by remember { mutableStateOf(endActiveHour.toString()) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Giờ bắt đầu làm (Sáng):")
-                    Spacer(Modifier.weight(1f))
-                    OutlinedTextField(
-                        value = stxt,
-                        onValueChange = { stxt = it },
-                        modifier = Modifier.width(70.dp),
-                        singleLine = true
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Giờ đi ngủ (Tối):")
-                    Spacer(Modifier.weight(1f))
-                    OutlinedTextField(
-                        value = etxt,
-                        onValueChange = { etxt = it },
-                        modifier = Modifier.width(70.dp),
-                        singleLine = true
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                var bt by remember { mutableStateOf((prefs.getInt("block_timeout_hours", 24)).toString()) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Thời gian nghỉ khi bị Block (giờ):")
-                    Spacer(Modifier.weight(1f))
-                    OutlinedTextField(
-                        value = bt,
-                        onValueChange = { bt = it; it.toIntOrNull()?.let { v -> prefs.edit().putInt("block_timeout_hours", v).apply() } },
-                        modifier = Modifier.width(70.dp),
-                        singleLine = true
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = {
-                    stxt.toIntOrNull()?.let { v -> onStartActiveHourChange(v) }
-                    etxt.toIntOrNull()?.let { v -> onEndActiveHourChange(v) }
-                    toast(context, "Đã lưu khung giờ bảo vệ!")
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text("💾 Lưu Khung Giờ")
-                }
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("🔔 Cài đặt Thông báo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Khoảng cách nhắc nhở (phút):")
-                    Spacer(Modifier.weight(1f))
-                    var txt by remember { mutableStateOf(notifyInterval.toString()) }
-                    OutlinedTextField(
-                        value = txt,
-                        onValueChange = { txt = it; it.toIntOrNull()?.let { v -> onIntervalChange(v) } },
-                        modifier = Modifier.width(70.dp),
-                        singleLine = true
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("Ghi 0 để tắt nhắc nhở gom nhóm.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onTestNotify, modifier = Modifier.fillMaxWidth()) {
-                    Text("🔔 Test Thông Báo Ngay")
-                }
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("♿ Accessibility Service", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isServiceEnabled) "✅ Đã bật" else "❌ Chưa bật", color = if (isServiceEnabled) Color(0xFF2E7D32) else Color(0xFFB71C1C))
-                    Spacer(Modifier.weight(1f))
-                    if (!isServiceEnabled) FilledTonalButton(onClick = onRequestPermission) { Text("Bật") }
-                }
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        
-        val cn = android.content.ComponentName(context, FbNotificationListener::class.java)
-        val enabledListeners = android.provider.Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
-        val isNotifEnabled = enabledListeners != null && enabledListeners.contains(cn.flattenToString())
-        
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("🔔 Quyền Đọc Thông Báo (Nuôi Link)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("Cần bật để Bot có thể bắt Link của các bài viết được phê duyệt trễ.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isNotifEnabled) "✅ Đã cấp quyền" else "❌ Chưa cấp quyền", color = if (isNotifEnabled) Color(0xFF2E7D32) else Color(0xFFB71C1C))
-                    Spacer(Modifier.weight(1f))
-                    if (!isNotifEnabled) {
-                        FilledTonalButton(onClick = { 
-                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) 
-                        }) { Text("Cấp Quyền") }
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        var showLogs by remember { mutableStateOf(false) }
-        var logsContent by remember { mutableStateOf("") }
-        
-        if (showLogs) {
-            AlertDialog(
-                onDismissRequest = { showLogs = false },
-                title = { Text("Debug Logs") },
-                text = { 
-                    Column(Modifier.verticalScroll(rememberScrollState()).fillMaxHeight(0.7f)) {
-                        Text(logsContent, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
-                    }
-                },
-                confirmButton = {
-                    Button(onClick = { 
-                        copyToClipboard(context, logsContent)
-                        toast(context, "Đã copy Logs!")
-                    }) { Text("Copy") }
-                },
-                dismissButton = {
-                    Button(onClick = { showLogs = false }) { Text("Đóng") }
-                }
-            )
-        }
-        
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("🛠️ Debug Logs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { 
-                        try {
-                            logsContent = java.io.File(context.filesDir, "debug_logs.txt").readText()
-                            if (logsContent.isBlank()) logsContent = "Chưa có log nào."
-                        } catch (e: Exception) {
-                            logsContent = "Chưa có log nào."
-                        }
-                        showLogs = true
-                    }, modifier = Modifier.weight(1f)) {
-                        Text("Xem Logs")
-                    }
-                    OutlinedButton(onClick = { 
-                        try {
-                            java.io.File(context.filesDir, "debug_logs.txt").writeText("")
-                            toast(context, "Đã xóa Logs!")
-                        } catch (e: Exception) {}
-                    }, modifier = Modifier.weight(1f)) {
-                        Text("Xóa Logs")
-                    }
-                }
-            }
+        // == FIXED SAVE ALL BUTTON ==
+        Surface(tonalElevation = 8.dp, shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = {
+                val e = prefs.edit(); e.putString(KEY_PHONE, phone); e.putString(KEY_ZALO, zalo)
+                wakeHoursTxt.toIntOrNull()?.let { v -> e.putInt("autowake_interval_hours", v); onAutoWakeIntervalChange(v) }
+                publishMinTxt.toIntOrNull()?.let { v -> e.putInt("autopublish_interval_minutes", v); onAutoPublishIntervalChange(v) }
+                notifyTxt.toIntOrNull()?.let { v -> e.putInt("notify_interval", v); onIntervalChange(v) }
+                startHourTxt.toIntOrNull()?.let { v -> e.putInt("start_active_hour", v); onStartActiveHourChange(v) }
+                endHourTxt.toIntOrNull()?.let { v -> e.putInt("end_active_hour", v); onEndActiveHourChange(v) }
+                blockHourTxt.toIntOrNull()?.let { v -> e.putInt("block_timeout_hours", v) }
+                val ms = delayTxt.toLongOrNull(); if (ms != null && ms > 0) { e.putLong("local_gallery_delay", ms); FbAutoService.Engine.galleryClickDelay = ms } else { e.remove("local_gallery_delay"); FbAutoService.Engine.load(context) }
+                e.apply(); onExplicitSave(); toast(context, "✅ Đã lưu toàn bộ!")
+            }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))) { Text("💾 LƯU TOÀN BỘ CÀI ĐẶT", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
         }
     }
 }

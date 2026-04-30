@@ -43,6 +43,9 @@ class FbAutoService : AccessibilityService() {
         /** Signal to stop processing */
         val stopRequested = MutableStateFlow(false)
 
+        /** Detailed status text for UI */
+        val currentStatusText = MutableStateFlow("Đang chờ...")
+
         /** Reference to the running service instance */
         var instance: FbAutoService? = null
             private set
@@ -135,12 +138,45 @@ class FbAutoService : AccessibilityService() {
     }
 
     private var currentStep = Step.IDLE
+        set(value) {
+            field = value
+            updateStatusText()
+        }
     private var currentTask: TaskItem? = null
     private var currentIndex = 0
     private var retryCount = 0
     private var nextStepTime = 0L
     private fun setNextStepDelay(delay: Long) {
         nextStepTime = System.currentTimeMillis() + delay
+    }
+
+    private fun updateStatusText() {
+        val baseMsg = when(currentStep) {
+            Step.IDLE -> "Đang rảnh"
+            Step.WAITING_FOR_FB_LOAD -> "Đang mở bài viết trên ứng dụng FB..."
+            Step.LOOKING_FOR_LIKE -> "Đang tìm kiếm nút Thích..."
+            Step.LOOKING_FOR_COMMENT_FIELD -> "Đang tìm kiếm ô nhập Bình luận..."
+            Step.WAITING_FOR_COMMENT_SENT -> "Đang gửi bình luận..."
+            Step.LOOKING_FOR_COMPOSER -> "Đang chuẩn bị viết bài mới..."
+            Step.WAITING_FOR_COMPOSER_INPUT -> "Đang nhập nội dung bài viết..."
+            Step.LOOKING_FOR_PHOTO_BUTTON -> "Đang tìm nút tải ảnh lên..."
+            Step.SELECTING_PHOTOS -> "Đang chọn ảnh từ thư viện..."
+            Step.WAITING_FOR_POST_TO_UPLOAD -> "Đang chờ Facebook tải bài lên..."
+            Step.CLICKING_SHARE_AND_COPY -> "Đang lấy link bài viết vừa đăng..."
+            Step.WAITING_FOR_CLIPBOARD -> "Đang xử lý link vừa sao chép..."
+            Step.SCRAPING_GROUP_INFO -> "Đang quét thông tin thành viên nhóm..."
+            Step.PROCESSING_APPROVED_NOTIFICATIONS -> "Đang xử lý bài viết được duyệt trễ..."
+            Step.WAITING_FOR_OPENED_POST -> "Đang mở bài viết từ thông báo..."
+            Step.DONE -> "Hoàn thành tác vụ"
+        }
+        val q = taskQueue.value
+        val nextMsg = if (q.isNotEmpty() && currentIndex + 1 < q.size) {
+            val nextTask = q[currentIndex + 1]
+            if (nextTask.isPublishingGroup) " (Tiếp theo: Đăng bài nhóm)"
+            else if (nextTask.isScrapingGroup) " (Tiếp theo: Quét nhóm)"
+            else " (Tiếp theo: Tương tác bài)"
+        } else " (Sắp xong chuỗi tác vụ)"
+        currentStatusText.value = baseMsg + if (currentStep != Step.IDLE && currentStep != Step.DONE) nextMsg else ""
     }
     private val MAX_RETRIES: Int
         get() = if (currentStep == Step.WAITING_FOR_POST_TO_UPLOAD || currentStep == Step.WAITING_FOR_COMMENT_SENT) 80 else 40 // 40s for upload, 20s for other steps
