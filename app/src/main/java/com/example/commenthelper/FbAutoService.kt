@@ -49,6 +49,9 @@ class FbAutoService : AccessibilityService() {
         /** Reference to the running service instance */
         var instance: FbAutoService? = null
             private set
+            
+        /** Callback invoked when the queue naturally finishes (not manually stopped) */
+        var onQueueFinished: (() -> Unit)? = null
 
         fun isServiceEnabled(context: Context): Boolean {
             val enabledServices = android.provider.Settings.Secure.getString(
@@ -1942,16 +1945,32 @@ class FbAutoService : AccessibilityService() {
             }
             try { startActivity(launchIntent) } catch(e: Exception) {}
 
-            handler.postDelayed({
-                processNextPost()
-            }, 3000) // Wait 3s for FB to fully die before next task
+            var countdown = 3
+            val runnable = object : Runnable {
+                override fun run() {
+                    if (countdown > 0) {
+                        currentStatusText.value = "Đang dọn dẹp FB... Bắt đầu bài tiếp theo sau ${countdown}s"
+                        countdown--
+                        handler.postDelayed(this, 1000)
+                    } else {
+                        processNextPost()
+                    }
+                }
+            }
+            handler.post(runnable)
         } else {
             forceStopFacebook()
             val launchIntent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
             try { startActivity(launchIntent) } catch(e: Exception) {}
+            
+            val finishedNaturally = !stopRequested.value
             resetState()
+            
+            if (finishedNaturally) {
+                onQueueFinished?.invoke()
+            }
         }
     }
 
