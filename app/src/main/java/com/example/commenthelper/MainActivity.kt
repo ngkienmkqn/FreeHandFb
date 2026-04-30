@@ -443,7 +443,7 @@ fun AppRoot(initialUrl: String?, autoStart: Boolean = false) {
                         Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
                     }
                     Spacer(modifier = Modifier.height(24.dp))
-                    Text(splashInfo!!.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(splashInfo!!.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
         } else if (splashLoaded && splashInfo == null) {
