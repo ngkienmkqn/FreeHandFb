@@ -749,10 +749,6 @@ fun MainApp(
         }
     }
 
-    val currentPosts by rememberUpdatedState(posts)
-    val currentTemplates by rememberUpdatedState(templates)
-    val currentUsername by rememberUpdatedState(username)
-
     // Post completion → mark done + report to server
     DisposableEffect(Unit) {
         FbAutoService.onQueueFinished = {
