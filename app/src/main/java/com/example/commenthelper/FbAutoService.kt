@@ -129,6 +129,8 @@ class FbAutoService : AccessibilityService() {
         LOOKING_FOR_PHOTO_BUTTON, 
         SELECTING_PHOTOS, 
         WAITING_FOR_POST_TO_UPLOAD,
+        CLICKING_YOU_TAB,
+        LOOKING_FOR_MY_POST,
         CLICKING_SHARE_AND_COPY,
         WAITING_FOR_CLIPBOARD,
         SCRAPING_GROUP_INFO,
@@ -587,6 +589,8 @@ class FbAutoService : AccessibilityService() {
                     Step.LOOKING_FOR_PHOTO_BUTTON -> { handleLookingForPhotoButton() }
                     Step.SELECTING_PHOTOS -> { handleSelectingPhotos() }
                     Step.WAITING_FOR_POST_TO_UPLOAD -> { handleWaitingForPostToUpload() }
+                    Step.CLICKING_YOU_TAB -> { handleClickingYouTab() }
+                    Step.LOOKING_FOR_MY_POST -> { handleLookingForMyPost() }
                     Step.CLICKING_SHARE_AND_COPY -> { handleClickingShareAndCopy() }
                     Step.WAITING_FOR_CLIPBOARD -> {
                         submitCopiedLinkToBackend(currentTask ?: return)
@@ -1258,6 +1262,17 @@ class FbAutoService : AccessibilityService() {
         
         val allNodes = findAllNodes(root)
         
+        val isUploading = allNodes.any {
+            val text = it.text?.toString()?.lowercase() ?: ""
+            text.contains("đang đăng") || text.contains("posting")
+        }
+        if (isUploading) {
+            setNextStepDelay(1000)
+            recycleNodes(allNodes)
+            root.recycle()
+            return
+        }
+        
         val submittedTexts = listOf("bài viết của bạn đã được gửi", "submitted to admins", "đã gửi", "chờ phê duyệt", "pending", "đang chờ xử lý")
         val isPending = allNodes.any {
             val txt = it.text?.toString()?.lowercase() ?: ""
@@ -1273,7 +1288,63 @@ class FbAutoService : AccessibilityService() {
             return
         }
 
-        // Wait for OUR post text to appear on the feed
+        // Upload is done! Navigate to the "Bạn" (You) tab to easily find our post
+        debugLog("Upload xong! Đang tìm tab 'Bạn' để vào danh sách bài viết...")
+        currentStep = Step.CLICKING_YOU_TAB
+        retryCount = 0
+        setNextStepDelay(500)
+        
+        recycleNodes(allNodes)
+        root.recycle()
+    }
+
+    private fun handleClickingYouTab() {
+        val root = rootInActiveWindow ?: return
+        val allNodes = findAllNodes(root)
+
+        // Find the "Bạn" (You) tab button
+        val youTab = allNodes.firstOrNull { 
+            val txt = it.text?.toString()?.lowercase()?.trim() ?: ""
+            val desc = it.contentDescription?.toString()?.lowercase()?.trim() ?: ""
+            (txt == "bạn" || txt == "you" || desc == "bạn" || desc == "you") && 
+            (it.isClickable || it.parent?.isClickable == true || it.parent?.parent?.isClickable == true)
+        }
+
+        if (youTab != null) {
+            debugLog("Đã tìm thấy tab 'Bạn', đang click...")
+            if (youTab.isClickable) {
+                youTab.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            } else if (youTab.parent?.isClickable == true) {
+                youTab.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            } else {
+                youTab.parent?.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+            
+            // Go to next step to search for our post inside the "Bạn" screen
+            currentStep = Step.LOOKING_FOR_MY_POST
+            retryCount = 0
+            setNextStepDelay(2500) // Wait for profile screen to load
+        } else {
+            if (retryCount >= 10) {
+                // Fallback if no "Bạn" tab exists in this group
+                debugLog("⚠️ Không tìm thấy tab 'Bạn', thử tìm bài viết trực tiếp...")
+                currentStep = Step.LOOKING_FOR_MY_POST
+                retryCount = 0
+                setNextStepDelay(500)
+            } else {
+                setNextStepDelay(1000)
+            }
+        }
+        recycleNodes(allNodes)
+        root.recycle()
+    }
+
+    private fun handleLookingForMyPost() {
+        val root = rootInActiveWindow ?: return
+        val allNodes = findAllNodes(root)
+        val task = currentTask ?: return
+
+        // Wait for OUR post text to appear
         val snippet = task.comment.take(30).trim()
         
         // Try to learn our FB profile name from "..." menu buttons on screen
@@ -1348,13 +1419,17 @@ class FbAutoService : AccessibilityService() {
                 }
             }
 
-
         } else {
             // Our post hasn't appeared yet. Wait.
             if (retryCount >= 25) {
                 debugLog("⚠️ Đợi lâu không thấy bài đăng, có thể đang chờ duyệt. Bỏ qua lấy link.")
                 markCurrentDone(success = true) // Treat as success because we clicked Post
             } else {
+                // Scroll down a bit in case it's further down the list
+                if (retryCount > 0 && retryCount % 5 == 0) {
+                    val scrollable = allNodes.firstOrNull { it.isScrollable }
+                    scrollable?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                }
                 setNextStepDelay(1000)
             }
         }
