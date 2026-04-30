@@ -708,6 +708,25 @@ class FbAutoService : AccessibilityService() {
                 currentStep = Step.LOOKING_FOR_LIKE
                 retryCount = 0
                 setNextStepDelay(STEP_DELAY)
+            } else if (retryCount >= 10) {
+                // After 5 seconds of waiting, check if we landed on a Group page instead of a post
+                val allNodes = findAllNodes(root)
+                val hasGroupFeed = allNodes.any {
+                    val txt = it.text?.toString()?.lowercase() ?: ""
+                    val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+                    txt.contains("bạn viết gì đi") || txt.contains("what's on your mind") ||
+                    txt.contains("thành viên") || txt.contains("members") ||
+                    desc.contains("bạn viết gì đi") || desc.contains("what's on your mind")
+                }
+                val hasComposerPlaceholder = findGroupComposerPlaceholder(root) != null
+                recycleNodes(allNodes)
+
+                if (hasGroupFeed || hasComposerPlaceholder) {
+                    debugLog("⚠️ Link bài viết đã redirect về trang Group (bài bị xoá hoặc không tồn tại). Bỏ qua!")
+                    markCurrentDone(success = false)
+                    root.recycle()
+                    return
+                }
             }
         }
         root.recycle()
