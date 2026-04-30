@@ -1458,9 +1458,14 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             setNextStepDelay(1500)
         } else {
+            // Scroll down the menu to find the Copy button (sometimes it's at the bottom)
+            val allNodes = findAllNodes(root)
+            val scrollable = allNodes.firstOrNull { it.isScrollable }
+            scrollable?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            
             // Menu might be closed or click missed. Retry opening the menu every 5 retries!
             if (retryCount > 0 && retryCount % 5 == 0) {
-                debugLog("⚠️ Vẫn chưa thấy nút Copy, thử bấm lại nút Chia sẻ/Menu...")
+                debugLog("⚠️ Vẫn chưa thấy nút Copy, thử cuộn hoặc bấm lại nút Chia sẻ/Menu...")
                 val allNodes = findAllNodes(root)
                 val shareBtn = findNodeByContentDescription(root, listOf("share", "chia sẻ"))
                     ?: findNodeByText(root, listOf("share", "chia sẻ"))
