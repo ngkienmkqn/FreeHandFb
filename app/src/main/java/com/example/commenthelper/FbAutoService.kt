@@ -1244,16 +1244,7 @@ class FbAutoService : AccessibilityService() {
         val pendingList = FbNotificationListener.pendingApprovedPosts
         if (pendingList.isEmpty()) {
             Log.d(TAG, "No more approved notifications. Resuming normal queue.")
-            currentStep = Step.WAITING_FOR_FB_LOAD
-            retryCount = 0
-            val tasks = taskQueue.value
-            if (currentIndex < tasks.size) {
-                currentTask = tasks[currentIndex]
-                currentPostId.value = currentTask?.postId ?: ""
-                setNextStepDelay(1000)
-            } else {
-                resetState()
-            }
+            processNextPost()
             return
         }
 

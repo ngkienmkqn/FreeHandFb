@@ -391,12 +391,68 @@ class MainActivity : ComponentActivity() {
 
 /* ================== UI ROOT ================== */
 
+data class SplashInfo(val imageUrl: String, val text: String, val durationMs: Long)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppRoot(initialUrl: String?, autoStart: Boolean = false) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
+
+    var showSplash by remember { mutableStateOf(true) }
+    var splashInfo by remember { mutableStateOf<SplashInfo?>(null) }
+    var splashLoaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val (code, body) = httpReq("$SERVER_URL/api/splash")
+                if (code in 200..299 && body != null) {
+                    val json = org.json.JSONObject(body)
+                    splashInfo = SplashInfo(
+                        imageUrl = json.optString("imageUrl", ""),
+                        text = json.optString("text", "Chào mừng bạn đến với FreeHand Fb"),
+                        durationMs = json.optLong("durationMs", 3000)
+                    )
+                }
+            } catch (e: Exception) {
+            }
+            splashLoaded = true
+        }
+    }
+
+    if (showSplash) {
+        if (splashLoaded && splashInfo != null) {
+            LaunchedEffect(splashInfo) {
+                kotlinx.coroutines.delay(splashInfo!!.durationMs)
+                showSplash = false
+            }
+            Box(modifier = Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (splashInfo!!.imageUrl.isNotBlank()) {
+                        coil.compose.AsyncImage(
+                            model = splashInfo!!.imageUrl,
+                            contentDescription = "Splash Image",
+                            modifier = Modifier.fillMaxWidth(0.8f).aspectRatio(1f),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        Icon(androidx.compose.material.icons.Icons.Default.Star, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(splashInfo!!.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        } else if (splashLoaded && splashInfo == null) {
+            LaunchedEffect(Unit) { showSplash = false }
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+        return
+    }
 
     // Auth state
     var authToken by remember { mutableStateOf(prefs.getString(KEY_AUTH_TOKEN, "") ?: "") }
