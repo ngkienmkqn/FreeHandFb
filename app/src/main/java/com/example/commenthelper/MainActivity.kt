@@ -657,6 +657,11 @@ fun MainApp(
     }
 
 
+    val currentPosts by rememberUpdatedState(posts)
+    val currentTemplates by rememberUpdatedState(templates)
+    val currentUsername by rememberUpdatedState(username)
+    val failedPostIds = remember { mutableStateListOf<String>() }
+
     DisposableEffect(Unit) {
         PostDoneReceiver.onPostDone = { postId, success ->
             if (success) {
@@ -667,6 +672,10 @@ fun MainApp(
                     // Update points/notifications immediately after interact
                     val (mc, mb) = httpReq("$SERVER_URL/api/me", token = authToken)
                     if (mc == 200 && mb != null) try { points = JSONObject(mb).getInt("points") } catch (_: Exception) {}
+                }
+            } else {
+                if (!failedPostIds.contains(postId)) {
+                    failedPostIds.add(postId)
                 }
             }
         }
@@ -750,7 +759,7 @@ fun MainApp(
             // After publishing (or any queue) finishes, sync and check for new pending interactions
             scope.launch {
                 syncWithServer()
-                val pendingPosts = currentPosts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
+                val pendingPosts = currentPosts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername && !failedPostIds.contains(it.id) }
                 if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
                     FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
                     FbAutoService.isRunning.value = true
