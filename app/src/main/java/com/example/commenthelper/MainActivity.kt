@@ -438,7 +438,7 @@ fun AppRoot(initialUrl: String?, autoStart: Boolean = false) {
                             contentScale = ContentScale.Fit
                         )
                     } else {
-                        Icon(androidx.compose.material.icons.filled.Star, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
+                        Icon(androidx.compose.material.icons.filled.Favorite, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
                     }
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(splashInfo!!.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
