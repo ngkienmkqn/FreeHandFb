@@ -187,8 +187,7 @@ class FbAutoService : AccessibilityService() {
         get() = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getBoolean("global_debug_mode", false)
     enum class ScreenType { UNKNOWN, FEED, COMPOSER, GALLERY, POST_SHEET }
 
-    private fun evaluateCurrentScreen(root: AccessibilityNodeInfo): ScreenType {
-        val nodes = findAllNodes(root)
+    private fun evaluateCurrentScreen(nodes: List<AccessibilityNodeInfo>): ScreenType {
         var result = ScreenType.UNKNOWN
         
         // 1. Gallery check (Top right "Chọn nhiều file" or "Tiếp")
@@ -231,7 +230,6 @@ class FbAutoService : AccessibilityService() {
             if (hasFeedUI) result = ScreenType.FEED
         }
 
-        recycleNodes(nodes)
         return result
     }
 
@@ -448,22 +446,27 @@ class FbAutoService : AccessibilityService() {
 
                 val root = rootInActiveWindow
                 if (root != null) {
-                    if (interceptWrongScreen(root)) {
+                    val allNodes = findAllNodes(root)
+                    if (interceptWrongScreen(allNodes)) {
                         retryCount = 0
+                        recycleNodes(allNodes)
                         root.recycle()
                         handler.postDelayed(this, 1500)
                         return
                     }
-                    if (interceptBlockDialog(root)) {
+                    if (interceptBlockDialog(allNodes)) {
+                        recycleNodes(allNodes)
                         root.recycle()
                         return
                     }
-                    if (interceptGroupJoin(root)) {
+                    if (interceptGroupJoin(allNodes)) {
                         retryCount = 0
+                        recycleNodes(allNodes)
                         root.recycle()
                         handler.postDelayed(this, 1500)
                         return
                     }
+                    recycleNodes(allNodes)
                     root.recycle()
                 }
                 
@@ -473,7 +476,10 @@ class FbAutoService : AccessibilityService() {
                 if (retryCount > MAX_RETRIES) {
                     val root2 = rootInActiveWindow
                     if (root2 != null) {
-                        val screen = evaluateCurrentScreen(root2)
+                        val allNodes2 = findAllNodes(root2)
+                        val screen = evaluateCurrentScreen(allNodes2)
+                        recycleNodes(allNodes2)
+                        
                         debugLog("⚠️ Kẹt ở bước $currentStep. Màn hình hiện tại: $screen")
                         if (screen != ScreenType.UNKNOWN) {
                             val healed = attemptSelfHealing(screen)
@@ -551,6 +557,7 @@ class FbAutoService : AccessibilityService() {
                 }
             }
             debugLog("--- X-RAY $screen KẾT THÚC ---")
+            recycleNodes(nodes)
             rootXray.recycle()
         }
 
@@ -600,8 +607,7 @@ class FbAutoService : AccessibilityService() {
 
     /* ================== DOM INTERCEPTOR ================== */
 
-    private fun interceptWrongScreen(root: AccessibilityNodeInfo): Boolean {
-        val nodes = findAllNodes(root)
+    private fun interceptWrongScreen(nodes: List<AccessibilityNodeInfo>): Boolean {
         val isWrongScreen = nodes.any { 
             val txt = it.text?.toString()?.lowercase() ?: ""
             Engine.wrongScreen.any { wrongStr -> txt.contains(wrongStr) }
@@ -614,8 +620,8 @@ class FbAutoService : AccessibilityService() {
         return false
     }
 
-    private fun interceptBlockDialog(root: AccessibilityNodeInfo): Boolean {
-        val isBlocked = findAllNodes(root).any { 
+    private fun interceptBlockDialog(nodes: List<AccessibilityNodeInfo>): Boolean {
+        val isBlocked = nodes.any { 
             val text = it.text?.toString()?.lowercase() ?: ""
             Engine.blockDialog.any { blockTxt -> text.contains(blockTxt) }
         }
@@ -626,11 +632,12 @@ class FbAutoService : AccessibilityService() {
             val unlockEpoch = System.currentTimeMillis() + hours * 3600 * 1000L
             prefs.edit().putLong("block_timeout_epoch", unlockEpoch).apply()
             
-            val okBtn = findNodeByText(root, listOf("ok", "đóng", "close"))
+            val okBtn = nodes.firstOrNull { 
+                val txt = it.text?.toString()?.lowercase() ?: ""
+                listOf("ok", "đóng", "close").any { hint -> txt.equals(hint, ignoreCase=true) } && (it.isClickable || it.parent?.isClickable == true)
+            }
             if (okBtn != null) {
-                okBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                if (!okBtn.isClickable) okBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                okBtn.recycle()
+                okBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: okBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
             
             markCurrentDone(success = false)
@@ -640,9 +647,8 @@ class FbAutoService : AccessibilityService() {
         return false
     }
 
-    private fun interceptGroupJoin(root: AccessibilityNodeInfo): Boolean {
+    private fun interceptGroupJoin(nodes: List<AccessibilityNodeInfo>): Boolean {
         var altered = false
-        val nodes = findAllNodes(root)
 
         // 1. Click "Tham gia nhóm" (Join Group)
         val joinBtn = nodes.firstOrNull { 
@@ -699,9 +705,11 @@ class FbAutoService : AccessibilityService() {
     }
 
     /* ================== DEAD LINK INTERCEPTOR ================== */
-    private fun interceptDeadLink(root: AccessibilityNodeInfo): Boolean {
-        // Detect "This content isn't available right now" / "Bài viết không khả dụng"
-        val isDead = findNodeByText(root, Engine.deadLink) != null
+    private fun interceptDeadLink(nodes: List<AccessibilityNodeInfo>): Boolean {
+        val isDead = nodes.any { 
+            val text = it.text?.toString()?.lowercase() ?: ""
+            Engine.deadLink.any { deadTxt -> text.contains(deadTxt) }
+        }
 
         if (isDead) {
             Log.w(TAG, "DEAD LINK detected! Aborting interaction to preserve safety.")
@@ -1550,14 +1558,15 @@ class FbAutoService : AccessibilityService() {
     private fun findNodeByHint(root: AccessibilityNodeInfo, hints: List<String>): AccessibilityNodeInfo? {
         for (hint in hints) {
             val nodes = root.findAccessibilityNodeInfosByText(hint)
+            var foundNode: AccessibilityNodeInfo? = null
             for (node in nodes) {
-                if (node.className?.toString() == "android.widget.EditText" ||
-                    node.isEditable
-                ) {
-                    return node
+                if (foundNode == null && (node.className?.toString() == "android.widget.EditText" || node.isEditable)) {
+                    foundNode = node
+                } else {
+                    node.recycle()
                 }
-                node.recycle()
             }
+            if (foundNode != null) return foundNode
         }
         return null
     }
@@ -1575,11 +1584,15 @@ class FbAutoService : AccessibilityService() {
                 node.isVisibleToUser &&
                 (node.isClickable || node.parent?.isClickable == true)
             ) {
-                return AccessibilityNodeInfo.obtain(node)
+                val result = AccessibilityNodeInfo.obtain(node)
+                if (node != root) node.recycle()
+                for (qNode in queue) { if (qNode != root) qNode.recycle() }
+                return result
             }
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
+            if (node != root) node.recycle()
         }
         return null
     }
@@ -1590,14 +1603,15 @@ class FbAutoService : AccessibilityService() {
     ): AccessibilityNodeInfo? {
         for (txt in texts) {
             val nodes = root.findAccessibilityNodeInfosByText(txt)
+            var foundNode: AccessibilityNodeInfo? = null
             for (node in nodes) {
-                if (node.text?.toString()?.equals(txt, true) == true && node.isVisibleToUser) {
-                    if (node.isClickable || node.parent?.isClickable == true) {
-                        return node
-                    }
+                if (foundNode == null && node.text?.toString()?.equals(txt, true) == true && node.isVisibleToUser && (node.isClickable || node.parent?.isClickable == true)) {
+                    foundNode = node
+                } else {
+                    node.recycle()
                 }
-                node.recycle()
             }
+            if (foundNode != null) return foundNode
         }
         return null
     }
@@ -1641,6 +1655,7 @@ class FbAutoService : AccessibilityService() {
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
+            if (node != root) node.recycle()
         }
         return list
     }
