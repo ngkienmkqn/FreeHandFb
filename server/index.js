@@ -175,6 +175,38 @@ app.post('/api/settings', authMiddleware, adminOnly, (req, res) => {
     res.json(appSettings);
 });
 
+// --- Splash Screen ---
+app.get('/api/splash', (req, res) => {
+    const splash = appSettings.splash || { imageUrl: '', text: 'Chào mừng bạn đến với FreeHand Fb', durationMs: 3000 };
+    res.json(splash);
+});
+
+app.post('/api/splash', authMiddleware, adminOnly, (req, res) => {
+    const { imageBase64, text, durationMs } = req.body;
+    
+    let splash = appSettings.splash || { imageUrl: '', text: 'Chào mừng bạn đến với FreeHand Fb', durationMs: 3000 };
+    
+    if (text !== undefined) splash.text = text;
+    if (durationMs !== undefined) splash.durationMs = parseInt(durationMs) || 3000;
+    
+    if (imageBase64 && imageBase64.startsWith('data:image/')) {
+        const matches = imageBase64.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+            const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+            const buffer = Buffer.from(matches[2], 'base64');
+            const filename = `splash_${Date.now()}.${ext}`;
+            const filepath = path.join(__dirname, 'public', 'uploads', filename);
+            fs.writeFileSync(filepath, buffer);
+            
+            splash.imageUrl = `${req.protocol}://${req.get('host')}/uploads/${filename}`;
+        }
+    }
+    
+    appSettings.splash = splash;
+    saveJson(SETTINGS_FILE, appSettings);
+    res.json({ success: true, splash });
+});
+
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {

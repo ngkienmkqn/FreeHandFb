@@ -246,6 +246,30 @@
                         <button class="btn btn-success" onclick="saveGlobalSettings()">💾 Lưu cài đặt</button>
                         <div id="cfgSettingsStatus" style="margin-top:8px;font-size:0.85rem"></div>
                     </div>
+
+                    <div class="glass-panel">
+                        <h2>🎨 Màn Hình Chờ (Splash Screen) App</h2>
+                        <div class="bulk-hint" style="margin-bottom:8px">Đổi màn hình khi mở App FreeHand trên điện thoại</div>
+                        
+                        <div style="margin-bottom:12px">
+                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Tải Ảnh Lên (Logo / Cover)</label>
+                            <input type="file" id="splashImageUpload" accept="image/*" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;font-family:inherit" />
+                            <div id="splashImagePreview" style="margin-top:8px; display:flex; gap:8px;"></div>
+                        </div>
+
+                        <div style="margin-bottom:12px">
+                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Chữ hiển thị</label>
+                            <input type="text" id="splashText" placeholder="Chào mừng bạn đến với FreeHand Fb" />
+                        </div>
+                        
+                        <div style="margin-bottom:12px">
+                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Thời gian hiển thị (mili-giây, 1s = 1000)</label>
+                            <input type="number" id="splashDuration" placeholder="3000" />
+                        </div>
+                        
+                        <button class="btn btn-primary" onclick="saveSplashSettings()">🚀 Cập nhật Splash</button>
+                        <div id="splashStatus" style="margin-top:8px;font-size:0.85rem"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -883,13 +907,23 @@ async function deleteArticle(id) {
     fetchArticles();
 }
 
-// ---- APP SETTINGS ----
+// ---- APP SETTINGS & SPLASH ----
 async function fetchGlobalSettings() {
     try {
         const res = await apiFetch('/api/settings');
         if (res.ok) {
             const data = await res.json();
             document.getElementById('cfgMaxPosts').value = data.maxGroupPostsPerDay || 1;
+        }
+        
+        const splashRes = await apiFetch('/api/splash');
+        if (splashRes.ok) {
+            const splashData = await splashRes.json();
+            document.getElementById('splashText').value = splashData.text || '';
+            document.getElementById('splashDuration').value = splashData.durationMs || 3000;
+            if (splashData.imageUrl) {
+                document.getElementById('splashImagePreview').innerHTML = `<img src="${splashData.imageUrl}" style="height:60px; object-fit:contain; border-radius:4px" />`;
+            }
         }
     } catch {}
 }
@@ -904,6 +938,55 @@ async function saveGlobalSettings() {
         else document.getElementById('cfgSettingsStatus').innerHTML = '<span style="color:#ef4444">Lỗi!</span>';
     } catch {
         document.getElementById('cfgSettingsStatus').innerHTML = '<span style="color:#ef4444">Mất kết nối!</span>';
+    }
+}
+
+document.getElementById('splashImageUpload').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            document.getElementById('splashImagePreview').innerHTML = `<img src="${ev.target.result}" style="height:60px; object-fit:contain; border-radius:4px" />`;
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+async function saveSplashSettings() {
+    const text = document.getElementById('splashText').value;
+    const durationMs = parseInt(document.getElementById('splashDuration').value) || 3000;
+    const fileInput = document.getElementById('splashImageUpload');
+    const status = document.getElementById('splashStatus');
+    
+    status.textContent = 'Đang lưu...';
+    
+    let body = { text, durationMs };
+    
+    if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        const base64 = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.readAsDataURL(file);
+        });
+        body.imageBase64 = base64;
+    }
+    
+    try {
+        const res = await apiFetch('/api/splash', {
+            method: 'POST', body: JSON.stringify(body)
+        });
+        if (res.ok) {
+            status.innerHTML = '<span style="color:#10b981">Đã lưu Màn Hình Chờ! App sẽ cập nhật trong lần mở tới.</span>';
+            const data = await res.json();
+            if (data.splash && data.splash.imageUrl) {
+                document.getElementById('splashImagePreview').innerHTML = `<img src="${data.splash.imageUrl}" style="height:60px; object-fit:contain; border-radius:4px" />`;
+            }
+        } else {
+            status.innerHTML = '<span style="color:#ef4444">Lỗi khi lưu!</span>';
+        }
+    } catch {
+        status.innerHTML = '<span style="color:#ef4444">Mất kết nối!</span>';
     }
 }
 
