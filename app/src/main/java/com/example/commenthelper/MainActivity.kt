@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -443,7 +444,26 @@ fun AppRoot(initialUrl: String?, autoStart: Boolean = false) {
                         Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
                     }
                     Spacer(modifier = Modifier.height(24.dp))
-                    Text(splashInfo!!.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    val primaryColor = MaterialTheme.colorScheme.primary
+                    androidx.compose.ui.viewinterop.AndroidView(
+                        factory = { ctx ->
+                            android.widget.TextView(ctx).apply {
+                                text = splashInfo!!.text
+                                textSize = 20f
+                                gravity = android.view.Gravity.CENTER
+                                setTextColor(primaryColor.toArgb())
+                                autoLinkMask = android.text.util.Linkify.WEB_URLS
+                                linksClickable = true
+                                movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                                setLinkTextColor(primaryColor.toArgb())
+                            }
+                        },
+                        update = { 
+                            it.text = splashInfo!!.text
+                            it.setTextColor(primaryColor.toArgb())
+                            it.setLinkTextColor(primaryColor.toArgb())
+                        }
+                    )
                 }
             }
         } else if (splashLoaded && splashInfo == null) {
