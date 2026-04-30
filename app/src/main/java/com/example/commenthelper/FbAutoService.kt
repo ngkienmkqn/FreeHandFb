@@ -726,17 +726,24 @@ class FbAutoService : AccessibilityService() {
         debugLog("Đang chờ Facebook tải xong...")
         val root = rootInActiveWindow ?: return
         
+        val allNodes = findAllNodes(root)
+        
         // Dead link check takes absolute priority
-        if (interceptDeadLink(root)) {
+        if (interceptDeadLink(allNodes)) {
+            recycleNodes(allNodes)
             root.recycle()
             return
         }
 
         if (currentTask?.isScrapingGroup == true) {
-            val hasGroupInfo = findAllNodes(root).any { it.text?.toString()?.contains("thành viên", ignoreCase = true) == true }
+            val hasGroupInfo = allNodes.any { it.text?.toString()?.contains("thành viên", ignoreCase = true) == true }
+            recycleNodes(allNodes)
             if (hasGroupInfo) currentStep = Step.SCRAPING_GROUP_INFO
+            root.recycle()
             return
         }
+        
+        recycleNodes(allNodes)
 
         if (currentTask?.isPublishingGroup == true) {
             // Wait for group to load (composer placeholder visible)
@@ -807,6 +814,7 @@ class FbAutoService : AccessibilityService() {
             }
             markCurrentDone(true)
         }
+        recycleNodes(nodes)
     }
 
     private fun handleLookingForLike() {
@@ -1012,6 +1020,7 @@ class FbAutoService : AccessibilityService() {
                     }
                 }
                 debugLog("--- X-RAY COMPOSER KẾT THÚC ---")
+                recycleNodes(nodes)
             }
             setNextStepDelay(500)
         }
@@ -1114,6 +1123,7 @@ class FbAutoService : AccessibilityService() {
                             }
                         }
                         debugLog("--- X-RAY GALLERY KẾT THÚC ---")
+                        recycleNodes(nodes)
                     }
                     r2.recycle()
                 } else {
@@ -1148,6 +1158,7 @@ class FbAutoService : AccessibilityService() {
                     }
                 }
                 debugLog("--- X-RAY KẾT THÚC ---")
+                recycleNodes(nodes)
             }
 
             if (retryCount % 5 == 0 || retryCount % 5 == 1) {
@@ -1175,17 +1186,25 @@ class FbAutoService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
         
-        val submittedTexts = listOf("bài viết của bạn đã được gửi", "submitted to admins", "đã gửi", "chờ phê duyệt", "pending")
-        if (findNodeByText(root, submittedTexts) != null) {
+        val allNodes = findAllNodes(root)
+        
+        val submittedTexts = listOf("bài viết của bạn đã được gửi", "submitted to admins", "đã gửi", "chờ phê duyệt", "pending", "đang chờ xử lý")
+        val isPending = allNodes.any {
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+            submittedTexts.any { st -> txt.contains(st) || desc.contains(st) }
+        }
+        
+        if (isPending) {
             Log.d(TAG, "Post requires admin approval. Cannot grab link.")
             markCurrentDone(success = true) 
+            recycleNodes(allNodes)
             root.recycle()
             return
         }
 
         // Wait for OUR post text to appear on the feed
         val snippet = task.comment.take(30).trim()
-        val allNodes = findAllNodes(root)
         val ourPostNode = allNodes.firstOrNull { 
             val t = it.text?.toString() ?: ""
             val cd = it.contentDescription?.toString() ?: ""
@@ -1479,25 +1498,33 @@ class FbAutoService : AccessibilityService() {
 
         // Heavy Fallback: Manual scan
         val allNodes = findAllNodes(root)
+        var resultNode: AccessibilityNodeInfo? = null
         for (node in allNodes) {
             val text = node.text?.toString()?.lowercase() ?: ""
             val cd = node.contentDescription?.toString()?.lowercase() ?: ""
             if (Engine.composeButton.any { text.contains(it) || cd.contains(it) }) {
                 if (node.isClickable || node.parent?.isClickable == true) {
-                    return node
+                    resultNode = AccessibilityNodeInfo.obtain(node)
+                    break
                 }
             }
         }
-        return null
+        recycleNodes(allNodes)
+        return resultNode
     }
 
     private fun findGroupComposerInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val nodes = findAllNodes(root)
-        val editNode = nodes.firstOrNull { 
-            it.isEditable || 
-            it.className?.toString() == "android.widget.EditText" || 
-            it.className?.toString() == "android.widget.MultiAutoCompleteTextView" 
+        var editNode: AccessibilityNodeInfo? = null
+        for (node in nodes) {
+            if (node.isEditable || 
+                node.className?.toString() == "android.widget.EditText" || 
+                node.className?.toString() == "android.widget.MultiAutoCompleteTextView") {
+                editNode = AccessibilityNodeInfo.obtain(node)
+                break
+            }
         }
+        recycleNodes(nodes)
         if (editNode != null) return editNode
 
         // Fallback: look for common composer hints dynamically synced from server
@@ -1619,7 +1646,8 @@ class FbAutoService : AccessibilityService() {
     private fun findAllNodes(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
         val list = mutableListOf<AccessibilityNodeInfo>()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
+        val rootCopy = AccessibilityNodeInfo.obtain(root)
+        if (rootCopy != null) queue.add(rootCopy)
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             list.add(node)
