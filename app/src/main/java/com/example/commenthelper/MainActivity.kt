@@ -1477,6 +1477,28 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
             }
         }
         Spacer(Modifier.height(16.dp))
+        
+        val cn = android.content.ComponentName(context, FbNotificationListener::class.java)
+        val enabledListeners = android.provider.Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+        val isNotifEnabled = enabledListeners != null && enabledListeners.contains(cn.flattenToString())
+        
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("🔔 Quyền Đọc Thông Báo (Nuôi Link)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Cần bật để Bot có thể bắt Link của các bài viết được phê duyệt trễ.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isNotifEnabled) "✅ Đã cấp quyền" else "❌ Chưa cấp quyền", color = if (isNotifEnabled) Color(0xFF2E7D32) else Color(0xFFB71C1C))
+                    Spacer(Modifier.weight(1f))
+                    if (!isNotifEnabled) {
+                        FilledTonalButton(onClick = { 
+                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) 
+                        }) { Text("Cấp Quyền") }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
         var showLogs by remember { mutableStateOf(false) }
         var logsContent by remember { mutableStateOf("") }
         
