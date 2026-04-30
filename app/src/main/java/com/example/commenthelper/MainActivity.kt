@@ -601,10 +601,10 @@ fun MainApp(
     var points by remember { mutableStateOf(0) }
     var role by remember { mutableStateOf("user") }
     
-    var notifyInterval by remember { mutableIntStateOf(prefs.getInt("notify_interval", 15)) }
+    var notifyInterval by remember { mutableIntStateOf(prefs.getInt("notify_interval", 30)) }
     var lastNotifyTime by remember { mutableLongStateOf(prefs.getLong("last_notify", 0L)) }
-    var autoWakeIntervalHours by remember { mutableIntStateOf(prefs.getInt("autowake_interval_hours", 0)) }
-    var autoPublishIntervalMinutes by remember { mutableIntStateOf(prefs.getInt("autopublish_interval_minutes", 0)) }
+    var autoWakeIntervalHours by remember { mutableIntStateOf(prefs.getInt("autowake_interval_hours", 1)) }
+    var autoPublishIntervalMinutes by remember { mutableIntStateOf(prefs.getInt("autopublish_interval_minutes", 15)) }
 
     var posts by remember { mutableStateOf(loadPosts(prefs)) }
     var templates by remember { mutableStateOf(loadTemplates(prefs)) }
@@ -841,9 +841,52 @@ fun MainApp(
                 CenterAlignedTopAppBar(
                     title = { Text("FreeHand") },
                     actions = {
-                        TextButton(onClick = onLogout) { Text("Đăng xuất", color = Color(0xFFEF4444)) }
+                        if (isAutoRunning) {
+                            TextButton(onClick = { FbAutoService.instance?.stopProcessing() }) {
+                                Text("⏹ Dừng", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            TextButton(onClick = {
+                                if (!isServiceEnabled) {
+                                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                } else {
+                                    // Master Start: sync → interact pending → then schedule publish
+                                    val pendingPosts = posts.filter { it.status == PostStatus.PENDING && it.addedBy != username }
+                                    val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
+                                    if (!isFbInstalled) {
+                                        toast(context, "Cần cài Facebook trước!")
+                                    } else if (pendingPosts.isEmpty()) {
+                                        toast(context, "Không có bài cần tương tác.")
+                                    } else if (templates.isEmpty()) {
+                                        toast(context, "Đang tải comments, chờ chút...")
+                                    } else {
+                                        FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, templates.random()) })
+                                        FbAutoService.isRunning.value = true
+                                        toast(context, "▶ Bắt đầu tương tác ${pendingPosts.size} bài!")
+                                    }
+                                }
+                            }) {
+                                Text("▶ Bắt đầu", color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        TextButton(onClick = onLogout) { Text("Thoát", color = Color(0xFFEF4444), style = MaterialTheme.typography.labelSmall) }
                     }
                 )
+                // Master status bar
+                if (isAutoRunning) {
+                    Surface(color = Color(0xFF065F46), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("⚡ Đang chạy: ${autoProgress.first}/${autoProgress.second}", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.weight(1f))
+                            LinearProgressIndicator(
+                                progress = { if (autoProgress.second > 0) autoProgress.first.toFloat() / autoProgress.second else 0f },
+                                modifier = Modifier.width(100.dp).height(6.dp),
+                                color = Color(0xFF10B981),
+                                trackColor = Color(0xFF134E4A)
+                            )
+                        }
+                    }
+                }
                 // User info bar
                 Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {

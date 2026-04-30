@@ -255,6 +255,10 @@ class FbAutoService : AccessibilityService() {
 
     fun startProcessing(tasks: List<TaskItem>) {
         if (tasks.isEmpty()) return
+        if (isRunning.value) {
+            Log.w(TAG, "⚠️ LOCK: Đang chạy task khác, từ chối startProcessing mới. Hãy đợi task cũ hoàn thành.")
+            return
+        }
 
         taskQueue.value = tasks
         progress.value = 0 to tasks.size
@@ -267,6 +271,10 @@ class FbAutoService : AccessibilityService() {
 
     fun startPublishing(text: String, images: List<String>, groupLinks: List<String>) {
         if (groupLinks.isEmpty()) return
+        if (isRunning.value) {
+            Log.w(TAG, "⚠️ LOCK: Đang chạy task khác, từ chối startPublishing mới. Hãy đợi task cũ hoàn thành.")
+            return
+        }
         val count = images.size
 
         val tasks = groupLinks.mapIndexed { index, link ->
