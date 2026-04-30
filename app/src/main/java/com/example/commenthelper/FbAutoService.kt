@@ -438,43 +438,64 @@ class FbAutoService : AccessibilityService() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
 
-        // Open the FB link
-        openFacebookLink(task.url)
+        // FORCE KILL Facebook to ensure clean state before each task
+        forceStopFacebook()
 
-        // Start a timeout checker
-        startRetryChecker()
+        // Wait for FB to fully die, then open the new link
+        handler.postDelayed({
+            openFacebookLink(task.url)
+            // Start a timeout checker
+            startRetryChecker()
+        }, 2000) // 2s delay after killing FB
+    }
+
+    /**
+     * Force-stop the Facebook app to ensure a completely clean slate.
+     * This prevents stale UI state, memory buildup, and wrong-screen bugs.
+     */
+    private fun forceStopFacebook() {
+        try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            am.killBackgroundProcesses("com.facebook.katana")
+            am.killBackgroundProcesses("com.facebook.orca")
+            Log.d(TAG, "🔪 Force-killed Facebook background processes")
+        } catch (e: Exception) {
+            Log.e(TAG, "killBackgroundProcesses failed", e)
+        }
+        // Also try shell command (works on rooted/ADB-enabled devices)
+        try {
+            Runtime.getRuntime().exec(arrayOf("am", "force-stop", "com.facebook.katana"))
+            Log.d(TAG, "🔪 am force-stop com.facebook.katana executed")
+        } catch (e: Exception) {
+            Log.w(TAG, "am force-stop failed (not rooted?): ${e.message}")
+        }
     }
 
     private fun openFacebookLink(url: String) {
-        // Press Back first to dismiss any existing FB overlay/dialog
-        performGlobalAction(GLOBAL_ACTION_BACK)
-
         val cleanUrl = url.replace("m.facebook.com", "www.facebook.com")
                           .replace("mbasic.facebook.com", "www.facebook.com")
 
-        handler.postDelayed({
-            val intentKatana = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-                )
-                setPackage("com.facebook.katana")
+        val intentKatana = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+            setPackage("com.facebook.katana")
+        }
+        try {
+            startActivity(intentKatana)
+        } catch (e: Exception) {
+            val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             try {
-                startActivity(intentKatana)
-            } catch (e: Exception) {
-                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                try {
-                    startActivity(fallback)
-                } catch (e3: Exception) {
-                    Log.e(TAG, "Cannot open URL: $url", e3)
-                    markCurrentDone(success = false)
-                }
+                startActivity(fallback)
+            } catch (e3: Exception) {
+                Log.e(TAG, "Cannot open URL: $url", e3)
+                markCurrentDone(success = false)
             }
-        }, 500) // Small delay after back press
+        }
     }
 
     private var isRetryCheckerRunning = false
@@ -1813,7 +1834,10 @@ class FbAutoService : AccessibilityService() {
         currentTask = null
 
         if (currentIndex < taskQueue.value.size && !stopRequested.value) {
-            // Switch back to our app briefly, then open next post
+            // Kill Facebook completely before next task
+            forceStopFacebook()
+            
+            // Switch back to our app briefly
             val launchIntent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
@@ -1821,8 +1845,9 @@ class FbAutoService : AccessibilityService() {
 
             handler.postDelayed({
                 processNextPost()
-            }, 2000) // Wait 2s between posts for stability
+            }, 3000) // Wait 3s for FB to fully die before next task
         } else {
+            forceStopFacebook()
             val launchIntent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
