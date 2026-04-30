@@ -486,7 +486,9 @@ app.post('/api/posts/:id/done', authMiddleware, (req, res) => {
 });
 
 app.delete('/api/posts/:id', authMiddleware, (req, res) => {
-    const idx = posts.findIndex(p => p.id === req.params.id && p.group === req.user.group);
+    const idx = req.user.role === 'admin'
+        ? posts.findIndex(p => p.id === req.params.id)
+        : posts.findIndex(p => p.id === req.params.id && p.group === req.user.group);
     if (idx === -1) return res.status(404).json({ error: 'Post not found' });
     posts.splice(idx, 1);
     saveJson(POSTS_FILE, posts);
@@ -494,9 +496,16 @@ app.delete('/api/posts/:id', authMiddleware, (req, res) => {
 });
 
 app.delete('/api/posts/done/clear', authMiddleware, (req, res) => {
-    posts = posts.filter(p => !(p.group === req.user.group && p.status === 'DONE'));
+    if (req.user.role === 'admin') {
+        const g = req.query.group;
+        posts = g
+            ? posts.filter(p => !(p.group === g && p.status === 'DONE'))
+            : posts.filter(p => p.status !== 'DONE');
+    } else {
+        posts = posts.filter(p => !(p.group === req.user.group && p.status === 'DONE'));
+    }
     saveJson(POSTS_FILE, posts);
-    res.json({ remaining: posts.filter(p => p.group === req.user.group).length });
+    res.json({ remaining: posts.length });
 });
 
 /* ================== TEMPLATES API (group-scoped + global) ================== */
