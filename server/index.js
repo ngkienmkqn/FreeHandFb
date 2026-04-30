@@ -374,7 +374,7 @@ app.post('/api/posts', authMiddleware, (req, res) => {
     }
 
     // Phase 12 Compliance: Max 1 post per Facebook Group per day per user
-    let fbGroupIdMatch = url.match(/\/groups\/([0-9a-zA-Z.]+)\/?/);
+    let fbGroupIdMatch = url.match(/\/groups\/([0-9a-zA-Z._-]+)/);
     if (fbGroupIdMatch) {
         const fbGroupId = fbGroupIdMatch[1];
         const today = new Date();
@@ -384,7 +384,7 @@ app.post('/api/posts', authMiddleware, (req, res) => {
         const countToday = posts.filter(p => 
             p.addedBy === req.user.username && 
             p.addedAt >= startOfDay && 
-            p.url.includes(`/groups/${fbGroupId}/`)
+            p.url.includes(`/groups/${fbGroupId}`)
         ).length;
         
         if (countToday >= appSettings.maxGroupPostsPerDay) {
@@ -420,14 +420,14 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
         const u = url?.trim();
         if (u && !posts.find(p => p.url === u && p.group === req.user.group)) {
             // Phase 12 Compliance: Max 1 post per Facebook Group per day per user
-            let fbGroupIdMatch = u.match(/\/groups\/([0-9a-zA-Z.]+)\/?/);
+            let fbGroupIdMatch = u.match(/\/groups\/([0-9a-zA-Z._-]+)/);
             let skip = false;
             if (fbGroupIdMatch) {
                 const fbGroupId = fbGroupIdMatch[1];
                 const alreadyPostedToGroupToday = posts.some(p => 
                     p.addedBy === req.user.username && 
                     p.addedAt >= startOfDay && 
-                    p.url.includes(`/groups/${fbGroupId}/`)
+                    p.url.includes(`/groups/${fbGroupId}`)
                 );
                 if (alreadyPostedToGroupToday) skip = true;
             }

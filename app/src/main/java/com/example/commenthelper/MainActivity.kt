@@ -1100,10 +1100,6 @@ fun PostsScreen(
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (!isAutoRunning && pending > 0) {
-                Button(onClick = { if (!isServiceEnabled) onRequestPermission() else onStartAuto() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) { Text("▶ Bắt đầu ($pending)") }
-                Spacer(Modifier.width(8.dp))
-            }
             Spacer(Modifier.weight(1f))
             FilledTonalButton(onClick = { showAdd = true }) { Text("+ Thêm") }
         }

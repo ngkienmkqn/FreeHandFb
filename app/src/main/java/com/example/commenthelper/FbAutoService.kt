@@ -146,6 +146,55 @@ class FbAutoService : AccessibilityService() {
     private var currentIndex = 0
     private var retryCount = 0
     private var nextStepTime = 0L
+    
+    // Auto-learned Facebook display name of the device owner
+    private var fbProfileName: String? = null
+    
+    /**
+     * Attempt to learn the FB profile name from the "..." menu button's contentDescription.
+     * Facebook uses patterns like "Lựa chọn khác cho bài viết của [NAME]" or "More options for [NAME]'s post".
+     */
+    private fun learnProfileName(allNodes: List<AccessibilityNodeInfo>) {
+        if (fbProfileName != null) return // Already learned
+        for (node in allNodes) {
+            val desc = node.contentDescription?.toString() ?: ""
+            // Vietnamese: "Lựa chọn khác cho bài viết của Nguyễn Văn A"
+            val viMatch = Regex("lựa chọn khác cho bài viết của (.+)", RegexOption.IGNORE_CASE).find(desc)
+            if (viMatch != null) {
+                fbProfileName = viMatch.groupValues[1].trim()
+                Log.d(TAG, "✅ Learned FB profile name (VI): '$fbProfileName'")
+                return
+            }
+            // English: "More options for NAME's post"
+            val enMatch = Regex("more options for (.+?)['']s post", RegexOption.IGNORE_CASE).find(desc)
+            if (enMatch != null) {
+                fbProfileName = enMatch.groupValues[1].trim()
+                Log.d(TAG, "✅ Learned FB profile name (EN): '$fbProfileName'")
+                return
+            }
+        }
+    }
+    
+    /**
+     * Check if a "..." menu node near the given post belongs to the device owner.
+     * Returns true if we can't determine ownership (safe fallback) or if the name matches.
+     */
+    private fun isMyPost(allNodes: List<AccessibilityNodeInfo>, postNodeIndex: Int): Boolean {
+        val name = fbProfileName ?: return true // If we don't know our name yet, allow it
+        // Search nearby for "..." menu button
+        for (i in maxOf(0, postNodeIndex - 30) until minOf(allNodes.size, postNodeIndex + 30)) {
+            val desc = allNodes[i].contentDescription?.toString() ?: ""
+            if (desc.contains("lựa chọn khác cho bài viết của", ignoreCase = true) || 
+                desc.contains("more options for", ignoreCase = true)) {
+                val isOwner = desc.contains(name, ignoreCase = true)
+                if (!isOwner) {
+                    Log.d(TAG, "❌ Post belongs to someone else: '$desc' (expected: '$name')")
+                }
+                return isOwner
+            }
+        }
+        return true // No "..." found, allow it (safe fallback)
+    }
     private fun setNextStepDelay(delay: Long) {
         nextStepTime = System.currentTimeMillis() + delay
     }
@@ -1205,10 +1254,19 @@ class FbAutoService : AccessibilityService() {
 
         // Wait for OUR post text to appear on the feed
         val snippet = task.comment.take(30).trim()
+        
+        // Try to learn our FB profile name from "..." menu buttons on screen
+        learnProfileName(allNodes)
+        
         val ourPostNode = allNodes.firstOrNull { 
             val t = it.text?.toString() ?: ""
             val cd = it.contentDescription?.toString() ?: ""
-            t.contains(snippet, ignoreCase = true) || cd.contains(snippet, ignoreCase = true) 
+            val textMatch = t.contains(snippet, ignoreCase = true) || cd.contains(snippet, ignoreCase = true)
+            if (textMatch) {
+                // Verify this post actually belongs to US, not someone else
+                val idx = allNodes.indexOf(it)
+                isMyPost(allNodes, idx)
+            } else false
         }
 
         if (ourPostNode != null) {
