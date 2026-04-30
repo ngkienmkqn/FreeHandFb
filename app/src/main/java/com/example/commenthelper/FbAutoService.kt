@@ -127,6 +127,7 @@ class FbAutoService : AccessibilityService() {
         SELECTING_PHOTOS, 
         WAITING_FOR_POST_TO_UPLOAD,
         CLICKING_SHARE_AND_COPY,
+        WAITING_FOR_CLIPBOARD,
         SCRAPING_GROUP_INFO,
         DONE
     }
@@ -150,6 +151,7 @@ class FbAutoService : AccessibilityService() {
 
     private fun evaluateCurrentScreen(root: AccessibilityNodeInfo): ScreenType {
         val nodes = findAllNodes(root)
+        var result = ScreenType.UNKNOWN
         
         // 1. Gallery check (Top right "Chọn nhiều file" or "Tiếp")
         val hasGalleryUI = nodes.any { 
@@ -157,35 +159,42 @@ class FbAutoService : AccessibilityService() {
             val cd = it.contentDescription?.toString()?.lowercase() ?: ""
             txt.contains("tiếp") || cd.contains("tiếp") || txt.contains("chọn nhiều") || cd.contains("chọn nhiều")
         }
-        if (hasGalleryUI) return ScreenType.GALLERY
+        if (hasGalleryUI) result = ScreenType.GALLERY
 
         // 2. Composer check (Tạo bài viết, Bạn đang nghĩ gì, or Thêm ảnh)
-        val hasComposerUI = nodes.any {
-            val txt = it.text?.toString()?.lowercase() ?: ""
-            val cd = it.contentDescription?.toString()?.lowercase() ?: ""
-            Engine.composeButton.any { cb -> txt.contains(cb) || cd.contains(cb) } ||
-            Engine.photoButton.any { pb -> txt.contains(pb) || cd.contains(pb) }
+        if (result == ScreenType.UNKNOWN) {
+            val hasComposerUI = nodes.any {
+                val txt = it.text?.toString()?.lowercase() ?: ""
+                val cd = it.contentDescription?.toString()?.lowercase() ?: ""
+                Engine.composeButton.any { cb -> txt.contains(cb) || cd.contains(cb) } ||
+                Engine.photoButton.any { pb -> txt.contains(pb) || cd.contains(pb) }
+            }
+            if (hasComposerUI) result = ScreenType.COMPOSER
         }
-        if (hasComposerUI) return ScreenType.COMPOSER
 
         // 3. Post options sheet (Share/Copy link)
-        val hasPostSheet = nodes.any {
-            val txt = it.text?.toString()?.lowercase() ?: ""
-            val cd = it.contentDescription?.toString()?.lowercase() ?: ""
-            txt.contains("sao chép liên kết") || cd.contains("sao chép liên kết") || 
-            txt.contains("copy link") || cd.contains("copy link")
+        if (result == ScreenType.UNKNOWN) {
+            val hasPostSheet = nodes.any {
+                val txt = it.text?.toString()?.lowercase() ?: ""
+                val cd = it.contentDescription?.toString()?.lowercase() ?: ""
+                txt.contains("sao chép liên kết") || cd.contains("sao chép liên kết") || 
+                txt.contains("copy link") || cd.contains("copy link")
+            }
+            if (hasPostSheet) result = ScreenType.POST_SHEET
         }
-        if (hasPostSheet) return ScreenType.POST_SHEET
 
         // 4. Feed check (Bảng tin, Like, Comment buttons)
-        val hasFeedUI = nodes.any {
-            val txt = it.text?.toString()?.lowercase() ?: ""
-            val cd = it.contentDescription?.toString()?.lowercase() ?: ""
-            txt == "thích" || txt == "bình luận" || cd == "like" || cd == "comment" || txt.contains("bảng tin")
+        if (result == ScreenType.UNKNOWN) {
+            val hasFeedUI = nodes.any {
+                val txt = it.text?.toString()?.lowercase() ?: ""
+                val cd = it.contentDescription?.toString()?.lowercase() ?: ""
+                txt == "thích" || txt == "bình luận" || cd == "like" || cd == "comment" || txt.contains("bảng tin")
+            }
+            if (hasFeedUI) result = ScreenType.FEED
         }
-        if (hasFeedUI) return ScreenType.FEED
 
-        return ScreenType.UNKNOWN
+        recycleNodes(nodes)
+        return result
     }
 
 
@@ -448,6 +457,9 @@ class FbAutoService : AccessibilityService() {
                     Step.SELECTING_PHOTOS -> { handleSelectingPhotos() }
                     Step.WAITING_FOR_POST_TO_UPLOAD -> { handleWaitingForPostToUpload() }
                     Step.CLICKING_SHARE_AND_COPY -> { handleClickingShareAndCopy() }
+                    Step.WAITING_FOR_CLIPBOARD -> {
+                        submitCopiedLinkToBackend(currentTask ?: return)
+                    }
                     else -> return
                 }
                 handler.postDelayed(this, 500)
@@ -1164,6 +1176,7 @@ class FbAutoService : AccessibilityService() {
                 setNextStepDelay(1000)
             }
         }
+        recycleNodes(allNodes)
         root.recycle()
     }
 
@@ -1181,10 +1194,10 @@ class FbAutoService : AccessibilityService() {
             if (!copyBtn.isClickable) copyBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             copyBtn.recycle()
             
+            // Set next step to WAITING_FOR_CLIPBOARD to avoid race condition
+            currentStep = Step.WAITING_FOR_CLIPBOARD
+            retryCount = 0
             setNextStepDelay(1500)
-            handler.postDelayed({
-                submitCopiedLinkToBackend(task)
-            }, 1500)
         } else {
             // Menu might be closed or click missed. Retry opening the menu every 5 retries!
             if (retryCount > 0 && retryCount % 5 == 0) {
@@ -1207,6 +1220,7 @@ class FbAutoService : AccessibilityService() {
                         menuBtn.recycle()
                     }
                 }
+                recycleNodes(allNodes)
             }
             setNextStepDelay(500)
         }
@@ -1459,6 +1473,12 @@ class FbAutoService : AccessibilityService() {
             }
         }
         return list
+    }
+
+    private fun recycleNodes(nodes: List<AccessibilityNodeInfo>) {
+        for (node in nodes) {
+            try { node.recycle() } catch (e: Exception) {}
+        }
     }
 
     private fun findAllGalleryImages(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {

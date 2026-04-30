@@ -158,6 +158,8 @@ fun applySpintaxAndVars(text: String, prefs: SharedPreferences): String {
     var res = text
         .replace("{PHONE}", phone).replace("{SDT}", phone).replace("{PHONE_NUMBER}", phone)
         .replace("{ZALO}", zalo).replace("{ZALO_LINK}", zalo)
+        // Also support formats without braces if the user pasted them exactly
+        .replace("ZALO_LINK", zalo).replace("ZALO_ME", zalo)
 
     // Evaluate spintax: {A|B|C}
     val spintaxRegex = Regex("\\{([^\\{\\}]+)\\}")
