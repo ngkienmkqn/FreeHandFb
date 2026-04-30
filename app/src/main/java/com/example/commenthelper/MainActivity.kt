@@ -656,25 +656,6 @@ fun MainApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val currentPosts by rememberUpdatedState(posts)
-    val currentTemplates by rememberUpdatedState(templates)
-    val currentUsername by rememberUpdatedState(username)
-
-    // Post completion → mark done + report to server
-    DisposableEffect(Unit) {
-        FbAutoService.onQueueFinished = {
-            // After publishing (or any queue) finishes, sync and check for new pending interactions
-            scope.launch {
-                syncWithServer()
-                val pendingPosts = currentPosts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
-                if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
-                    FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
-                    FbAutoService.isRunning.value = true
-                }
-            }
-        }
-        onDispose { FbAutoService.onQueueFinished = null }
-    }
 
     DisposableEffect(Unit) {
         PostDoneReceiver.onPostDone = { postId, success ->
@@ -757,6 +738,26 @@ fun MainApp(
             isSyncing = false
             lastSyncStatus = "Đã đồng bộ lúc ${formatTime(System.currentTimeMillis())}"
         }
+    }
+
+    val currentPosts by rememberUpdatedState(posts)
+    val currentTemplates by rememberUpdatedState(templates)
+    val currentUsername by rememberUpdatedState(username)
+
+    // Post completion → mark done + report to server
+    DisposableEffect(Unit) {
+        FbAutoService.onQueueFinished = {
+            // After publishing (or any queue) finishes, sync and check for new pending interactions
+            scope.launch {
+                syncWithServer()
+                val pendingPosts = currentPosts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
+                if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
+                    FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
+                    FbAutoService.isRunning.value = true
+                }
+            }
+        }
+        onDispose { FbAutoService.onQueueFinished = null }
     }
 
     // Auto Sync Loop
