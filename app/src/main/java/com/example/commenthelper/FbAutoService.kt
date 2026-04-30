@@ -213,6 +213,8 @@ class FbAutoService : AccessibilityService() {
             Step.LOOKING_FOR_PHOTO_BUTTON -> "Đang tìm nút tải ảnh lên..."
             Step.SELECTING_PHOTOS -> "Đang chọn ảnh từ thư viện..."
             Step.WAITING_FOR_POST_TO_UPLOAD -> "Đang chờ Facebook tải bài lên..."
+            Step.CLICKING_YOU_TAB -> "Đang tìm tab 'Bạn' trong nhóm..."
+            Step.LOOKING_FOR_MY_POST -> "Đang tìm bài viết cá nhân..."
             Step.CLICKING_SHARE_AND_COPY -> "Đang lấy link bài viết vừa đăng..."
             Step.WAITING_FOR_CLIPBOARD -> "Đang xử lý link vừa sao chép..."
             Step.SCRAPING_GROUP_INFO -> "Đang quét thông tin thành viên nhóm..."
