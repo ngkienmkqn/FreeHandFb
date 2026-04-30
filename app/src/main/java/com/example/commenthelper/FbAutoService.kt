@@ -1444,14 +1444,31 @@ class FbAutoService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
 
+        val allNodes = findAllNodes(root)
+
         // Wait to find "Copy link" (Sao chép liên kết)
-        val copyBtn = findNodeByContentDescription(root, listOf("copy link", "sao chép liên kết", "sao chép"))
-            ?: findNodeByText(root, listOf("copy link", "sao chép liên kết", "sao chép"))
+        val copyBtn = allNodes.firstOrNull {
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+            txt.contains("sao chép") || txt.contains("copy link") || desc.contains("sao chép") || desc.contains("copy link")
+        }
 
         if (copyBtn != null) {
-            copyBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (!copyBtn.isClickable) copyBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            copyBtn.recycle()
+            var clicked = false
+            var target: AccessibilityNodeInfo? = copyBtn
+            for (i in 0..3) { // Try clicking up to 3 levels up
+                if (target?.isClickable == true) {
+                    target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    clicked = true
+                    break
+                }
+                target = target?.parent
+            }
+            if (!clicked) {
+                // Fallback force click
+                copyBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                copyBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
             
             // Set next step to WAITING_FOR_CLIPBOARD to avoid race condition
             currentStep = Step.WAITING_FOR_CLIPBOARD
