@@ -1756,10 +1756,19 @@ class FbAutoService : AccessibilityService() {
 
         if (currentIndex < taskQueue.value.size && !stopRequested.value) {
             // Switch back to our app briefly, then open next post
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            try { startActivity(launchIntent) } catch(e: Exception) {}
+
             handler.postDelayed({
                 processNextPost()
             }, 2000) // Wait 2s between posts for stability
         } else {
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            try { startActivity(launchIntent) } catch(e: Exception) {}
             resetState()
         }
     }
