@@ -1597,6 +1597,16 @@ class FbAutoService : AccessibilityService() {
         val task = currentTask ?: return
         Log.d(TAG, "Post ${task.postId} done, success=$success")
         
+        if (task.postId == "APPROVED_POST") {
+            Log.d(TAG, "Approved post processed. Moving to next notification.")
+            currentStep = Step.PROCESSING_APPROVED_NOTIFICATIONS
+            retryCount = 0
+            handler.postDelayed({
+                startRetryChecker()
+            }, 1000)
+            return
+        }
+
         try {
             val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
             val postsStr = prefs.getString("posts_v1", null)
