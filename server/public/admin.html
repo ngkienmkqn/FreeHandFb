@@ -26,6 +26,12 @@
         .topbar-user { display: flex; align-items: center; gap: 12px; }
         .topbar-badge { background: var(--primary); padding: 3px 12px; border-radius: 20px; font-size: 0.75rem; }
         .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1400px; margin: 20px auto; padding: 0 20px; }
+        .layout-single { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+        .sub-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+        .sub-tab { padding: 8px 16px; cursor: pointer; font-size: 0.85rem; border-bottom: 2px solid transparent; transition: 0.2s; color: #94a3b8; }
+        .sub-tab.active { color: var(--success); border-bottom-color: var(--success); }
+        .sub-tab-content { display: none; }
+        .sub-tab-content.visible { display: block; }
         .glass-panel { background: var(--panel); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
         h2 { margin: 0 0 16px; font-size: 1.1rem; color: #a5b4fc; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 8px; }
         .badge { background: var(--primary); padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; }
@@ -153,122 +159,96 @@
 
         <!-- TAB: Admin -->
         <div class="tab-content" id="tab-admin">
-            <div class="layout">
-                <!-- CỘT 1 -->
-                <div>
+            <div class="sub-tabs">
+                <div class="sub-tab active" onclick="switchSubTab('users', this)">👥 Users</div>
+                <div class="sub-tab" onclick="switchSubTab('content', this)">📝 Nội dung</div>
+                <div class="sub-tab" onclick="switchSubTab('settings', this)">⚙️ Cài đặt</div>
+                <div class="sub-tab" onclick="switchSubTab('logs', this)">📋 Logs</div>
+            </div>
+
+            <!-- SUB: Users -->
+            <div class="sub-tab-content visible" id="subtab-users">
+                <div class="layout-single">
                     <div class="glass-panel">
                         <h2>👥 Quản lý Users <span class="badge" id="userCount">0</span></h2>
-                        <div class="form-row">
-                            <input type="text" id="newUserName" placeholder="Username" />
-                            <input type="password" id="newUserPass" placeholder="Password" />
-                            <select id="newUserGroup" style="max-width:180px">
-                                <option value="">-- Chọn group --</option>
-                            </select>
-                            <input type="text" id="newUserGroupCustom" placeholder="Hoặc nhập group mới" style="max-width:160px" />
-                            <select id="newUserRole" style="max-width:120px"><option value="user">User</option><option value="admin">Admin</option></select>
-                        </div>
-                        <div class="form-row">
-                            <input type="text" id="newUserPhone" placeholder="Số điện thoại (SĐT)" />
-                            <input type="text" id="newUserZalo" placeholder="Link nhóm Zalo" />
-                        </div>
-                        <button class="btn btn-primary btn-small" onclick="addUser()">➕ Thêm user</button>
+                        <div class="form-row"><input type="text" id="newUserName" placeholder="Username" /><input type="password" id="newUserPass" placeholder="Password" /></div>
+                        <div class="form-row"><select id="newUserGroup" style="max-width:50%"><option value="">-- Chọn group --</option></select><input type="text" id="newUserGroupCustom" placeholder="Hoặc nhập group mới" /></div>
+                        <div class="form-row"><select id="newUserRole"><option value="user">User</option><option value="admin">Admin</option></select><input type="text" id="newUserPhone" placeholder="SĐT" /><input type="text" id="newUserZalo" placeholder="Link Zalo" /></div>
+                        <button class="btn btn-primary btn-small" onclick="addUser()" style="margin-top:8px">➕ Thêm user</button>
                         <div class="scroll-list" id="userList" style="margin-top:16px"></div>
                     </div>
+                </div>
+            </div>
 
-                    <div class="glass-panel">
-                        <h2>🌐 Mẫu Comment Mặc Định (Global)</h2>
-                        <div class="bulk-hint" style="margin-bottom:8px">Mẫu dùng chung, tự động đồng bộ xuống toàn bộ tài khoản cũ/mới trên App.</div>
-                        <textarea id="newGlobalTpl" placeholder="Nhập câu comment mặc định..." rows="2" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
-                        <div class="btn-row"><button class="btn btn-success btn-small" onclick="addGlobalTpl()">➕ Thêm Comment Global</button></div>
-                        <div class="scroll-list" id="globalTemplateList" style="margin-top:16px;max-height:300px"></div>
+            <!-- SUB: Content -->
+            <div class="sub-tab-content" id="subtab-content">
+                <div class="layout">
+                    <div>
+                        <div class="glass-panel">
+                            <h2>🌐 Comment Mặc Định (Global)</h2>
+                            <div class="bulk-hint" style="margin-bottom:8px">Tự động đồng bộ xuống toàn bộ tài khoản.</div>
+                            <textarea id="newGlobalTpl" placeholder="Nhập câu comment mặc định..." rows="2"></textarea>
+                            <div class="btn-row"><button class="btn btn-success btn-small" onclick="addGlobalTpl()">➕ Thêm</button></div>
+                            <div class="scroll-list" id="globalTemplateList" style="margin-top:16px;max-height:300px"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="glass-panel">
+                            <h2>📝 Bài Viết Mẫu (Articles)</h2>
+                            <div class="form-row"><input type="text" id="newArtCategory" placeholder="Nhóm (vd: sales-t1)" /><input type="text" id="newArtTitle" placeholder="Tiêu đề" /></div>
+                            <textarea id="newArtContent" rows="3" placeholder="Nội dung bài đăng..."></textarea>
+                            <div style="margin:12px 0"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Ảnh đính kèm</label><input type="file" id="newArtImagesUpload" multiple accept="image/*" onchange="previewImages()" /><div id="imagePreviewContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div></div>
+                            <button id="btnAddArticle" class="btn btn-primary" onclick="addArticle()">➕ Tạo Bài Mẫu</button>
+                            <div class="stats" style="margin-top:16px;gap:8px"><div class="stat" style="padding:8px"><div class="stat-num" id="pendingArtCount" style="color:var(--warn);font-size:1.2rem">0</div><div class="stat-label">Chờ duyệt</div></div><div class="stat" style="padding:8px"><div class="stat-num" id="approvedArtCount" style="color:var(--success);font-size:1.2rem">0</div><div class="stat-label">Đã duyệt</div></div></div>
+                            <h3 style="margin-top:12px;font-size:0.9rem;color:#f59e0b">⏳ CHỜ DUYỆT</h3>
+                            <div class="scroll-list" id="pendingArtList" style="max-height:300px"></div>
+                            <h3 style="margin-top:12px;font-size:0.9rem;color:#10b981">✅ CÔNG KHAI</h3>
+                            <div class="scroll-list" id="approvedArtList" style="max-height:400px"></div>
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- CỘT 2 -->
-                <div>
-                    <div class="glass-panel">
-                        <h2>📝 Quản lý Bài Viết Mẫu (Articles)</h2>
-                        <div class="form-row">
-                            <input type="text" id="newArtCategory" placeholder="Nhóm bài viết (vd: sales-t1)" />
-                            <input type="text" id="newArtTitle" placeholder="Tiêu đề gợi nhớ" />
+            <!-- SUB: Settings -->
+            <div class="sub-tab-content" id="subtab-settings">
+                <div class="layout">
+                    <div>
+                        <div class="glass-panel">
+                            <h2>⚙️ Cài đặt Hệ thống</h2>
+                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Mỗi nhóm tối đa / ngày / user</label><input type="number" id="cfgMaxPosts" placeholder="1" step="1" min="1" /></div>
+                            <button class="btn btn-success" onclick="saveGlobalSettings()">💾 Lưu</button>
+                            <div id="cfgSettingsStatus" style="margin-top:8px;font-size:0.85rem"></div>
                         </div>
-                        <textarea id="newArtContent" rows="3" placeholder="Nội dung bài đăng..." style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
-                        <div style="margin-bottom:12px">
-                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Tải Ảnh Lên (bạn có thể chọn nhiều ảnh cùng lúc)</label>
-                            <input type="file" id="newArtImagesUpload" multiple accept="image/*" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;font-family:inherit" onchange="previewImages()" />
-                            <div id="imagePreviewContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+                        <div class="glass-panel">
+                            <h2>📦 Cập nhật App</h2>
+                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Phiên bản</label><input type="text" id="cfgVersion" placeholder="1.0.0" /></div>
+                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Link APK</label><input type="text" id="cfgApkUrl" placeholder="https://github.com/..." /></div>
+                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Changelog</label><textarea id="cfgChangelog" rows="2" placeholder="Mô tả thay đổi..."></textarea></div>
+                            <button class="btn btn-success" onclick="saveAppVersion()">💾 Lưu cấu hình</button>
+                            <div id="cfgStatus" style="margin-top:8px;font-size:0.85rem"></div>
                         </div>
-                        <button id="btnAddArticle" class="btn btn-primary" onclick="addArticle()">➕ Tạo Bài Viết Mẫu</button>
-                        <div class="stats" style="margin-top:20px;margin-bottom:12px;gap:8px">
-                            <div class="stat" style="padding:8px"><div class="stat-num" id="pendingArtCount" style="color:var(--warn);font-size:1.2rem">0</div><div class="stat-label">Chờ duyệt</div></div>
-                            <div class="stat" style="padding:8px"><div class="stat-num" id="approvedArtCount" style="color:var(--success);font-size:1.2rem">0</div><div class="stat-label">Đã duyệt</div></div>
-                        </div>
-                        <h3 style="margin-top:16px; font-size:0.9rem;color:#f59e0b">⏳ CHỜ DUYỆT</h3>
-                        <div class="scroll-list" id="pendingArtList" style="margin-bottom:16px;max-height:300px"></div>
-                        <h3 style="margin-top:16px; font-size:0.9rem;color:#10b981">✅ MẪU CÔNG KHAI</h3>
-                        <div class="scroll-list" id="approvedArtList" style="max-height:400px"></div>
                     </div>
-
-                    <div class="glass-panel">
-                        <h2>📋 Xem Logs Hệ Thống</h2>
-                        <div style="display:flex;gap:8px;margin-bottom:12px">
-                            <button class="btn btn-outline" onclick="viewLog('server-out')">Log Server</button>
-                            <button class="btn btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="viewLog('server-err')">Lỗi Server</button>
-                            <button class="btn btn-outline" style="color:#f59e0b;border-color:rgba(245,158,11,0.2)" onclick="viewLog('apk')">Lỗi App (APK)</button>
+                    <div>
+                        <div class="glass-panel">
+                            <h2>🎨 Splash Screen App</h2>
+                            <div class="bulk-hint" style="margin-bottom:12px">Màn hình chờ khi mở App trên điện thoại</div>
+                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Ảnh (Logo / Cover)</label><input type="file" id="splashImageUpload" accept="image/*" /><div id="splashImagePreview" style="margin-top:8px;display:flex;gap:8px"></div></div>
+                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Chữ hiển thị (xuống dòng)</label><textarea id="splashText" rows="3" placeholder="Chào mừng bạn..."></textarea></div>
+                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Thời gian (ms, 1s=1000)</label><input type="number" id="splashDuration" placeholder="3000" /></div>
+                            <button class="btn btn-primary" onclick="saveSplashSettings()">🚀 Cập nhật</button>
+                            <div id="splashStatus" style="margin-top:8px;font-size:0.85rem"></div>
                         </div>
-                        <pre id="logViewerContainer" style="display:none;background:rgba(0,0,0,0.5);color:#10b981;padding:12px;border-radius:8px;max-height:200px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap;"></pre>
                     </div>
+                </div>
+            </div>
 
+            <!-- SUB: Logs -->
+            <div class="sub-tab-content" id="subtab-logs">
+                <div class="layout-single">
                     <div class="glass-panel">
-                        <h2>📦 Cập nhật App</h2>
-                        <div style="margin-bottom:12px">
-                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Phiên bản mới nhất</label>
-                            <input type="text" id="cfgVersion" placeholder="1.0.0" />
-                        </div>
-                        <div style="margin-bottom:12px">
-                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Link tải APK (GitHub Actions / Release)</label>
-                            <input type="text" id="cfgApkUrl" placeholder="https://github.com/.../releases/download/.../app-debug.apk" />
-                        </div>
-                        <div style="margin-bottom:12px">
-                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Changelog (tuỳ chọn)</label>
-                            <textarea id="cfgChangelog" rows="2" placeholder="Mô tả thay đổi..." style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;margin-bottom:12px;font-family:inherit"></textarea>
-                        </div>
-                        <button class="btn btn-success" onclick="saveAppVersion()">💾 Lưu cấu hình App</button>
-                        <div id="cfgStatus" style="margin-top:8px;font-size:0.85rem"></div>
-                    </div>
-
-                    <div class="glass-panel">
-                        <h2>⚙️ Cài đặt Hệ thống</h2>
-                        <div style="margin-bottom:12px">
-                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Mỗi nhóm tối đa / ngày / user (Post)</label>
-                            <input type="number" id="cfgMaxPosts" placeholder="Ví dụ: 1" step="1" min="1" />
-                        </div>
-                        <button class="btn btn-success" onclick="saveGlobalSettings()">💾 Lưu cài đặt</button>
-                        <div id="cfgSettingsStatus" style="margin-top:8px;font-size:0.85rem"></div>
-                    </div>
-
-                    <div class="glass-panel">
-                        <h2>🎨 Màn Hình Chờ (Splash Screen) App</h2>
-                        <div class="bulk-hint" style="margin-bottom:8px">Đổi màn hình khi mở App FreeHand trên điện thoại</div>
-                        
-                        <div style="margin-bottom:12px">
-                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Tải Ảnh Lên (Logo / Cover)</label>
-                            <input type="file" id="splashImageUpload" accept="image/*" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;font-family:inherit" />
-                            <div id="splashImagePreview" style="margin-top:8px; display:flex; gap:8px;"></div>
-                        </div>
-
-                        <div style="margin-bottom:12px">
-                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Chữ hiển thị (Hỗ trợ xuống dòng)</label>
-                            <textarea id="splashText" rows="3" placeholder="Chào mừng bạn đến với FreeHand Fb&#10;Hệ thống Auto Comment" style="background:rgba(255,255,255,0.05);color:white;border:1px solid rgba(255,255,255,0.1);border-radius:6px;width:100%;padding:12px;font-family:inherit"></textarea>
-                        </div>
-                        
-                        <div style="margin-bottom:12px">
-                            <label style="font-size:0.8rem;color:#94a3b8;margin-bottom:4px;display:block">Thời gian hiển thị (mili-giây, 1s = 1000)</label>
-                            <input type="number" id="splashDuration" placeholder="3000" />
-                        </div>
-                        
-                        <button class="btn btn-primary" onclick="saveSplashSettings()">🚀 Cập nhật Splash</button>
-                        <div id="splashStatus" style="margin-top:8px;font-size:0.85rem"></div>
+                        <h2>📋 Logs Hệ Thống</h2>
+                        <div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-outline" onclick="viewLog('server-out')">Log Server</button><button class="btn btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="viewLog('server-err')">Lỗi Server</button><button class="btn btn-outline" style="color:#f59e0b;border-color:rgba(245,158,11,0.2)" onclick="viewLog('apk')">Lỗi App</button></div>
+                        <pre id="logViewerContainer" style="display:none;background:rgba(0,0,0,0.5);color:#10b981;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap;"></pre>
                     </div>
                 </div>
             </div>
@@ -324,7 +304,7 @@ async function doLogin() {
     try {
         const res = await fetch('/api/login', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
+            body: JSON.stringify({ username, password, deviceId: 'web-admin-' + navigator.userAgent.slice(0,32), isWeb: true })
         });
         const data = await res.json();
         if (!res.ok) { document.getElementById('loginError').textContent = data.error; return; }
@@ -388,6 +368,12 @@ function switchTab(name, el) {
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('visible'));
     el.classList.add('active');
     document.getElementById('tab-' + name).classList.add('visible');
+}
+function switchSubTab(name, el) {
+    el.parentElement.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+    el.closest('.tab-content').querySelectorAll('.sub-tab-content').forEach(t => t.classList.remove('visible'));
+    el.classList.add('active');
+    document.getElementById('subtab-' + name).classList.add('visible');
 }
 
 // ---- POSTS ----
