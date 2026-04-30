@@ -23,6 +23,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -438,7 +440,7 @@ fun AppRoot(initialUrl: String?, autoStart: Boolean = false) {
                             contentScale = ContentScale.Fit
                         )
                     } else {
-                        Icon(androidx.compose.material.icons.Icons.Default.Home, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
                     }
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(splashInfo!!.text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
