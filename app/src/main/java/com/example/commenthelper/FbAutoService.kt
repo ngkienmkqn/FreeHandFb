@@ -1044,7 +1044,13 @@ class FbAutoService : AccessibilityService() {
             inputNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
 
             val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, task.comment) }
-            inputNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            val setSuccess = inputNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            if (!setSuccess) {
+                Log.d(TAG, "SET_TEXT failed, falling back to PASTE")
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("comment", task.comment))
+                inputNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            }
             inputNode.recycle()
 
             if (task.imageCount > 0) {
@@ -1705,19 +1711,20 @@ class FbAutoService : AccessibilityService() {
                 break
             }
         }
-        recycleNodes(nodes)
-        if (editNode != null) return editNode
-
-        // Fallback: look for common composer hints dynamically synced from server
-        for (hint in Engine.composeButton) {
-            val found = root.findAccessibilityNodeInfosByText(hint)
-            if (found.isNotEmpty()) {
-                val node = found[0]
-                for (i in 1 until found.size) found[i].recycle()
-                return node
+        
+        if (editNode == null) {
+            // Fallback: look for common composer hints dynamically synced from server
+            for (node in nodes) {
+                val text = node.text?.toString()?.lowercase() ?: ""
+                val cd = node.contentDescription?.toString()?.lowercase() ?: ""
+                if (Engine.composeButton.any { text.contains(it) || cd.contains(it) }) {
+                    editNode = AccessibilityNodeInfo.obtain(node)
+                    break
+                }
             }
         }
-        return null
+        recycleNodes(nodes)
+        return editNode
     }
 
     private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
