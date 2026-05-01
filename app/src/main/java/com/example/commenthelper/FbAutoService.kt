@@ -120,6 +120,7 @@ class FbAutoService : AccessibilityService() {
     )
 
     private val handler = Handler(Looper.getMainLooper())
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     private enum class Step {
         IDLE,
@@ -295,6 +296,17 @@ class FbAutoService : AccessibilityService() {
         instance = this
         Engine.load(this)
         Log.d(TAG, "Service connected")
+        
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            @Suppress("DEPRECATION")
+            wakeLock = powerManager.newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "FbAutoService::AutomationWakeLock"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init wakeLock", e)
+        }
     }
 
     override fun onDestroy() {
@@ -356,6 +368,13 @@ class FbAutoService : AccessibilityService() {
         stopRequested.value = false
         isRunning.value = true
 
+        try {
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(2 * 60 * 60 * 1000L) // 2 hours max
+                Log.d(TAG, "WakeLock acquired for processing")
+            }
+        } catch (_: Exception) {}
+
         processNextPost()
     }
 
@@ -383,6 +402,13 @@ class FbAutoService : AccessibilityService() {
         stopRequested.value = false
         isRunning.value = true
 
+        try {
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(2 * 60 * 60 * 1000L) // 2 hours max
+                Log.d(TAG, "WakeLock acquired for publishing")
+            }
+        } catch (_: Exception) {}
+
         processNextPost()
     }
 
@@ -398,6 +424,14 @@ class FbAutoService : AccessibilityService() {
         currentIndex = 0
         stopRequested.value = false
         isRunning.value = true
+
+        try {
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(2 * 60 * 60 * 1000L) // 2 hours max
+                Log.d(TAG, "WakeLock acquired for scraping")
+            }
+        } catch (_: Exception) {}
+
         processNextPost()
     }
 
@@ -1988,5 +2022,11 @@ class FbAutoService : AccessibilityService() {
         currentPostId.value = null
         stopRequested.value = false
         handler.removeCallbacksAndMessages(null)
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+                Log.d(TAG, "WakeLock released")
+            }
+        } catch (_: Exception) {}
     }
 }
