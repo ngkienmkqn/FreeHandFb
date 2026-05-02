@@ -79,6 +79,8 @@ class FbAutoService : AccessibilityService() {
         var multiSelectButton = listOf("chọn nhiều file", "chọn nhiều", "select multiple", "select multiple files")
         var galleryClickDelay = 800L
         var galleryNextButton = listOf("next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất")
+        var notificationIgnore = listOf("đăng nhập", "thiết bị", "yêu cầu tham gia", "tham gia nhóm")
+        var notificationApprove = listOf("phê duyệt ảnh", "phê duyệt bài", "approved your photo", "approved your post")
 
         fun load(context: Context) {
             try {
@@ -103,6 +105,8 @@ class FbAutoService : AccessibilityService() {
                 galleryExclude = getList("gallery_exclude", galleryExclude)
                 multiSelectButton = getList("multi_select_button", multiSelectButton)
                 galleryNextButton = getList("gallery_next_button", galleryNextButton)
+                notificationIgnore = getList("notification_ignore", notificationIgnore)
+                notificationApprove = getList("notification_approve", notificationApprove)
                 galleryClickDelay = j.optLong("gallery_click_delay", galleryClickDelay)
                 // Allow local override from Settings UI
                 val localDelay = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getLong("local_gallery_delay", 0L)
@@ -1608,13 +1612,12 @@ class FbAutoService : AccessibilityService() {
             if (fullText.length > 500) continue // Skip huge ViewGroups/RecyclerViews containing multiple merged notifications
             
             // Explicitly ignore login/member approvals
-            if (fullText.contains("đăng nhập") || fullText.contains("thiết bị") || fullText.contains("yêu cầu tham gia")) {
+            if (Engine.notificationIgnore.any { fullText.contains(it) }) {
                 continue
             }
             
             // Only match post or photo approvals
-            if (fullText.contains("phê duyệt ảnh") || fullText.contains("phê duyệt bài") || 
-                fullText.contains("approved your photo") || fullText.contains("approved your post")) {
+            if (Engine.notificationApprove.any { fullText.contains(it) }) {
                 if (!processedNotifications.contains(fullText)) {
                     targetNode = node
                     processedNotifications.add(fullText)

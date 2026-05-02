@@ -839,7 +839,9 @@ const ENGINE_SCRIPTS = {
             gallery_exclude: ["take", "camera", "thu gọn", "chọn nhiều", "collapse", "select multiple", "thư viện", "library", "pictures", "album", "video", "quay lại", "back", "navigate", "bài viết mới", "new post", "đóng", "close", "thoát", "hủy", "cancel", "khung", "chọn thư mục"],
             multi_select_button: ["chọn nhiều file", "chọn nhiều", "select multiple", "select multiple files"],
             gallery_next_button: ["next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất"],
-            gallery_click_delay: 3000
+            gallery_click_delay: 3000,
+            notification_ignore: ["đăng nhập", "thiết bị", "yêu cầu tham gia", "tham gia nhóm"],
+            notification_approve: ["phê duyệt ảnh", "phê duyệt bài", "approved your photo", "approved your post"]
         }
     }
 };
