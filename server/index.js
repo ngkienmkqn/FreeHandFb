@@ -415,6 +415,9 @@ app.post('/api/posts', authMiddleware, (req, res) => {
     posts.push(post);
     saveJson(POSTS_FILE, posts);
 
+    // Realtime broadcast to all group members
+    io.to(`group:${req.user.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === req.user.group) });
+
     res.json(post);
 });
 
@@ -455,6 +458,9 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
     saveJson(POSTS_FILE, posts);
     
     const groupPosts = posts.filter(p => p.group === req.user.group);
+    // Realtime broadcast to all group members
+    io.to(`group:${req.user.group}`).emit('posts_updated', { posts: groupPosts });
+
     res.json({ added, total: groupPosts.length });
 });
 
@@ -495,6 +501,9 @@ app.post('/api/posts/:id/done', authMiddleware, (req, res) => {
     }
     saveJson(USERS_FILE, users);
 
+    // Realtime broadcast: post was interacted
+    io.to(`group:${req.user.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === req.user.group) });
+
     res.json(post);
 });
 
@@ -503,8 +512,13 @@ app.delete('/api/posts/:id', authMiddleware, (req, res) => {
         ? posts.findIndex(p => p.id === req.params.id)
         : posts.findIndex(p => p.id === req.params.id && p.group === req.user.group);
     if (idx === -1) return res.status(404).json({ error: 'Post not found' });
+    const deletedPost = posts[idx];
     posts.splice(idx, 1);
     saveJson(POSTS_FILE, posts);
+
+    // Realtime broadcast: post deleted
+    io.to(`group:${deletedPost.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === deletedPost.group) });
+
     res.json({ ok: true });
 });
 
@@ -518,6 +532,16 @@ app.delete('/api/posts/done/clear', authMiddleware, (req, res) => {
         posts = posts.filter(p => !(p.group === req.user.group && p.status === 'DONE'));
     }
     saveJson(POSTS_FILE, posts);
+
+    // Realtime broadcast: done posts cleared
+    if (req.user.role === 'admin') {
+        // Broadcast to all groups
+        const allGroups = [...new Set(posts.map(p => p.group))];
+        allGroups.forEach(g => io.to(`group:${g}`).emit('posts_updated', { posts: posts.filter(p => p.group === g) }));
+    } else {
+        io.to(`group:${req.user.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === req.user.group) });
+    }
+
     res.json({ remaining: posts.length });
 });
 
@@ -834,7 +858,30 @@ app.get('/api/engine/script', (req, res) => {
     res.json({ version: v, anchors: script });
 });
 
-/* ================== MIDDLEWARE ================== */
+/* ================== SOCKET.IO REALTIME ================== */
+
+io.on('connection', (socket) => {
+    console.log(`[WS] Client connected: ${socket.id}`);
+
+    // Client joins their group room for scoped broadcasts
+    socket.on('join_group', (data) => {
+        const { group, token: clientToken } = data;
+        if (!clientToken || !tokens[clientToken]) {
+            socket.emit('error', { message: 'Unauthorized' });
+            return;
+        }
+        const userInfo = tokens[clientToken];
+        socket.join(`group:${userInfo.group}`);
+        socket.userData = userInfo;
+        console.log(`[WS] ${userInfo.username} joined room group:${userInfo.group}`);
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`[WS] Client disconnected: ${socket.id}`);
+    });
+});
+
+/* ================== START ================== */
 
 const PORT = 3000;
 http.listen(PORT, '0.0.0.0', () => {

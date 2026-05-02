@@ -42,4 +42,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("io.socket:socket.io-client:2.1.0")
 }

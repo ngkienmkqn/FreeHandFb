@@ -38,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import io.socket.client.IO
+import io.socket.client.Socket
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -826,30 +828,36 @@ fun MainApp(
         }
     }
 
-    // Auto Sync Loop
+    // Real-time Socket.io Sync
     LaunchedEffect(authToken) {
-        var lastSyncCheckedText = "0"
-        while (true) {
-            kotlinx.coroutines.delay(5000)
-            if (authToken.isNotEmpty()) {
-                val (c, b) = httpReq("$SERVER_URL/api/sync?after=$lastSyncCheckedText", token = authToken)
-                if (c == 401 || c == 403) {
-                    onLogout()
-                    break
+        if (authToken.isNotEmpty()) {
+            var socket: Socket? = null
+            try {
+                val opts = IO.Options()
+                opts.forceNew = true
+                opts.reconnection = true
+                socket = IO.socket(SERVER_URL, opts)
+                
+                socket.on(Socket.EVENT_CONNECT) {
+                    val data = org.json.JSONObject()
+                    data.put("token", authToken)
+                    socket?.emit("join_group", data)
                 }
-                if (c == 200 && b != null) {
-                    try {
-                        val jt = JSONObject(b)
-                        if (jt.getBoolean("changed")) {
-                            syncWithServer()
-                        }
-                        if (jt.has("serverTime")) {
-                            lastSyncCheckedText = jt.getString("serverTime")
-                        } else {
-                            lastSyncCheckedText = System.currentTimeMillis().toString()
-                        }
-                    } catch(_: Exception) {}
+                
+                socket.on("posts_updated") { 
+                    // Real-time update received! Resync with server to get latest data
+                    scope.launch { syncWithServer() }
                 }
+                
+                socket.connect()
+                
+                // Keep the coroutine alive and disconnect when disposed
+                kotlinx.coroutines.awaitCancellation()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                socket?.disconnect()
+                socket?.off()
             }
         }
     }
