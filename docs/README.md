@@ -212,7 +212,7 @@ MaE6rmXCba/blqUgI+c5AAAADHZwcy1jMi1hZG1pbgE=
 | `{ZALO_LINK}` | Giống `{ZALO}` | Alias |
 | `{A\|B\|C}` | Random 1 trong A, B, C | Tự động spin mỗi lần đăng |
 
-**⚠️ Phải có dấu `{}` bao quanh!** Ví dụ: `{ZALO_LINK}` ✅, `ZALO_LINK` ❌
+**⚠️ Lưu ý:** Hiện tại để đảm bảo an toàn vượt bão quét của Facebook, mọi từ khoá liên quan đến `{ZALO_LINK}`, `ZALO_LINK` và `{ZALO}` đều tự động bị **XÓA SẠCH** khỏi bài đăng lúc Auto. Tuyệt đối không dùng Link trong bài đăng, Facebook rất gắt gao khoản này.
 
 ---
 
