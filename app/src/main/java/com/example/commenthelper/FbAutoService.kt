@@ -554,6 +554,10 @@ class FbAutoService : AccessibilityService() {
                 startActivity(fallback)
             } catch (e3: Exception) {
                 Log.e(TAG, "Cannot open URL: $url", e3)
+                val currentPostId = currentTask?.postId
+                if (!currentPostId.isNullOrEmpty()) {
+                    onPostDead?.invoke(currentPostId)
+                }
                 markCurrentDone(success = false)
             }
         }
@@ -925,6 +929,10 @@ class FbAutoService : AccessibilityService() {
 
                 if (hasGroupFeed || hasComposerPlaceholder) {
                     debugLog("⚠️ Link bài viết đã redirect về trang Group (bài bị xoá hoặc không tồn tại). Bỏ qua!")
+                    val currentPostId = currentTask?.postId
+                    if (!currentPostId.isNullOrEmpty()) {
+                        onPostDead?.invoke(currentPostId)
+                    }
                     markCurrentDone(success = false)
                     root.recycle()
                     return
