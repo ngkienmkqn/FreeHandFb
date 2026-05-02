@@ -228,8 +228,10 @@ class FbAutoService : AccessibilityService() {
             Step.WAITING_FOR_CLIPBOARD -> "Đang xử lý link vừa sao chép..."
             Step.SCRAPING_GROUP_INFO -> "Đang quét thông tin thành viên nhóm..."
             Step.PROCESSING_APPROVED_NOTIFICATIONS -> "Đang xử lý bài viết được duyệt trễ..."
-            Step.WAITING_FOR_OPENED_POST -> "Đang mở bài viết từ thông báo..."
-            Step.DONE -> "Hoàn thành tác vụ"
+            Step.WAITING_FOR_OPENED_POST -> "Đang chờ tải nội dung bài viết..."
+            Step.CLICKING_NOTIFICATION_TAB -> "Đang chuyển sang tab thông báo..."
+            Step.SCANNING_NOTIFICATIONS -> "Đang quét thông báo bài viết được phê duyệt..."
+            Step.DONE -> "Hoàn thành nhiệm vụ"
         }
         val q = taskQueue.value
         val nextMsg = if (q.isNotEmpty() && currentIndex + 1 < q.size) {
