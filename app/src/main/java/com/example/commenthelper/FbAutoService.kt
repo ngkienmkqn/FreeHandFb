@@ -660,13 +660,13 @@ class FbAutoService : AccessibilityService() {
             debugLog("--- X-RAY $screen BẮT ĐẦU ---")
             var count = 0
             for (n in nodes) {
-                if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
-                    val c = n.className?.toString() ?: ""
-                    val d = n.contentDescription?.toString() ?: ""
-                    val t = n.text?.toString() ?: ""
-                    debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
+                val c = n.className?.toString() ?: ""
+                val d = n.contentDescription?.toString() ?: ""
+                val t = n.text?.toString() ?: ""
+                if (d.isNotBlank() || t.isNotBlank() || n.isClickable) {
+                    debugLog("🔍 Node: class=$c, desc='$d', text='$t', click=${n.isClickable}")
                     count++
-                    if (count >= 20) break
+                    if (count >= 50) break
                 }
             }
             debugLog("--- X-RAY $screen KẾT THÚC ---")
@@ -1152,9 +1152,13 @@ class FbAutoService : AccessibilityService() {
         Log.d(TAG, "DEBUG_TRACE: $msg")
         try {
             val file = java.io.File(filesDir, "debug_logs.txt")
-            val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+            val now = java.util.Calendar.getInstance()
+            if (now.get(java.util.Calendar.HOUR_OF_DAY) == 3 && file.exists() && System.currentTimeMillis() - file.lastModified() > 2 * 24 * 3600 * 1000L) {
+                file.delete()
+            }
+            val timestamp = java.text.SimpleDateFormat("dd/MM HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
             file.appendText("[$timestamp] $msg\n")
-            if (file.length() > 500 * 1024) { // Keep log under 500KB
+            if (file.length() > 2 * 1024 * 1024) { // Keep log under 2MB
                 file.writeText("--- Log Truncated ---\n")
             }
         } catch (e: Exception) {}
@@ -2010,6 +2014,7 @@ class FbAutoService : AccessibilityService() {
             resetState()
             
             if (finishedNaturally) {
+                debugLog("✅ Đã hoàn thành toàn bộ hàng đợi. Chuyển sang trạng thái RẢNH (IDLE). Đang chờ task mới...")
                 onQueueFinished?.invoke()
             }
         }
