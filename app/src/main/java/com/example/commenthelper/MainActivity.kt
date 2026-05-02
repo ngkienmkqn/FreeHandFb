@@ -378,13 +378,40 @@ class MainActivity : ComponentActivity() {
             val images = intent.getStringArrayListExtra("EXTRA_IMAGES") ?: arrayListOf()
             val postIndex = intent.getIntExtra("EXTRA_GROUP_POST_INDEX", 0)
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                if (images.isNotEmpty()) {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        android.widget.Toast.makeText(this@MainActivity, "Headless Trigger: Downloading images", android.widget.Toast.LENGTH_SHORT).show()
+                val tasks = mutableListOf<FbAutoService.TaskItem>()
+                groups.forEach { g ->
+                    val payload = JSONObject().apply {
+                        put("url", g)
+                        put("template", text)
+                        put("isPublishingGroup", true)
                     }
-                    downloadImages(this@MainActivity, images)
+                    val (code, body) = httpReq("$SERVER_URL/api/posts", "POST", payload.toString(), authToken)
+                    if (code == 200 && !body.isNullOrBlank()) {
+                        try {
+                            val serverId = JSONObject(body).getString("id")
+                            tasks.add(
+                                FbAutoService.TaskItem(
+                                    postId = serverId,
+                                    url = g,
+                                    comment = text,
+                                    isPublishingGroup = true,
+                                    imageCount = images.size,
+                                    postIndex = postIndex
+                                )
+                            )
+                        } catch (_: Exception) {}
+                    }
                 }
-                FbAutoService.instance?.startPublishing(text, images, groups, postIndex)
+
+                if (tasks.isNotEmpty()) {
+                    if (images.isNotEmpty()) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            android.widget.Toast.makeText(this@MainActivity, "Headless Trigger: Downloading images", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        downloadImages(this@MainActivity, images)
+                    }
+                    FbAutoService.instance?.startPublishing(tasks)
+                }
             }
             intent.removeExtra("EXTRA_AUTO_PUBLISH")
         }
@@ -1682,14 +1709,55 @@ private fun formatTime(t: Long): String = TIME_FMT.format(Date(t))
                                         if (links.isEmpty()) { toast(context, "Không có link hợp lệ!"); return@FilledTonalButton }
                                         
                                         scope.launch {
-                                            if (art.images.isNotEmpty()) {
-                                                toast(context, "Đang bung nén Album ảnh...\nXin đừng khóa màn hình!")
-                                                downloadImages(context, art.images)
+                                            val tasks = mutableListOf<FbAutoService.TaskItem>()
+                                            var rejectedCount = 0
+                                            
+                                            for (g in links) {
+                                                val payload = JSONObject().apply {
+                                                    put("url", g)
+                                                    put("template", applySpintaxAndVars(art.content, prefs))
+                                                    put("isPublishingGroup", true)
+                                                }
+                                                val (code, body) = httpReq("$SERVER_URL/api/posts", "POST", payload.toString(), authToken)
+                                                if (code == 200 && !body.isNullOrBlank()) {
+                                                    try {
+                                                        val serverId = JSONObject(body).getString("id")
+                                                        tasks.add(
+                                                            FbAutoService.TaskItem(
+                                                                postId = serverId,
+                                                                url = g,
+                                                                comment = applySpintaxAndVars(art.content, prefs),
+                                                                isPublishingGroup = true,
+                                                                imageCount = art.images.size
+                                                            )
+                                                        )
+                                                    } catch (_: Exception) {}
+                                                } else if (code == 429) {
+                                                    rejectedCount++
+                                                }
                                             }
-                                            FbAutoService.instance?.startPublishing(
-                                                applySpintaxAndVars(art.content, prefs), art.images, links
-                                            )
-                                            toast(context, "Đã chạy Robot ném ${art.images.size} ảnh vào ${links.size} nhóm 🚀")
+
+                                            withContext(Dispatchers.Main) {
+                                                if (rejectedCount > 0) {
+                                                    toast(context, "⚠️ Máy chủ từ chối $rejectedCount nhóm vì đã đạt giới hạn bài/ngày!")
+                                                }
+                                                if (tasks.isEmpty()) {
+                                                    toast(context, "❌ Không có bài nào được phép đăng!")
+                                                }
+                                            }
+
+                                            if (tasks.isNotEmpty()) {
+                                                if (art.images.isNotEmpty()) {
+                                                    withContext(Dispatchers.Main) {
+                                                        toast(context, "Đang bung nén Album ảnh...\nXin đừng khóa màn hình!")
+                                                    }
+                                                    downloadImages(context, art.images)
+                                                }
+                                                FbAutoService.instance?.startPublishing(tasks)
+                                                withContext(Dispatchers.Main) {
+                                                    toast(context, "Đã chạy Robot ném ảnh vào ${tasks.size} nhóm 🚀")
+                                                }
+                                            }
                                         }
                                     }
                                 ) { Text("Đăng Group 🚀", style = MaterialTheme.typography.bodySmall, color = Color.White) }

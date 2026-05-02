@@ -379,23 +379,11 @@ class FbAutoService : AccessibilityService() {
         processNextPost()
     }
 
-    fun startPublishing(text: String, images: List<String>, groupLinks: List<String>, postIndex: Int = 0) {
-        if (groupLinks.isEmpty()) return
+    fun startPublishing(tasks: List<TaskItem>) {
+        if (tasks.isEmpty()) return
         if (isRunning.value) {
             Log.w(TAG, "⚠️ LOCK: Đang chạy task khác, từ chối startPublishing mới. Hãy đợi task cũ hoàn thành.")
             return
-        }
-        val count = images.size
-
-        val tasks = groupLinks.mapIndexed { index, link ->
-            TaskItem(
-                postId = "GROUP_PUB_$index",
-                url = link,
-                comment = text,
-                isPublishingGroup = true,
-                imageCount = count,
-                postIndex = postIndex
-            )
         }
 
         taskQueue.value = tasks
