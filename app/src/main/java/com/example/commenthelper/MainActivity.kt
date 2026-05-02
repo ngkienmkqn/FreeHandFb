@@ -373,6 +373,8 @@ class MainActivity : ComponentActivity() {
     private fun checkAndHandleAutoIntent(intent: Intent?) {
         if (intent == null) return
         if (intent.getBooleanExtra("EXTRA_AUTO_PUBLISH", false)) {
+            val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val authToken = prefs.getString(KEY_AUTH_TOKEN, "") ?: ""
             val text = intent.getStringExtra("EXTRA_TEXT") ?: ""
             val groups = intent.getStringArrayExtra("EXTRA_GROUPS")?.toList() ?: emptyList()
             val images = intent.getStringArrayListExtra("EXTRA_IMAGES") ?: arrayListOf()

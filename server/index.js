@@ -164,7 +164,13 @@ function adminOnly(req, res, next) {
 
 /* ================== CONSTANTS & SETTINGS ================== */
 
-app.get('/api/settings', authMiddleware, (req, res) => res.json(appSettings));
+app.get('/api/settings', authMiddleware, (req, res) => {
+    let customSettings = { ...appSettings };
+    if (req.user && req.user.maxGroupPostsPerDay !== undefined) {
+        customSettings.maxGroupPostsPerDay = req.user.maxGroupPostsPerDay;
+    }
+    res.json(customSettings);
+});
 
 app.post('/api/settings', authMiddleware, adminOnly, (req, res) => {
     const { maxGroupPostsPerDay } = req.body;
@@ -210,7 +216,7 @@ app.post('/api/splash', authMiddleware, adminOnly, (req, res) => {
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, isLocked: !!u.isLocked, isDebug: !!u.isDebug, history: u.history || [] })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, isLocked: !!u.isLocked, isDebug: !!u.isDebug, history: u.history || [], maxGroupPostsPerDay: u.maxGroupPostsPerDay !== undefined ? u.maxGroupPostsPerDay : 1 })));
 });
 
 app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
@@ -218,10 +224,10 @@ app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
     if (!username || !password || !group) return res.status(400).json({ error: 'username, password, group required' });
     if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
 
-    const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user', phone: phone || '', zaloLink: zaloLink || '', isLocked: false };
+    const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user', phone: phone || '', zaloLink: zaloLink || '', isLocked: false, maxGroupPostsPerDay: req.body.maxGroupPostsPerDay !== undefined ? req.body.maxGroupPostsPerDay : 1 };
     users.push(user);
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, phone: user.phone, zaloLink: user.zaloLink, isLocked: false });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, phone: user.phone, zaloLink: user.zaloLink, isLocked: false, maxGroupPostsPerDay: user.maxGroupPostsPerDay });
 });
 
 app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
@@ -233,6 +239,10 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     if (deviceId === null || deviceId === "") user.deviceId = null;
     if (webDeviceId === null || webDeviceId === "") user.webDeviceId = null;
     if (isLocked !== undefined) user.isLocked = isLocked;
+    if (req.body.maxGroupPostsPerDay !== undefined) {
+        if (user.maxGroupPostsPerDay !== req.body.maxGroupPostsPerDay) changes.push(`Max Posts/Day: ${user.maxGroupPostsPerDay || 1} -> ${req.body.maxGroupPostsPerDay}`);
+        user.maxGroupPostsPerDay = req.body.maxGroupPostsPerDay;
+    }
     if (isDebug !== undefined) {
         if (!!user.isDebug !== !!isDebug) changes.push(`Debug Mode: ${!!user.isDebug ? 'BẬT' : 'TẮT'} -> ${isDebug ? 'BẬT' : 'TẮT'}`);
         user.isDebug = isDebug;
@@ -387,8 +397,9 @@ app.post('/api/posts', authMiddleware, (req, res) => {
             p.url.includes(`/groups/${fbGroupId}`)
         ).length;
         
-        if (countToday >= appSettings.maxGroupPostsPerDay) {
-            return res.status(429).json({ error: `Bạn đã đăng ${countToday} bài vào nhóm này hôm nay. Giới hạn là ${appSettings.maxGroupPostsPerDay} bài/ngày!` });
+        const limit = req.user.maxGroupPostsPerDay !== undefined ? req.user.maxGroupPostsPerDay : (appSettings.maxGroupPostsPerDay || 1);
+        if (countToday >= limit) {
+            return res.status(429).json({ error: `Bạn đã đăng ${countToday} bài vào nhóm này hôm nay. Giới hạn là ${limit} bài/ngày!` });
         }
     }
 

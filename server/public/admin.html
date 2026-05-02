@@ -173,7 +173,7 @@
                         <h2>👥 Quản lý Users <span class="badge" id="userCount">0</span></h2>
                         <div class="form-row"><input type="text" id="newUserName" placeholder="Username" /><input type="password" id="newUserPass" placeholder="Password" /></div>
                         <div class="form-row"><select id="newUserGroup" style="max-width:50%"><option value="">-- Chọn group --</option></select><input type="text" id="newUserGroupCustom" placeholder="Hoặc nhập group mới" /></div>
-                        <div class="form-row"><select id="newUserRole"><option value="user">User</option><option value="admin">Admin</option></select><input type="text" id="newUserPhone" placeholder="SĐT" /><input type="text" id="newUserZalo" placeholder="Link Zalo" /></div>
+                        <div class="form-row"><select id="newUserRole"><option value="user">User</option><option value="admin">Admin</option></select><input type="text" id="newUserPhone" placeholder="SĐT" /><input type="text" id="newUserZalo" placeholder="Link Zalo" /><input type="number" id="newUserMaxPosts" placeholder="Số bài/nhóm/ngày" value="1" title="Giới hạn bài đăng mỗi ngày vào 1 nhóm" /></div>
                         <button class="btn btn-primary btn-small" onclick="addUser()" style="margin-top:8px">➕ Thêm user</button>
                         <div class="scroll-list" id="userList" style="margin-top:16px"></div>
                     </div>
@@ -537,7 +537,7 @@ async function fetchUsers() {
                 ${u.isLocked ? '<div class="user-meta" style="color:#ef4444;font-weight:bold">Tài khoản này đang bị khóa!</div>' : ''}
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button class="btn btn-primary btn-small" onclick="showEditUser('${u.id}', \`${escJs(u.username)}\`, \`${escJs(u.group)}\`, '${u.role}')">✏️ Sửa</button>
+                <button class="btn btn-primary btn-small" onclick="showEditUser('${u.id}')">✏️ Sửa</button>
                 <button class="btn btn-outline btn-small" onclick="resetDevice('${u.id}')" title="Trường hợp User mượn máy người khác hoặc mua ĐTDĐ mới">📱 Reset Máy</button>
                 ${u.isLocked ? 
                     `<button class="btn btn-success btn-small" onclick="toggleLock('${u.id}', false)">🔓 Mở khoá</button>` : 
@@ -574,6 +574,7 @@ async function fetchUsers() {
             <div class="form-row" style="margin:0">
                 <input type="text" id="editPhone-${u.id}" placeholder="Số điện thoại" value="${esc(u.phone || '')}" />
                 <input type="text" id="editZalo-${u.id}" placeholder="Link Zalo" value="${esc(u.zaloLink || '')}" />
+                <input type="number" id="editMaxPosts-${u.id}" placeholder="Bài/Nhóm/Ngày" value="${u.maxGroupPostsPerDay || 1}" title="Giới hạn bài đăng mỗi ngày vào 1 nhóm" style="max-width:110px" />
             </div>
             <div style="display:flex;gap:8px">
                 <button class="btn btn-success btn-small" onclick="saveEditUser('${u.id}')">💾 Lưu</button>
@@ -600,9 +601,11 @@ async function saveEditUser(id) {
     const points = document.getElementById('editPoints-' + id).value;
     const phone = document.getElementById('editPhone-' + id).value.trim();
     const zaloLink = document.getElementById('editZalo-' + id).value.trim();
+    const maxPosts = document.getElementById('editMaxPosts-' + id).value;
     const body = { username, group, role, phone, zaloLink };
     if (password) body.password = password;
     if (points !== '') body.points = parseInt(points, 10);
+    if (maxPosts !== '') body.maxGroupPostsPerDay = parseInt(maxPosts, 10);
     const res = await apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify(body) });
     if (res.ok) { fetchUsers(); }
     else { const e = await res.json(); alert(e.error); }
@@ -617,8 +620,12 @@ async function addUser() {
     const role = document.getElementById('newUserRole').value;
     const phone = document.getElementById('newUserPhone').value.trim();
     const zaloLink = document.getElementById('newUserZalo').value.trim();
+    const maxPosts = document.getElementById('newUserMaxPosts').value;
     if (!username || !password || !group) return alert('Điền đủ thông tin (chọn hoặc nhập group)');
-    const res = await apiFetch('/api/users', { method: 'POST', body: JSON.stringify({ username, password, group, role, phone, zaloLink }) });
+    
+    const body = { username, password, group, role, phone, zaloLink };
+    if (maxPosts !== '') body.maxGroupPostsPerDay = parseInt(maxPosts, 10);
+    const res = await apiFetch('/api/users', { method: 'POST', body: JSON.stringify(body) });
     if (res.ok) { document.getElementById('newUserName').value = ''; document.getElementById('newUserPass').value = ''; document.getElementById('newUserGroupCustom').value = ''; document.getElementById('newUserPhone').value = ''; document.getElementById('newUserZalo').value = ''; }
     else { const e = await res.json(); alert(e.error); }
     fetchUsers();
