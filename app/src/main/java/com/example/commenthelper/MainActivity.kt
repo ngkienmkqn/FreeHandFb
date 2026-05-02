@@ -425,6 +425,11 @@ class MainActivity : ComponentActivity() {
                                 )
                             )
                         } catch (_: Exception) {}
+                    } else {
+                        val errMsg = try { JSONObject(body ?: "").getString("error") } catch(e: Exception) { "Mã lỗi: $code" }
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            android.widget.Toast.makeText(this@MainActivity, "❌ Từ chối đăng: $errMsg", android.widget.Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
 
