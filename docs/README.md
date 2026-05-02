@@ -239,12 +239,13 @@ MaE6rmXCba/blqUgI+c5AAAADHZwcy1jMi1hZG1pbgE=
 2. Build → Generate Signed APK.
 3. Gửi file APK cho user cài lại.
 
-### Workflow 5: Push code lên GitHub
+### Workflow 5: Push code lên GitHub (CI/CD Auto-Deploy)
 ```bash
 git add -A
 git commit -m "feat: mô tả thay đổi"
 git push origin main
 ```
+> **Lưu ý:** Repository đã được tích hợp GitHub Actions. Khi push lên nhánh `main`, server Node.js trên VPS (C2-Dashboard) sẽ tự động được kéo code về và khởi động lại qua PM2 (yêu cầu cấu hình đủ 3 biến Secret VPS_HOST, VPS_USERNAME, VPS_SSH_KEY trên GitHub).
 
 ---
 
@@ -259,10 +260,22 @@ git push origin main
 
 ---
 
-## 10. ⚠️ Quy tắc kiến trúc bắt buộc
+## 10. Lịch Sử Cập Nhật Hệ Thống Cơ Bản
+
+| Ngày | Component | Thay đổi |
+|------|-----------|----------|
+| **02/05/2026** | App/Server | **Chuyển đổi HTTP Polling sang Socket.io Real-time Push:** Đồng bộ trạng thái bài viết ngay lập tức giữa các máy trong cùng nhóm khi có thao tác thêm/xóa/tương tác bài. |
+| **02/05/2026** | App | **Sửa lỗi lọc Tab "Cần Giúp":** Bổ sung điều kiện kiểm tra `interactedBy` giúp bài viết lập tức bị ẩn khỏi Tab Cần Giúp với người vừa tương tác, dù trạng thái Global vẫn là PENDING. |
+| **02/05/2026** | Server | **Tích hợp CI/CD:** Thêm GitHub Actions (`deploy-server.yml`) cho phép Auto-Deploy lên VPS qua SSH Key khi push code. |
+
+---
+
+## 11. ⚠️ Quy tắc kiến trúc bắt buộc
 - **KHÔNG** được dùng `ACTION_SEND` intent vì sẽ kẹt ở màn hình chọn nhóm.
 - Cốt lõi công nghệ: nhảy thẳng vào FB App (Katana) rồi cho Accessibility chọc trực tiếp vào `AccessibilityNodeInfo.ACTION_CLICK`. **Bảo tồn cấu trúc này.**
 - Mọi text anchor (nút bấm, dialog chặn, v.v.) phải được quản lý qua OTA `Engine` object, **KHÔNG hardcode** trong Kotlin.
 - Gallery exclusion list, click delay, multi-select button, next button — tất cả phải qua OTA `Engine`. **KHÔNG hardcode**.
 - `AutoPublishWorker` hỗ trợ `FORCE_RUN` input data flag — khi `true`, bypass khung giờ hoạt động và block timeout.
 - Hệ thống **Self-Healing** phải có điều kiện fallback (`GLOBAL_ACTION_BACK`) ở nhánh màn hình `UNKNOWN` để đảm bảo luôn có thể xử lý các popup quảng cáo bất ngờ ngoài dự kiến.
+- Hệ thống đồng bộ thời gian thực hiện dùng **Socket.io**. Phải bảo toàn `socket.join("group:X")` và `io.to("group:X")` để đảm bảo scope tin nhắn Push chuẩn xác, tránh rò rỉ dữ liệu chéo nhóm.
+
