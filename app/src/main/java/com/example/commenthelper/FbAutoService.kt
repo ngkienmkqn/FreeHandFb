@@ -473,6 +473,7 @@ class FbAutoService : AccessibilityService() {
         currentStep = Step.WAITING_FOR_FB_LOAD
         retryCount = 0
         healingCount = 0
+        multiSelectClicked = false
 
         Log.d(TAG, "Processing post ${currentIndex + 1}/${tasks.size}: ${task.url}")
 
@@ -995,11 +996,16 @@ class FbAutoService : AccessibilityService() {
             commentInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             commentInput.performAction(AccessibilityNodeInfo.ACTION_CLICK)
 
-            // Set the text
             val args = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, task.comment)
             }
-            commentInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            val setSuccess = commentInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            if (!setSuccess) {
+                Log.d(TAG, "SET_TEXT failed, falling back to PASTE")
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("comment", task.comment))
+                commentInput.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            }
             commentInput.recycle()
 
             currentStep = Step.WAITING_FOR_COMMENT_SENT
@@ -1122,24 +1128,6 @@ class FbAutoService : AccessibilityService() {
                 debugLog("⚠️ Đang thử đóng bàn phím để tìm nút ảnh...")
                 performGlobalAction(GLOBAL_ACTION_BACK)
             }
-            if (retryCount == 20) {
-                // Dump DOM
-                val nodes = findAllNodes(root)
-                debugLog("--- X-RAY COMPOSER BẮT ĐẦU ---")
-                var count = 0
-                for (n in nodes) {
-                    if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
-                        val c = n.className?.toString() ?: ""
-                        val d = n.contentDescription?.toString() ?: ""
-                        val t = n.text?.toString() ?: ""
-                        debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
-                        count++
-                        if (count >= 20) break
-                    }
-                }
-                debugLog("--- X-RAY COMPOSER KẾT THÚC ---")
-                recycleNodes(nodes)
-            }
             setNextStepDelay(500)
         }
         root.recycle()
@@ -1229,23 +1217,8 @@ class FbAutoService : AccessibilityService() {
                         if (!doneBtn.isClickable) doneBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                         doneBtn.recycle()
                     } else {
-                        debugLog("⚠️ Không thấy nút Tiếp! Đang chụp X-Quang...")
-                        Log.w(TAG, "Missing NEXT button, dumping X-Ray")
-                        val nodes = findAllNodes(r2)
-                        debugLog("--- X-RAY GALLERY BẮT ĐẦU ---")
-                        var count = 0
-                        for (n in nodes) {
-                            if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
-                                val c = n.className?.toString() ?: ""
-                                val d = n.contentDescription?.toString() ?: ""
-                                val t = n.text?.toString() ?: ""
-                                debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
-                                count++
-                                if (count >= 20) break
-                            }
-                        }
-                        debugLog("--- X-RAY GALLERY KẾT THÚC ---")
-                        recycleNodes(nodes)
+                        debugLog("⚠️ Không thấy nút Tiếp! Đang chờ timeout...")
+                        Log.w(TAG, "Missing NEXT button")
                     }
                     r2.recycle()
                 } else {
@@ -1259,29 +1232,7 @@ class FbAutoService : AccessibilityService() {
             }, waitTime)
         } else {
             // We do NOT increment retryCount here anymore because startRetryChecker already increments it!
-            // But wait, if onAccessibilityEvent calls this, it should increment it? 
-            // Better to let the timeout be handled correctly. We will leave retryCount alone here.
-            // Oh wait, if we don't increment it, we can't trigger the X-Ray based on retryCount if startRetryChecker is blocked.
             // Let's just use the existing retryCount.
-            
-            if (retryCount == 5 || retryCount == 6) {
-                // Dump DOM to debug log to see why it fails
-                val nodes = findAllNodes(root)
-                var count = 0
-                debugLog("--- X-RAY BẮT ĐẦU ---")
-                for (n in nodes) {
-                    if ((n.isClickable || n.isCheckable) && n.isVisibleToUser) {
-                        val c = n.className?.toString() ?: ""
-                        val d = n.contentDescription?.toString() ?: ""
-                        val t = n.text?.toString() ?: ""
-                        debugLog("🔍 Node: class=$c, desc='$d', text='$t'")
-                        count++
-                        if (count >= 20) break
-                    }
-                }
-                debugLog("--- X-RAY KẾT THÚC ---")
-                recycleNodes(nodes)
-            }
 
             if (retryCount % 5 == 0 || retryCount % 5 == 1) {
                 debugLog("📸 Đang chờ ảnh load... ($retryCount/30)")
@@ -2026,6 +1977,7 @@ class FbAutoService : AccessibilityService() {
         currentPostId.value = null
         stopRequested.value = false
         healingCount = 0
+        multiSelectClicked = false
         handler.removeCallbacksAndMessages(null)
         try {
             if (wakeLock?.isHeld == true) {
