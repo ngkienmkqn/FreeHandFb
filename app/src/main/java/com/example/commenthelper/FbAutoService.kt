@@ -143,6 +143,8 @@ class FbAutoService : AccessibilityService() {
         SCRAPING_GROUP_INFO,
         PROCESSING_APPROVED_NOTIFICATIONS,
         WAITING_FOR_OPENED_POST,
+        CLICKING_NOTIFICATION_TAB,
+        SCANNING_NOTIFICATIONS,
         DONE
     }
 
@@ -364,9 +366,11 @@ class FbAutoService : AccessibilityService() {
             Log.w(TAG, "⚠️ LOCK: Đang chạy task khác, từ chối startProcessing mới. Hãy đợi task cũ hoàn thành.")
             return
         }
-
-        taskQueue.value = tasks
-        progress.value = 0 to tasks.size
+        val finalTasks = tasks.toMutableList()
+        finalTasks.add(TaskItem("NOTIF_SCAN", "ACTION_SCAN_NOTIFICATIONS", ""))
+        
+        taskQueue.value = finalTasks
+        progress.value = 0 to finalTasks.size
         currentIndex = 0
         stopRequested.value = false
         isRunning.value = true
@@ -387,9 +391,11 @@ class FbAutoService : AccessibilityService() {
             Log.w(TAG, "⚠️ LOCK: Đang chạy task khác, từ chối startPublishing mới. Hãy đợi task cũ hoàn thành.")
             return
         }
+        val finalTasks = tasks.toMutableList()
+        finalTasks.add(TaskItem("NOTIF_SCAN", "ACTION_SCAN_NOTIFICATIONS", ""))
 
-        taskQueue.value = tasks
-        progress.value = 0 to tasks.size
+        taskQueue.value = finalTasks
+        progress.value = 0 to finalTasks.size
         currentIndex = 0
         stopRequested.value = false
         isRunning.value = true
@@ -462,6 +468,21 @@ class FbAutoService : AccessibilityService() {
         val task = tasks[currentIndex]
         currentTask = task
         currentPostId.value = task.postId
+        
+        if (task.url == "ACTION_SCAN_NOTIFICATIONS") {
+            currentStep = Step.CLICKING_NOTIFICATION_TAB
+            retryCount = 0
+            healingCount = 0
+            multiSelectClicked = false
+            Log.d(TAG, "Processing NOTIF_SCAN task...")
+            
+            handler.postDelayed({
+                openFacebookLink("fb://notifications")
+                startRetryChecker()
+            }, 2000)
+            return
+        }
+        
         currentStep = Step.WAITING_FOR_FB_LOAD
         retryCount = 0
         healingCount = 0
@@ -631,6 +652,8 @@ class FbAutoService : AccessibilityService() {
                     }
                     Step.PROCESSING_APPROVED_NOTIFICATIONS -> { handleProcessingApprovedNotifications() }
                     Step.WAITING_FOR_OPENED_POST -> { handleWaitingForOpenedPost() }
+                    Step.CLICKING_NOTIFICATION_TAB -> { handleClickingNotificationTab() }
+                    Step.SCANNING_NOTIFICATIONS -> { handleScanningNotifications() }
                     else -> return
                 }
                 handler.postDelayed(this, 500)
@@ -1441,6 +1464,69 @@ class FbAutoService : AccessibilityService() {
         root.recycle()
     }
 
+    private fun handleClickingNotificationTab() {
+        val root = rootInActiveWindow ?: return
+        val nodes = findAllNodes(root)
+        
+        var notifTab: android.view.accessibility.AccessibilityNodeInfo? = null
+        for (node in nodes) {
+            val cd = node.contentDescription?.toString()?.lowercase() ?: ""
+            if (cd.contains("thông báo, tab") || cd.contains("notifications, tab")) {
+                notifTab = node
+                break
+            }
+        }
+        
+        if (notifTab != null) {
+            debugLog("Đang chuyển sang Tab Thông báo...")
+            notifTab.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+            currentStep = Step.SCANNING_NOTIFICATIONS
+            retryCount = 0
+            setNextStepDelay(2000)
+        } else {
+            val header = nodes.find { it.text?.toString()?.lowercase() == "thông báo" || it.text?.toString()?.lowercase() == "notifications" }
+            if (header != null) {
+                currentStep = Step.SCANNING_NOTIFICATIONS
+                retryCount = 0
+                setNextStepDelay(500)
+            }
+        }
+        recycleNodes(nodes)
+        root.recycle()
+    }
+
+    private fun handleScanningNotifications() {
+        val root = rootInActiveWindow ?: return
+        val nodes = findAllNodes(root)
+        
+        var targetNode: android.view.accessibility.AccessibilityNodeInfo? = null
+        for (node in nodes) {
+            val txt = node.text?.toString()?.lowercase() ?: ""
+            val cd = node.contentDescription?.toString()?.lowercase() ?: ""
+            val fullText = "$txt $cd"
+            
+            if ((fullText.contains("chưa đọc") || fullText.contains("unread")) &&
+                (fullText.contains("phê duyệt") || fullText.contains("approved"))) {
+                targetNode = node
+                break
+            }
+        }
+        
+        if (targetNode != null) {
+            debugLog("Phát hiện thông báo Phê duyệt chưa đọc. Đang click...")
+            targetNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) ?: targetNode.parent?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+            
+            currentStep = Step.WAITING_FOR_OPENED_POST
+            retryCount = 0
+            setNextStepDelay(3000)
+        } else {
+            debugLog("Không tìm thấy/đã hết thông báo phê duyệt. Kết thúc quét.")
+            markCurrentDone(success = true)
+        }
+        recycleNodes(nodes)
+        root.recycle()
+    }
+
     private fun handleClickingShareAndCopy() {
         debugLog("Đang xử lý lấy link bài viết...")
         val root = rootInActiveWindow ?: return
@@ -1606,7 +1692,15 @@ class FbAutoService : AccessibilityService() {
             }
         } catch(e: Exception) {}
         
-        markCurrentDone(success = true)
+        if (task.url == "ACTION_SCAN_NOTIFICATIONS") {
+            debugLog("Đã lưu link bài phê duyệt. Quay lại check tiếp...")
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            currentStep = Step.SCANNING_NOTIFICATIONS
+            retryCount = 0
+            setNextStepDelay(1500)
+        } else {
+            markCurrentDone(success = true)
+        }
     }
 
     /* ================== NODE FINDERS ================== */
