@@ -372,6 +372,7 @@ class FbAutoService : AccessibilityService() {
         taskQueue.value = finalTasks
         progress.value = 0 to finalTasks.size
         currentIndex = 0
+        isMarkingDone = false
         stopRequested.value = false
         isRunning.value = true
 
@@ -2002,16 +2003,28 @@ class FbAutoService : AccessibilityService() {
 
     /* ================== STATE MANAGEMENT ================== */
 
+    private var isMarkingDone = false
+
     private fun markCurrentDone(success: Boolean) {
-        val task = currentTask ?: return
-        Log.d(TAG, "Post ${task.postId} done, success=$success")
+        if (isMarkingDone) {
+            debugLog("⚠️ Bỏ qua markCurrentDone vì đang trong quá trình chuyển bài.")
+            return
+        }
+        isMarkingDone = true
+
+        val task = currentTask ?: run {
+            isMarkingDone = false
+            return
+        }
+        debugLog("🏁 Hoàn thành bài ${task.postId} (Thành công=$success). Index hiện tại: $currentIndex, Tổng hàng đợi: ${taskQueue.value.size}")
         
         if (task.postId == "APPROVED_POST") {
-            Log.d(TAG, "Approved post processed. Moving to next notification.")
+            debugLog("Chuyển sang check thông báo tiếp theo...")
             performGlobalAction(GLOBAL_ACTION_BACK)
             currentStep = Step.SCANNING_NOTIFICATIONS
             retryCount = 0
             handler.postDelayed({
+                isMarkingDone = false
                 startRetryChecker()
             }, 1000)
             return
@@ -2068,6 +2081,7 @@ class FbAutoService : AccessibilityService() {
         currentTask = null
 
         if (currentIndex < taskQueue.value.size && !stopRequested.value) {
+            debugLog("Đang chuẩn bị sang bài ${currentIndex + 1}/${taskQueue.value.size}...")
             // Kill Facebook completely before next task
             forceStopFacebook()
             
@@ -2085,6 +2099,7 @@ class FbAutoService : AccessibilityService() {
                         countdown--
                         handler.postDelayed(this, 1000)
                     } else {
+                        isMarkingDone = false
                         processNextPost()
                     }
                 }
