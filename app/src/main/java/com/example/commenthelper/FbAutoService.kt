@@ -859,9 +859,12 @@ class FbAutoService : AccessibilityService() {
 
         if (isDead) {
             // Check if user simply hasn't joined the group (Join Group button visible)
+            // IMPORTANT: Exclude "đã tham gia" (already joined) indicators — those are NOT join buttons
             val hasJoinButton = nodes.any {
                 val txt = it.text?.toString()?.lowercase() ?: ""
                 val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+                if (txt.contains("đã tham gia") || desc.contains("đã tham gia") || 
+                    txt.contains("đã gia nhập") || desc.contains("đã gia nhập")) return@any false
                 Engine.groupJoin.any { anchor -> txt.contains(anchor) || desc.contains(anchor) }
             }
 
