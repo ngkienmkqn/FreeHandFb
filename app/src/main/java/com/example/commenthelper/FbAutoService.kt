@@ -2073,7 +2073,10 @@ class FbAutoService : AccessibilityService() {
             resetState()
             
             if (finishedNaturally) {
-                debugLog("✅ Đã hoàn thành toàn bộ hàng đợi. Chuyển sang trạng thái RẢNH (IDLE). Đang chờ task mới...")
+                val prefs = getSharedPreferences("FB_PREFS", android.content.Context.MODE_PRIVATE)
+                val wakeInterval = prefs.getInt("autowake_interval_hours", 1)
+                val pubInterval = prefs.getInt("autopublish_interval_minutes", 15)
+                debugLog("✅ Đã hoàn thành toàn bộ hàng đợi. Chuyển sang trạng thái RẢNH (IDLE). (Lịch trình tự động tiếp theo: Check bài mới sau $wakeInterval giờ, Đăng nhóm sau $pubInterval phút).")
                 onQueueFinished?.invoke()
             }
         }
