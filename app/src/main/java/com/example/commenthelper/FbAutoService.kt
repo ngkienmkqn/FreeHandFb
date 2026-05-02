@@ -52,6 +52,8 @@ class FbAutoService : AccessibilityService() {
             
         /** Callback invoked when the queue naturally finishes (not manually stopped) */
         var onQueueFinished: (() -> Unit)? = null
+        /** Callback invoked when a post is marked as DEAD */
+        var onPostDead: ((String) -> Unit)? = null
 
         fun isServiceEnabled(context: Context): Boolean {
             val enabledServices = android.provider.Settings.Secure.getString(
@@ -647,25 +649,30 @@ class FbAutoService : AccessibilityService() {
         }
         
         debugLog("🛠 Kích hoạt Tự chữa lành (Lần $healingCount)...")
+        debugLog("--- 🚨 PHÂN TÍCH LỖI MÀN HÌNH $screen 🚨 ---")
+        debugLog("Lý do: Kẹt ở bước '$currentStep', không tìm thấy mục tiêu.")
+        debugLog("Danh sách đối tượng (X-RAY):")
         val rootXray = rootInActiveWindow
         if (rootXray != null) {
             val nodes = findAllNodes(rootXray)
-            debugLog("--- X-RAY $screen BẮT ĐẦU ---")
             var count = 0
             for (n in nodes) {
-                val c = n.className?.toString() ?: ""
+                val c = n.className?.toString()?.substringAfterLast('.') ?: ""
                 val d = n.contentDescription?.toString() ?: ""
                 val t = n.text?.toString() ?: ""
                 if (d.isNotBlank() || t.isNotBlank() || n.isClickable) {
-                    debugLog("🔍 Node: class=$c, desc='$d', text='$t', click=${n.isClickable}")
+                    debugLog("  - [$c] Chữ: '$t' | Mô tả: '$d' | Bấm: ${n.isClickable}")
                     count++
-                    if (count >= 50) break
+                    if (count >= 40) {
+                        debugLog("  ... (Ẩn bớt để tránh trôi log)")
+                        break
+                    }
                 }
             }
-            debugLog("--- X-RAY $screen KẾT THÚC ---")
             recycleNodes(nodes)
             rootXray.recycle()
         }
+        debugLog("-------------------------------------------")
 
         when (screen) {
             ScreenType.FEED -> {
@@ -819,7 +826,12 @@ class FbAutoService : AccessibilityService() {
 
         if (isDead) {
             Log.w(TAG, "DEAD LINK detected! Aborting interaction to preserve safety.")
-            // Mark as done but with success = false (Server will not deduct points safely)
+            debugLog("❌ LỖI NGHIÊM TRỌNG: Phát hiện bài viết đã bị xóa hoặc nhóm bị khóa ('Nội dung này hiện không hiển thị'). Đang tiến hành xóa vĩnh viễn bài đăng khỏi hệ thống để bảo vệ các máy khác...")
+            val currentPostId = currentTask?.postId
+            if (!currentPostId.isNullOrEmpty()) {
+                onPostDead?.invoke(currentPostId)
+            }
+            // Mark as done locally to clear from queue
             markCurrentDone(success = false)
             return true
         }

@@ -85,7 +85,8 @@ data class Post(
     val addedAt: Long = System.currentTimeMillis(),
     val interactedAt: Long? = null,
     val note: String? = null,
-    val addedBy: String? = null
+    val addedBy: String? = null,
+    val interactedBy: List<String> = emptyList()
 )
 
 data class Article(
@@ -127,7 +128,11 @@ private fun postsFromJson(raw: String?): List<Post> {
                 status = PostStatus.valueOf(o.optString("status", "PENDING")),
                 addedAt = o.optLong("addedAt", System.currentTimeMillis()),
                 interactedAt = if (o.has("interactedAt") && !o.isNull("interactedAt")) o.getLong("interactedAt") else null,
-                addedBy = if (o.has("addedBy") && !o.isNull("addedBy")) o.getString("addedBy") else null
+                addedBy = if (o.has("addedBy") && !o.isNull("addedBy")) o.getString("addedBy") else null,
+                interactedBy = if (o.has("interactedBy") && !o.isNull("interactedBy")) {
+                    val arr2 = o.getJSONArray("interactedBy")
+                    List(arr2.length()) { j -> arr2.getString(j) }
+                } else emptyList()
             )
         }
     } catch (e: Exception) { emptyList() }
@@ -198,7 +203,11 @@ private fun parseServerPosts(json: String, currentUsername: String): List<Post> 
                 status = if (isRemoteDone) PostStatus.DONE else PostStatus.valueOf(o.optString("status", "PENDING")),
                 addedAt = o.optLong("addedAt", System.currentTimeMillis()),
                 interactedAt = if (o.has("interactedAt") && !o.isNull("interactedAt")) o.getLong("interactedAt") else null,
-                addedBy = if (o.has("addedBy") && !o.isNull("addedBy")) o.getString("addedBy") else null
+                addedBy = if (o.has("addedBy") && !o.isNull("addedBy")) o.getString("addedBy") else null,
+                interactedBy = if (o.has("interactedBy") && !o.isNull("interactedBy")) {
+                    val arr2 = o.getJSONArray("interactedBy")
+                    List(arr2.length()) { j -> arr2.getString(j) }
+                } else emptyList()
             )
         }
     } catch (e: Exception) { emptyList() }
@@ -785,14 +794,21 @@ fun MainApp(
             // After publishing (or any queue) finishes, sync and check for new pending interactions
             scope.launch {
                 syncWithServer()
-                val pendingPosts = currentPosts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername && !failedPostIds.contains(it.id) }
+                val pendingPosts = currentPosts.filter { !it.interactedBy.contains(currentUsername) && it.addedBy != currentUsername && !failedPostIds.contains(it.id) }
                 if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
                     FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
                     FbAutoService.isRunning.value = true
                 }
             }
         }
-        onDispose { FbAutoService.onQueueFinished = null }
+        FbAutoService.onPostDead = { deadPostId ->
+            posts = posts.filter { it.id != deadPostId }
+            serverDeletePost(deadPostId)
+        }
+        onDispose { 
+            FbAutoService.onQueueFinished = null 
+            FbAutoService.onPostDead = null
+        }
     }
 
     // Auto Sync Loop
@@ -829,7 +845,7 @@ fun MainApp(
     // Unattended Auto Start
     LaunchedEffect(posts, autoStart, isServiceEnabled) {
         if (autoStart && isServiceEnabled) {
-            val pendingPosts = posts.filter { it.status == PostStatus.PENDING && it.addedBy != username }
+            val pendingPosts = posts.filter { !it.interactedBy.contains(username) && it.addedBy != username }
             if (pendingPosts.isNotEmpty()) {
                 val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                 if (!isFbInstalled) {
@@ -907,7 +923,7 @@ fun MainApp(
                                     context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                                 } else {
                                     // Master Start: sync → interact pending → then schedule publish
-                                    val pendingPosts = posts.filter { it.status == PostStatus.PENDING && it.addedBy != username }
+                                    val pendingPosts = posts.filter { !it.interactedBy.contains(username) && it.addedBy != username }
                                     val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                                     if (!isFbInstalled) {
                                         toast(context, "Cần cài Facebook trước!")
@@ -983,7 +999,7 @@ fun MainApp(
                     onRefresh = { syncWithServer() },
                     onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
                     onStartAuto = {
-                        val pendingPosts = posts.filter { it.status == PostStatus.PENDING && it.addedBy != username }
+                        val pendingPosts = posts.filter { !it.interactedBy.contains(username) && it.addedBy != username }
                         val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                         
                         if (!isFbInstalled) {

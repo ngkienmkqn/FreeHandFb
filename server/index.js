@@ -409,7 +409,7 @@ app.post('/api/posts', authMiddleware, (req, res) => {
 
     const post = {
         id: genId(), url: url.trim(), title: title?.trim() || null,
-        status: 'PENDING', group: req.user.group, ownerName: req.user.username, addedBy: req.user.username,
+        status: 'PENDING', interactedBy: [], group: req.user.group, ownerName: req.user.username, addedBy: req.user.username,
         addedAt: Date.now(), interactedAt: null
     };
     posts.push(post);
@@ -446,7 +446,7 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
             if (!skip && (req.user.role === 'admin' || countTodayPosts(req.user.username) < 5)) {
                 posts.push({
                     id: genId(), url: u, title: title?.trim() || null,
-                    status: 'PENDING', group: req.user.group, ownerName: req.user.username, addedBy: req.user.username, addedAt: Date.now(), interactedAt: null
+                    status: 'PENDING', interactedBy: [], group: req.user.group, ownerName: req.user.username, addedBy: req.user.username, addedAt: Date.now(), interactedAt: null
                 });
                 added++;
             }
@@ -461,9 +461,11 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
 app.post('/api/posts/:id/done', authMiddleware, (req, res) => {
     const post = posts.find(p => p.id === req.params.id && p.group === req.user.group);
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    if (post.status === 'DONE') return res.json(post); // already done
+    
+    if (!post.interactedBy) post.interactedBy = [];
+    if (post.interactedBy.includes(req.user.username)) return res.json(post); // already interacted
 
-    post.status = 'DONE';
+    post.interactedBy.push(req.user.username);
     post.interactedAt = Date.now();
     saveJson(POSTS_FILE, posts);
 
@@ -717,7 +719,7 @@ app.post('/api/logs/apk', (req, res) => {
     res.json({ok: true});
 });
 
-app.get('/api/logs/:type', authMiddleware, adminOnly, (req, res) => {
+app.get('/api/logs/:type', authMiddleware, (req, res) => {
     const type = req.params.type;
     let file = '';
     if (type === 'server-err') file = '/root/.pm2/logs/C2-Dashboard-error.log';
