@@ -68,7 +68,7 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
                     val o = arr.getJSONObject(i)
                     if (o.optString("addedBy") == username && o.optLong("addedAt", 0) >= startOfDay) {
                         todayTotalPosts++
-                        val urlMatch = Regex("/groups/([0-9a-zA-Z.]+)/?").find(o.getString("url"))
+                        val urlMatch = Regex("/groups/([0-9a-zA-Z._-]+)/?").find(o.getString("url"))
                         urlMatch?.let { 
                             val gId = it.groupValues[1]
                             postedFbGroupCounts[gId] = (postedFbGroupCounts[gId] ?: 0) + 1
@@ -92,7 +92,7 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
 
         // 3. Filter group URLs verifying usage <= Max Posts Configuration
         val targetGroups = allGroups.filter { url ->
-            val match = Regex("/groups/([0-9a-zA-Z.]+)/?").find(url)
+            val match = Regex("/groups/([0-9a-zA-Z._-]+)/?").find(url)
             val groupId = match?.groupValues?.get(1)
             groupId == null || (postedFbGroupCounts[groupId] ?: 0) < maxGroupPosts
         }
@@ -148,6 +148,11 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
                 putExtra("EXTRA_TEXT", finalContent)
                 putExtra("EXTRA_GROUPS", arrayOf(groupToPost))
                 putStringArrayListExtra("EXTRA_IMAGES", ArrayList(images))
+                
+                val match = Regex("/groups/([0-9a-zA-Z._-]+)/?").find(groupToPost)
+                val groupId = match?.groupValues?.get(1)
+                val currentPostCount = if (groupId != null) postedFbGroupCounts[groupId] ?: 0 else 0
+                putExtra("EXTRA_GROUP_POST_INDEX", currentPostCount + 1)
             }
             context.startActivity(launchIntent)
 

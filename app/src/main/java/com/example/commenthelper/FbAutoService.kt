@@ -116,7 +116,8 @@ class FbAutoService : AccessibilityService() {
         val comment: String,
         val isPublishingGroup: Boolean = false,
         val imageCount: Int = 0,
-        val isScrapingGroup: Boolean = false
+        val isScrapingGroup: Boolean = false,
+        val postIndex: Int = 0
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -378,7 +379,7 @@ class FbAutoService : AccessibilityService() {
         processNextPost()
     }
 
-    fun startPublishing(text: String, images: List<String>, groupLinks: List<String>) {
+    fun startPublishing(text: String, images: List<String>, groupLinks: List<String>, postIndex: Int = 0) {
         if (groupLinks.isEmpty()) return
         if (isRunning.value) {
             Log.w(TAG, "⚠️ LOCK: Đang chạy task khác, từ chối startPublishing mới. Hãy đợi task cũ hoàn thành.")
@@ -392,7 +393,8 @@ class FbAutoService : AccessibilityService() {
                 url = link,
                 comment = text,
                 isPublishingGroup = true,
-                imageCount = count
+                imageCount = count,
+                postIndex = postIndex
             )
         }
 
@@ -476,6 +478,9 @@ class FbAutoService : AccessibilityService() {
         multiSelectClicked = false
 
         Log.d(TAG, "Processing post ${currentIndex + 1}/${tasks.size}: ${task.url}")
+        if (task.postIndex > 0) {
+            debugLog("🚀 Bắt đầu bài thứ ${task.postIndex} trong nhóm này ngày hôm nay.")
+        }
 
         // Clear clipboard first to avoid grabbing old links
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager

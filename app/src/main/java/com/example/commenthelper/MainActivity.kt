@@ -376,6 +376,7 @@ class MainActivity : ComponentActivity() {
             val text = intent.getStringExtra("EXTRA_TEXT") ?: ""
             val groups = intent.getStringArrayExtra("EXTRA_GROUPS")?.toList() ?: emptyList()
             val images = intent.getStringArrayListExtra("EXTRA_IMAGES") ?: arrayListOf()
+            val postIndex = intent.getIntExtra("EXTRA_GROUP_POST_INDEX", 0)
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 if (images.isNotEmpty()) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -383,7 +384,7 @@ class MainActivity : ComponentActivity() {
                     }
                     downloadImages(this@MainActivity, images)
                 }
-                FbAutoService.instance?.startPublishing(text, images, groups)
+                FbAutoService.instance?.startPublishing(text, images, groups, postIndex)
             }
             intent.removeExtra("EXTRA_AUTO_PUBLISH")
         }
