@@ -141,7 +141,6 @@ class FbAutoService : AccessibilityService() {
         CLICKING_SHARE_AND_COPY,
         WAITING_FOR_CLIPBOARD,
         SCRAPING_GROUP_INFO,
-        PROCESSING_APPROVED_NOTIFICATIONS,
         WAITING_FOR_OPENED_POST,
         CLICKING_NOTIFICATION_TAB,
         SCANNING_NOTIFICATIONS,
@@ -227,7 +226,6 @@ class FbAutoService : AccessibilityService() {
             Step.CLICKING_SHARE_AND_COPY -> "Đang lấy link bài viết vừa đăng..."
             Step.WAITING_FOR_CLIPBOARD -> "Đang xử lý link vừa sao chép..."
             Step.SCRAPING_GROUP_INFO -> "Đang quét thông tin thành viên nhóm..."
-            Step.PROCESSING_APPROVED_NOTIFICATIONS -> "Đang xử lý bài viết được duyệt trễ..."
             Step.WAITING_FOR_OPENED_POST -> "Đang chờ tải nội dung bài viết..."
             Step.CLICKING_NOTIFICATION_TAB -> "Đang chuyển sang tab thông báo..."
             Step.SCANNING_NOTIFICATIONS -> "Đang quét thông báo bài viết được phê duyệt..."
@@ -458,14 +456,7 @@ class FbAutoService : AccessibilityService() {
             return
         }
 
-        // Before processing the next normal task, check if there are any approved notifications waiting
-        if (FbNotificationListener.pendingApprovedPosts.isNotEmpty()) {
-            Log.d(TAG, "Intercepted pending approved notifications! Processing them first.")
-            currentStep = Step.PROCESSING_APPROVED_NOTIFICATIONS
-            retryCount = 0
-            startRetryChecker()
-            return
-        }
+
 
         val task = tasks[currentIndex]
         currentTask = task
@@ -656,7 +647,6 @@ class FbAutoService : AccessibilityService() {
                     Step.WAITING_FOR_CLIPBOARD -> {
                         submitCopiedLinkToBackend(currentTask ?: return)
                     }
-                    Step.PROCESSING_APPROVED_NOTIFICATIONS -> { handleProcessingApprovedNotifications() }
                     Step.WAITING_FOR_OPENED_POST -> { handleWaitingForOpenedPost() }
                     Step.CLICKING_NOTIFICATION_TAB -> { handleClickingNotificationTab() }
                     Step.SCANNING_NOTIFICATIONS -> { handleScanningNotifications() }
@@ -1606,28 +1596,6 @@ class FbAutoService : AccessibilityService() {
         root.recycle()
     }
 
-    private fun handleProcessingApprovedNotifications() {
-        val pendingList = FbNotificationListener.pendingApprovedPosts
-        if (pendingList.isEmpty()) {
-            Log.d(TAG, "No more approved notifications. Resuming normal queue.")
-            processNextPost()
-            return
-        }
-
-        val sbn = pendingList.first()
-        debugLog("Đang mở bài viết vừa được phê duyệt...")
-        try {
-            sbn.notification.contentIntent?.send()
-            currentStep = Step.WAITING_FOR_OPENED_POST
-            retryCount = 0
-            setNextStepDelay(3000) // Wait for FB to open the post
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to fire notification intent", e)
-            pendingList.remove(sbn) // Skip if failed
-            setNextStepDelay(500)
-        }
-    }
-
     private fun handleWaitingForOpenedPost() {
         val root = rootInActiveWindow ?: return
         val nodes = findAllNodes(root)
@@ -1652,17 +1620,11 @@ class FbAutoService : AccessibilityService() {
             currentStep = Step.CLICKING_SHARE_AND_COPY
             retryCount = 0
             
-            // Remove the processed notification from queue
-            val pendingList = FbNotificationListener.pendingApprovedPosts
-            if (pendingList.isNotEmpty()) pendingList.removeAt(0)
-            
             setNextStepDelay(2500)
         } else {
             if (retryCount >= 10) {
-                debugLog("⚠️ Không tìm thấy menu bài viết. Bỏ qua thông báo này.")
-                val pendingList = FbNotificationListener.pendingApprovedPosts
-                if (pendingList.isNotEmpty()) pendingList.removeAt(0)
-                currentStep = Step.PROCESSING_APPROVED_NOTIFICATIONS
+                debugLog("⚠️ Không tìm thấy menu bài viết. Hủy bỏ quét thông báo phê duyệt.")
+                currentStep = Step.IDLE
                 retryCount = 0
             }
             setNextStepDelay(1000)
