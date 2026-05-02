@@ -867,7 +867,8 @@ class FbAutoService : AccessibilityService() {
     /* ================== STEP HANDLERS ================== */
 
     private fun handleWaitingForLoad() {
-        debugLog("Đang chờ Facebook tải xong...")
+        debugLog("Đang chờ Facebook tải xong... (retry=$retryCount)")
+        if (retryCount == 15 || retryCount == 30) dumpScreenToLog("WAITING_FOR_FB_LOAD")
         val root = rootInActiveWindow ?: return
         
         val allNodes = findAllNodes(root)
@@ -999,7 +1000,7 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun handleLookingForCommentField() {
-        debugLog("Đang tìm ô Bình luận...")
+        debugLog("Đang tìm ô Bình luận... (retry=$retryCount)")
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
 
@@ -1047,6 +1048,9 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             // Give time for text to be set, then look for send button
             setNextStepDelay(STEP_DELAY)
+        } else if (retryCount == 5 || retryCount == 15) {
+            debugLog("⚠️ Không tìm thấy ô comment lẫn placeholder! (retry=$retryCount)")
+            dumpScreenToLog("COMMENT_FIELD_NOT_FOUND")
         }
         root.recycle()
     }
@@ -1077,6 +1081,10 @@ class FbAutoService : AccessibilityService() {
                 }, 3000)
             }
         } else {
+            if (retryCount == 5 || retryCount == 20) {
+                debugLog("⚠️ Không tìm thấy nút Gửi/Đăng! (retry=$retryCount)")
+                dumpScreenToLog("SEND_BUTTON_NOT_FOUND")
+            }
             root.recycle()
             setNextStepDelay(500)
         }
@@ -1101,6 +1109,10 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             setNextStepDelay(STEP_DELAY)
         } else {
+            if (retryCount == 5 || retryCount == 15) {
+                debugLog("⚠️ Không tìm thấy ô Soạn bài! (retry=$retryCount)")
+                dumpScreenToLog("COMPOSER_NOT_FOUND")
+            }
             setNextStepDelay(500)
         }
         root.recycle()
@@ -1137,6 +1149,10 @@ class FbAutoService : AccessibilityService() {
                 setNextStepDelay(STEP_DELAY)
             }
         } else {
+            if (retryCount == 5 || retryCount == 15) {
+                debugLog("⚠️ Không tìm thấy ô nhập nội dung bài! (retry=$retryCount)")
+                dumpScreenToLog("COMPOSER_INPUT_NOT_FOUND")
+            }
             setNextStepDelay(500)
         }
         root.recycle()
@@ -1158,7 +1174,10 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             setNextStepDelay(2500) // Gallery load buffer
         } else {
-            // Wait, we don't increment retryCount here because startRetryChecker does it!
+            if (retryCount == 5 || retryCount == 15) {
+                debugLog("⚠️ Không tìm thấy nút Thêm Ảnh! (retry=$retryCount)")
+                dumpScreenToLog("PHOTO_BUTTON_NOT_FOUND")
+            }
             if (retryCount == 10) {
                 debugLog("⚠️ Đang thử đóng bàn phím để tìm nút ảnh...")
                 performGlobalAction(GLOBAL_ACTION_BACK)
@@ -1187,6 +1206,31 @@ class FbAutoService : AccessibilityService() {
         if (isDebugMode || alwaysToast) {
             try { handler.post { android.widget.Toast.makeText(this, "🐢 $msg", android.widget.Toast.LENGTH_SHORT).show() } } catch(_: Exception) {}
         }
+    }
+
+    /** Dump top visible nodes to debug log — call at every failure point */
+    private fun dumpScreenToLog(stepName: String) {
+        try {
+            val root = rootInActiveWindow ?: run { debugLog("  🔍 X-RAY[$stepName]: rootInActiveWindow = NULL (app không nắm được màn hình)"); return }
+            val nodes = findAllNodes(root)
+            val relevant = nodes.filter { n ->
+                val t = n.text?.toString() ?: ""
+                val d = n.contentDescription?.toString() ?: ""
+                t.isNotBlank() || d.isNotBlank() || n.isClickable
+            }
+            debugLog("  🔍 X-RAY[$stepName]: ${relevant.size} node hiển thị (tổng ${nodes.size}):")
+            var count = 0
+            for (n in relevant) {
+                val c = n.className?.toString()?.substringAfterLast('.') ?: ""
+                val t = n.text?.toString()?.take(80) ?: ""
+                val d = n.contentDescription?.toString()?.take(80) ?: ""
+                debugLog("    [$c] text='$t' | desc='$d' | click=${n.isClickable} | edit=${n.isEditable}")
+                count++
+                if (count >= 25) { debugLog("    ... (cắt bớt, còn ${relevant.size - 25} node)"); break }
+            }
+            recycleNodes(nodes)
+            root.recycle()
+        } catch (e: Exception) { debugLog("  🔍 X-RAY[$stepName]: Lỗi dump: ${e.message}") }
     }
 
     private fun handleSelectingPhotos() {
@@ -1271,6 +1315,9 @@ class FbAutoService : AccessibilityService() {
 
             if (retryCount % 5 == 0 || retryCount % 5 == 1) {
                 debugLog("📸 Đang chờ ảnh load... ($retryCount/30)")
+            }
+            if (retryCount == 5 || retryCount == 15) {
+                dumpScreenToLog("GALLERY_IMAGES_NOT_FOUND")
             }
 
             if (retryCount >= 30) {
