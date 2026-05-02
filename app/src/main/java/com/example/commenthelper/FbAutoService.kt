@@ -583,6 +583,7 @@ class FbAutoService : AccessibilityService() {
                     if (interceptBlockDialog(allNodes)) {
                         recycleNodes(allNodes)
                         root.recycle()
+                        isRetryCheckerRunning = false
                         return
                     }
                     if (interceptGroupJoin(allNodes)) {
@@ -627,6 +628,7 @@ class FbAutoService : AccessibilityService() {
                         handler.postDelayed(this, 500)
                         return
                     }
+                    isRetryCheckerRunning = false
                     markCurrentDone(success = false)
                     return
                 }
@@ -645,12 +647,17 @@ class FbAutoService : AccessibilityService() {
                     Step.LOOKING_FOR_MY_POST -> { handleLookingForMyPost() }
                     Step.CLICKING_SHARE_AND_COPY -> { handleClickingShareAndCopy() }
                     Step.WAITING_FOR_CLIPBOARD -> {
-                        submitCopiedLinkToBackend(currentTask ?: return)
+                        val clipTask = currentTask
+                        if (clipTask == null) {
+                            isRetryCheckerRunning = false
+                            return
+                        }
+                        submitCopiedLinkToBackend(clipTask)
                     }
                     Step.WAITING_FOR_OPENED_POST -> { handleWaitingForOpenedPost() }
                     Step.CLICKING_NOTIFICATION_TAB -> { handleClickingNotificationTab() }
                     Step.SCANNING_NOTIFICATIONS -> { handleScanningNotifications() }
-                    else -> return
+                    else -> { isRetryCheckerRunning = false; return }
                 }
                 handler.postDelayed(this, 500)
             }
