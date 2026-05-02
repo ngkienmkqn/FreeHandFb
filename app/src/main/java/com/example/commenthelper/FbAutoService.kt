@@ -124,6 +124,8 @@ class FbAutoService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var wakeLock: android.os.PowerManager.WakeLock? = null
+    
+    private val processedNotifications = mutableSetOf<String>()
 
     private enum class Step {
         IDLE,
@@ -1571,15 +1573,19 @@ class FbAutoService : AccessibilityService() {
             val cd = node.contentDescription?.toString()?.lowercase() ?: ""
             val fullText = "$txt $cd"
             
-            if ((fullText.contains("chưa đọc") || fullText.contains("unread")) &&
-                (fullText.contains("phê duyệt") || fullText.contains("approved"))) {
-                targetNode = node
-                break
+            if (fullText.length > 500) continue // Skip huge ViewGroups/RecyclerViews containing multiple merged notifications
+            
+            if (fullText.contains("phê duyệt") || fullText.contains("approved")) {
+                if (!processedNotifications.contains(fullText)) {
+                    targetNode = node
+                    processedNotifications.add(fullText)
+                    break
+                }
             }
         }
         
         if (targetNode != null) {
-            debugLog("Phát hiện thông báo Phê duyệt chưa đọc. Đang click...")
+            debugLog("Phát hiện thông báo Phê duyệt. Đang click...")
             targetNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) ?: targetNode.parent?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
             
             currentStep = Step.WAITING_FOR_OPENED_POST
@@ -2133,6 +2139,7 @@ class FbAutoService : AccessibilityService() {
         stopRequested.value = false
         healingCount = 0
         multiSelectClicked = false
+        processedNotifications.clear()
         handler.removeCallbacksAndMessages(null)
         try {
             if (wakeLock?.isHeld == true) {
