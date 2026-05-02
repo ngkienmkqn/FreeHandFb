@@ -868,7 +868,7 @@ class FbAutoService : AccessibilityService() {
 
     private fun handleWaitingForLoad() {
         debugLog("Đang chờ Facebook tải xong... (retry=$retryCount)")
-        if (retryCount == 15 || retryCount == 30) dumpScreenToLog("WAITING_FOR_FB_LOAD")
+        if (retryCount >= 10 && retryCount % 5 == 0) dumpScreenToLog("WAITING_FOR_FB_LOAD")
         val root = rootInActiveWindow ?: return
         
         val allNodes = findAllNodes(root)
@@ -906,7 +906,8 @@ class FbAutoService : AccessibilityService() {
             val commentArea = findCommentInput(root)
 
             if (likeNode != null || commentArea != null) {
-                Log.d(TAG, "FB loaded — found interactive elements")
+                debugLog("✅ FB đã tải xong! Tìm thấy: Like=${likeNode != null}, Comment=${commentArea != null} (sau $retryCount retry)")
+                dumpScreenToLog("FB_LOADED_OK")
                 likeNode?.recycle()
                 commentArea?.recycle()
                 currentStep = Step.LOOKING_FOR_LIKE
@@ -972,12 +973,13 @@ class FbAutoService : AccessibilityService() {
 
         val likeNode = findLikeButton(root)
         if (likeNode != null) {
+            dumpScreenToLog("LIKE_FOUND")
             // Check if already liked
             if (isAlreadyLiked(likeNode)) {
-                Log.d(TAG, "Already liked, skipping")
+                debugLog("ℹ️ Bài đã Like rồi, bỏ qua.")
                 likeNode.recycle()
             } else {
-                Log.d(TAG, "Clicking Like button")
+                debugLog("✅ Tìm thấy nút Like! Đang bấm...")
                 likeNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 // Also try clicking parent if the node itself is not clickable
                 if (!likeNode.isClickable) {
@@ -991,8 +993,8 @@ class FbAutoService : AccessibilityService() {
             setNextStepDelay(STEP_DELAY)
         } else {
             // No like button found — maybe already liked or different layout
-            // Skip to comment
-            Log.d(TAG, "Like button not found, proceeding to comment")
+            debugLog("⚠️ Không tìm thấy nút Like, chuyển sang tìm Comment. (retry=$retryCount)")
+            dumpScreenToLog("LIKE_NOT_FOUND")
             currentStep = Step.LOOKING_FOR_COMMENT_FIELD
             retryCount = 0
         }
@@ -1026,7 +1028,8 @@ class FbAutoService : AccessibilityService() {
         }
 
         if (commentInput != null) {
-            Log.d(TAG, "Found comment input, setting text: ${task.comment}")
+            debugLog("✅ Tìm thấy ô Bình luận! Đang gõ: '${task.comment.take(30)}...'")
+            dumpScreenToLog("COMMENT_FIELD_FOUND")
 
             // Focus the input
             commentInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
@@ -1048,7 +1051,7 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             // Give time for text to be set, then look for send button
             setNextStepDelay(STEP_DELAY)
-        } else if (retryCount == 5 || retryCount == 15) {
+        } else {
             debugLog("⚠️ Không tìm thấy ô comment lẫn placeholder! (retry=$retryCount)")
             dumpScreenToLog("COMMENT_FIELD_NOT_FOUND")
         }
@@ -1061,7 +1064,8 @@ class FbAutoService : AccessibilityService() {
 
         val sendButton = findSendButton(root)
         if (sendButton != null) {
-            Log.d(TAG, "Clicking Send button")
+            debugLog("✅ Tìm thấy nút Gửi/Đăng! Đang bấm...")
+            dumpScreenToLog("SEND_BUTTON_FOUND")
             sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (!sendButton.isClickable) {
                 sendButton.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -1081,7 +1085,7 @@ class FbAutoService : AccessibilityService() {
                 }, 3000)
             }
         } else {
-            if (retryCount == 5 || retryCount == 20) {
+            if (retryCount % 3 == 0) {
                 debugLog("⚠️ Không tìm thấy nút Gửi/Đăng! (retry=$retryCount)")
                 dumpScreenToLog("SEND_BUTTON_NOT_FOUND")
             }
@@ -1100,7 +1104,8 @@ class FbAutoService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         val composer = findGroupComposerPlaceholder(root)
         if (composer != null) {
-            Log.d(TAG, "Clicking composer placeholder to open input")
+            debugLog("✅ Tìm thấy ô Soạn bài! Đang mở...")
+            dumpScreenToLog("COMPOSER_FOUND")
             composer.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (!composer.isClickable) composer.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             composer.recycle()
@@ -1109,7 +1114,7 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             setNextStepDelay(STEP_DELAY)
         } else {
-            if (retryCount == 5 || retryCount == 15) {
+            if (retryCount % 3 == 0) {
                 debugLog("⚠️ Không tìm thấy ô Soạn bài! (retry=$retryCount)")
                 dumpScreenToLog("COMPOSER_NOT_FOUND")
             }
@@ -1125,7 +1130,8 @@ class FbAutoService : AccessibilityService() {
 
         val inputNode = findGroupComposerInput(root)
         if (inputNode != null) {
-            Log.d(TAG, "Found composer input, setting text")
+            debugLog("✅ Tìm thấy ô nhập nội dung! Đang gõ: '${task.comment.take(30)}...'")
+            dumpScreenToLog("COMPOSER_INPUT_FOUND")
             inputNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             inputNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
 
@@ -1149,7 +1155,7 @@ class FbAutoService : AccessibilityService() {
                 setNextStepDelay(STEP_DELAY)
             }
         } else {
-            if (retryCount == 5 || retryCount == 15) {
+            if (retryCount % 3 == 0) {
                 debugLog("⚠️ Không tìm thấy ô nhập nội dung bài! (retry=$retryCount)")
                 dumpScreenToLog("COMPOSER_INPUT_NOT_FOUND")
             }
@@ -1165,7 +1171,8 @@ class FbAutoService : AccessibilityService() {
             ?: findNodeByHint(root, Engine.photoButton)
 
         if (photoBtn != null) {
-            Log.d(TAG, "Found Photo Picker trigger")
+            debugLog("✅ Tìm thấy nút Thêm Ảnh! Đang mở Gallery...")
+            dumpScreenToLog("PHOTO_BUTTON_FOUND")
             photoBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (!photoBtn.isClickable) photoBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             photoBtn.recycle()
@@ -1174,7 +1181,7 @@ class FbAutoService : AccessibilityService() {
             retryCount = 0
             setNextStepDelay(2500) // Gallery load buffer
         } else {
-            if (retryCount == 5 || retryCount == 15) {
+            if (retryCount % 3 == 0) {
                 debugLog("⚠️ Không tìm thấy nút Thêm Ảnh! (retry=$retryCount)")
                 dumpScreenToLog("PHOTO_BUTTON_NOT_FOUND")
             }
@@ -1261,8 +1268,8 @@ class FbAutoService : AccessibilityService() {
         val allImages = findAllGalleryImages(root)
         if (allImages.isNotEmpty()) {
             val count = Math.min(task.imageCount, allImages.size)
-            debugLog("📸 Tìm thấy ${allImages.size} ảnh, chọn $count...")
-            Log.d(TAG, "Found ${allImages.size} gallery images, selecting $count")
+            debugLog("✅ Tìm thấy ${allImages.size} ảnh trong Gallery, chọn $count...")
+            dumpScreenToLog("GALLERY_IMAGES_FOUND")
             allImages.forEachIndexed { idx, n ->
                 Log.d(TAG, "  Node $idx: cd='${n.contentDescription}' class=${n.className} click=${n.isClickable}")
             }
@@ -1316,9 +1323,7 @@ class FbAutoService : AccessibilityService() {
             if (retryCount % 5 == 0 || retryCount % 5 == 1) {
                 debugLog("📸 Đang chờ ảnh load... ($retryCount/30)")
             }
-            if (retryCount == 5 || retryCount == 15) {
-                dumpScreenToLog("GALLERY_IMAGES_NOT_FOUND")
-            }
+            dumpScreenToLog("GALLERY_IMAGES_NOT_FOUND")
 
             if (retryCount >= 30) {
                 debugLog("❌ Không tìm được ảnh, đăng text!")
