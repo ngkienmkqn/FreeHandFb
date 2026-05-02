@@ -60,7 +60,7 @@ class FbAutoService : AccessibilityService() {
                 context.contentResolver,
                 android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ) ?: return false
-            return enabledServices.contains("${context.packageName}/${FbAutoService::class.java.canonicalName}")
+            return enabledServices.contains(context.packageName)
         }
     }
 
