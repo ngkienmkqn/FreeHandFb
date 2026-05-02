@@ -1607,7 +1607,14 @@ class FbAutoService : AccessibilityService() {
             
             if (fullText.length > 500) continue // Skip huge ViewGroups/RecyclerViews containing multiple merged notifications
             
-            if (fullText.contains("phê duyệt") || fullText.contains("approved")) {
+            // Explicitly ignore login/member approvals
+            if (fullText.contains("đăng nhập") || fullText.contains("thiết bị") || fullText.contains("yêu cầu tham gia")) {
+                continue
+            }
+            
+            // Only match post or photo approvals
+            if (fullText.contains("phê duyệt ảnh") || fullText.contains("phê duyệt bài") || 
+                fullText.contains("approved your photo") || fullText.contains("approved your post")) {
                 if (!processedNotifications.contains(fullText)) {
                     targetNode = node
                     processedNotifications.add(fullText)
