@@ -854,8 +854,23 @@ class FbAutoService : AccessibilityService() {
         }
 
         if (isDead) {
+            // Check if user simply hasn't joined the group (Join Group button visible)
+            val hasJoinButton = nodes.any {
+                val txt = it.text?.toString()?.lowercase() ?: ""
+                val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+                Engine.groupJoin.any { anchor -> txt.contains(anchor) || desc.contains(anchor) }
+            }
+
+            if (hasJoinButton) {
+                debugLog("⚠️ Nội dung không hiển thị vì chưa tham gia nhóm. Bài vẫn sống, bỏ qua (KHÔNG xóa).")
+                dumpScreenToLog("DEAD_LINK_BUT_NOT_JOINED")
+                markCurrentDone(success = false)
+                return true
+            }
+
             Log.w(TAG, "DEAD LINK detected! Aborting interaction to preserve safety.")
             debugLog("❌ LỖI NGHIÊM TRỌNG: Phát hiện bài viết đã bị xóa hoặc nhóm bị khóa ('Nội dung này hiện không hiển thị'). Đang tiến hành xóa vĩnh viễn bài đăng khỏi hệ thống để bảo vệ các máy khác...")
+            dumpScreenToLog("DEAD_LINK_CONFIRMED")
             val currentPostId = currentTask?.postId
             if (!currentPostId.isNullOrEmpty()) {
                 onPostDead?.invoke(currentPostId)
@@ -936,10 +951,27 @@ class FbAutoService : AccessibilityService() {
                 recycleNodes(allNodes)
 
                 if (hasGroupFeed || hasComposerPlaceholder) {
-                    debugLog("⚠️ Link bài viết đã redirect về trang Group (bài bị xoá hoặc không tồn tại). Bỏ qua!")
-                    val currentPostId = currentTask?.postId
-                    if (!currentPostId.isNullOrEmpty()) {
-                        onPostDead?.invoke(currentPostId)
+                    // Distinguish: is it because user hasn't joined the group, or is the post truly dead?
+                    val allNodes2 = findAllNodes(root)
+                    val hasJoinButton = allNodes2.any {
+                        val txt = it.text?.toString()?.lowercase() ?: ""
+                        val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+                        Engine.groupJoin.any { anchor -> txt.contains(anchor) || desc.contains(anchor) }
+                    }
+                    recycleNodes(allNodes2)
+
+                    if (hasJoinButton) {
+                        // User hasn't joined this group yet — post is still alive, just inaccessible to this user
+                        debugLog("⚠️ Chưa tham gia nhóm này! Bài vẫn còn sống, chỉ là user chưa join group. Bỏ qua bài này (KHÔNG xóa khỏi hệ thống).")
+                        dumpScreenToLog("NOT_IN_GROUP_SKIP")
+                    } else {
+                        // Post is truly dead or removed
+                        debugLog("❌ Link bài viết đã redirect về trang Group (bài bị xoá hoặc không tồn tại). Đang xóa khỏi hệ thống...")
+                        dumpScreenToLog("POST_DEAD_GROUP_REDIRECT")
+                        val currentPostId = currentTask?.postId
+                        if (!currentPostId.isNullOrEmpty()) {
+                            onPostDead?.invoke(currentPostId)
+                        }
                     }
                     markCurrentDone(success = false)
                     root.recycle()
