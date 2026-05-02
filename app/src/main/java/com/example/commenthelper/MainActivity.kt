@@ -789,13 +789,6 @@ fun MainApp(
         }
     }
 
-    fun serverDeletePost(postId: String) {
-        scope.launch {
-            httpReq("$SERVER_URL/api/posts/$postId", "DELETE", null, authToken)
-            onRefresh()
-        }
-    }
-
     // Post completion → mark done + report to server
     DisposableEffect(Unit) {
         FbAutoService.onQueueFinished = {
@@ -811,7 +804,10 @@ fun MainApp(
         }
         FbAutoService.onPostDead = { deadPostId ->
             posts = posts.filter { it.id != deadPostId }
-            serverDeletePost(deadPostId)
+            scope.launch {
+                httpReq("$SERVER_URL/api/posts/$deadPostId", "DELETE", null, authToken)
+                syncWithServer()
+            }
         }
         onDispose { 
             FbAutoService.onQueueFinished = null 
@@ -1139,6 +1135,14 @@ fun PostsScreen(
             else { toast(context, "Lỗi thêm bài: $code") }
         }
     }
+
+    fun serverDeletePost(postId: String) {
+        scope.launch {
+            httpReq("$SERVER_URL/api/posts/$postId", "DELETE", null, authToken)
+            onRefresh()
+        }
+    }
+
     fun serverToggleDone(post: Post) {
         scope.launch {
             if (post.status == PostStatus.PENDING) {
