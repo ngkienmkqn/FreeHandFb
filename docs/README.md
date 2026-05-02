@@ -58,13 +58,19 @@
   - `AutoPublishWorker.kt` — Background Worker tự động lấy bài + nhóm random → kích hoạt `FbAutoService` chạy ngầm. Hỗ trợ `FORCE_RUN` flag bypass khung giờ.
   - `AutoPublishReceiver.kt` — BroadcastReceiver lên lịch chu kỳ publish qua `AlarmManager`.
 - **Tính năng Cốt lõi**:
-  - **Headless Execution**: `AlarmManager` đánh thức điện thoại định kỳ. App tự bật sáng màn hình (WakeLock) và thực thi.
+  - **Power Management (WakeLock)**: Sử dụng `PowerManager.WakeLock` mức Service để giữ CPU và màn hình luôn thức trong suốt quá trình chạy chuỗi lệnh dài, chống lại chế độ Doze Mode và Screen Timeout của Android khiến app bị "ngủ gật" (Freezing).
+  - **Self-Healing & X-RAY (Tự chữa lành)**: Khi kẹt ở một bước quá 32 giây, hệ thống tự động:
+    - Kích hoạt máy quét X-RAY: Chụp toàn bộ 50 phần tử UI (có chứa chữ) trên màn hình và in vào Log để phân tích từ xa.
+    - Phân tích `ScreenType` hiện tại để tự đưa ra phác đồ điều trị (Bấm BACK tắt bàn phím, lùi tiến trình về bước trước, hoặc đóng popup rác).
+    - Giới hạn 3 lần chữa/bài viết. Khôi phục `healingCount` khi chuyển bài mới (ngăn chặn Bug dồn sát thương).
+  - **Log Management**: Tự động dọn dẹp `debug_logs.txt` định kỳ (3 ngày/lần vào lúc 3h sáng) và giới hạn dung lượng 2MB để tránh phình to bộ nhớ máy.
   - **OTA Version Selector**: Dropdown trong Settings UI cho phép user chọn phiên bản Script OTA cụ thể (mặc định `latest`).
   - **Spintax Engine**: Biến `{PHONE}`, `{ZALO}` / `{ZALO_LINK}` và spin `{A|B|C}` ngay trên thiết bị.
-  - **Auto Image Picker**: Tải ảnh → lưu `MediaStore` → bấm "Chọn nhiều file" → chọn từng ảnh với delay OTA-configurable → bấm "Tiếp". Debug Toast hiện từng bước trên màn hình.
-  - **Select All / Deselect All**: Nút chọn/bỏ tất cả bài mẫu cho Robot Auto hàng loạt (thay vì tích từng bài một).
+  - **Auto Image Picker**: Tải ảnh → lưu `MediaStore` → bấm "Chọn nhiều file" → chọn từng ảnh với delay OTA-configurable → bấm "Tiếp". Debug Toast hiện từng bước.
+  - **Clipboard Fallback**: Sử dụng cơ chế `ACTION_PASTE` qua `ClipboardManager` làm phương án dự phòng khi Facebook chặn lệnh gõ phím trực tiếp (`ACTION_SET_TEXT`) ở cả ô Đăng bài Group lẫn ô Bình luận.
+  - **Select All / Deselect All**: Nút chọn/bỏ tất cả bài mẫu cho Robot Auto hàng loạt.
   - **FORCE_RUN**: Nút "Chạy Ngay" bypass khung giờ hoạt động và block timeout.
-  - **Safety Interceptor**: Quét bố cục màn hình để phát hiện Action Block, Dead Links, Share Sheet/Messenger → tự động Halt bảo vệ tài khoản.
+  - **Safety Interceptor**: Quét màn hình liên tục mỗi 800ms để phát hiện Action Block, Dead Links, Share Sheet/Messenger → tự động bấm BACK hoặc Halt bảo vệ tài khoản.
 
 ---
 
@@ -259,3 +265,4 @@ git push origin main
 - Mọi text anchor (nút bấm, dialog chặn, v.v.) phải được quản lý qua OTA `Engine` object, **KHÔNG hardcode** trong Kotlin.
 - Gallery exclusion list, click delay, multi-select button, next button — tất cả phải qua OTA `Engine`. **KHÔNG hardcode**.
 - `AutoPublishWorker` hỗ trợ `FORCE_RUN` input data flag — khi `true`, bypass khung giờ hoạt động và block timeout.
+- Hệ thống **Self-Healing** phải có điều kiện fallback (`GLOBAL_ACTION_BACK`) ở nhánh màn hình `UNKNOWN` để đảm bảo luôn có thể xử lý các popup quảng cáo bất ngờ ngoài dự kiến.
