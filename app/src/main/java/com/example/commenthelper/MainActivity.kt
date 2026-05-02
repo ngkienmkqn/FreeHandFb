@@ -139,6 +139,17 @@ private fun postsFromJson(raw: String?): List<Post> {
 }
 
 private fun loadPosts(prefs: SharedPreferences) = postsFromJson(prefs.getString(KEY_POSTS, null))
+
+fun openAccessibilitySettings(context: Context) {
+    try {
+        val intent = Intent()
+        intent.setClassName("com.android.settings", "com.android.settings.Settings\$AccessibilitySettingsActivity")
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
 private fun savePosts(prefs: SharedPreferences, posts: List<Post>) { prefs.edit().putString(KEY_POSTS, postsToJson(posts)).apply() }
 private fun loadTemplates(prefs: SharedPreferences) = prefs.getStringSet(KEY_TEMPLATES, emptySet())?.toList()?.sorted() ?: emptyList()
 private fun saveTemplates(prefs: SharedPreferences, list: List<String>) { prefs.edit().putStringSet(KEY_TEMPLATES, list.toSet()).apply() }
@@ -924,7 +935,7 @@ fun MainApp(
                         } else {
                             TextButton(onClick = {
                                 if (!isServiceEnabled) {
-                                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                    openAccessibilitySettings(context)
                                 } else {
                                     // Master Start: sync → interact pending → then schedule publish
                                     val pendingPosts = posts.filter { !it.interactedBy.contains(username) && it.addedBy != username }
@@ -1001,7 +1012,7 @@ fun MainApp(
                     currentUserRole = role,
                     currentUsername = username,
                     onRefresh = { syncWithServer() },
-                    onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                    onRequestPermission = { openAccessibilitySettings(context) },
                     onStartAuto = {
                         val pendingPosts = posts.filter { !it.interactedBy.contains(username) && it.addedBy != username }
                         val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
@@ -1053,7 +1064,7 @@ fun MainApp(
                     },
                     onTestNotify = { showNotification(context, "Test thông báo FreeHand thành công!\nHiện có ${posts.count { it.status == PostStatus.PENDING && it.addedBy != username }} bài đang PENDING.") },
                     onSync = { syncWithServer() },
-                    onRequestPermission = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                    onRequestPermission = { openAccessibilitySettings(context) },
                     prefs = prefs,
                     onExplicitSave = { pushSettingsToServer() }
                 )
@@ -1067,7 +1078,7 @@ fun MainApp(
             icon = { Text("⚙️", style = MaterialTheme.typography.headlineLarge) },
             title = { Text("Cần bật Accessibility Service") },
             text = { Text("Bấm \"Đi tới Cài đặt\" → tìm \"Comment Helper\" → bật lên.") },
-            confirmButton = { FilledTonalButton(onClick = { showPermissionDialog = false; context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) { Text("Đi tới Cài đặt") } },
+            confirmButton = { FilledTonalButton(onClick = { showPermissionDialog = false; openAccessibilitySettings(context) }) { Text("Đi tới Cài đặt") } },
             dismissButton = { TextButton(onClick = { showPermissionDialog = false }) { Text("Để sau") } }
         )
     }
