@@ -1125,14 +1125,14 @@ fun PostsScreen(
 
     val visible = remember(posts, filter) {
         when (filter) { 
-            "Cần Giúp" -> posts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
-            "Đã Giúp" -> posts.filter { it.status == PostStatus.DONE && it.addedBy != currentUsername }
+            "Cần Giúp" -> posts.filter { it.status == PostStatus.PENDING && it.addedBy != currentUsername && !it.interactedBy.contains(currentUsername) }
+            "Đã Giúp" -> posts.filter { it.addedBy != currentUsername && (it.status == PostStatus.DONE || it.interactedBy.contains(currentUsername)) }
             "Bài Của Tôi" -> posts.filter { it.addedBy == currentUsername }
             else -> posts 
         }.sortedByDescending { it.addedAt }
     }
-    val pending = posts.count { it.status == PostStatus.PENDING && it.addedBy != currentUsername }
-    val done = posts.count { it.status == PostStatus.DONE && it.addedBy != currentUsername }
+    val pending = posts.count { it.status == PostStatus.PENDING && it.addedBy != currentUsername && !it.interactedBy.contains(currentUsername) }
+    val done = posts.count { it.addedBy != currentUsername && (it.status == PostStatus.DONE || it.interactedBy.contains(currentUsername)) }
     val mine = posts.count { it.addedBy == currentUsername }
 
     // Server API helpers
