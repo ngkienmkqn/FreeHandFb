@@ -1943,7 +1943,8 @@ class FbAutoService : AccessibilityService() {
         
         if (task.postId == "APPROVED_POST") {
             Log.d(TAG, "Approved post processed. Moving to next notification.")
-            currentStep = Step.PROCESSING_APPROVED_NOTIFICATIONS
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            currentStep = Step.SCANNING_NOTIFICATIONS
             retryCount = 0
             handler.postDelayed({
                 startRetryChecker()
