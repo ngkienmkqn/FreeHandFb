@@ -790,7 +790,7 @@ class FbAutoService : AccessibilityService() {
             txt.contains("tham gia nhóm") || txt.contains("câu hỏi") || txt.contains("quy tắc")
         }
 
-        if (editTexts.isNotEmpty() || checkBoxes.isNotEmpty() || (isQuestionnaire && submitBtn != null)) {
+        if (isQuestionnaire && (editTexts.isNotEmpty() || checkBoxes.isNotEmpty() || submitBtn != null)) {
             Log.d(TAG, "Intercepted Group Questionnaire")
             
             for (et in editTexts) {
