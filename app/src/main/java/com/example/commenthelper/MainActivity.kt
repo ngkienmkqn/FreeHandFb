@@ -1425,9 +1425,7 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
     var selectedOta by remember { mutableStateOf(prefs.getString("selected_ota_version", "latest") ?: "latest") }
     var expandedOta by remember { mutableStateOf(false) }
     val availableVersions = try { val j = org.json.JSONObject(prefs.getString("ota_available_versions", "{}") ?: "{}"); val arr = j.optJSONArray("available"); if (arr != null) { val l = mutableListOf("latest"); for (i in 0 until arr.length()) l.add(arr.getString(i)); l.distinct() } else listOf("latest") } catch(e: Exception) { listOf("latest") }
-    val cn = android.content.ComponentName(context, FbNotificationListener::class.java)
-    val enabledListeners = android.provider.Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
-    val isNotifEnabled = enabledListeners != null && enabledListeners.contains(cn.flattenToString())
+
     var showLogs by remember { mutableStateOf(false) }
     var logsContent by remember { mutableStateOf("") }
     if (showLogs) { AlertDialog(onDismissRequest = { showLogs = false }, title = { Text("Debug Logs") }, text = { Column(Modifier.verticalScroll(rememberScrollState()).fillMaxHeight(0.7f)) { Text(logsContent, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth()) } }, confirmButton = { Button(onClick = { copyToClipboard(context, logsContent); toast(context, "Đã copy!") }) { Text("Copy") } }, dismissButton = { Button(onClick = { showLogs = false }) { Text("Đóng") } }) }
@@ -1440,10 +1438,7 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
             Spacer(Modifier.height(8.dp))
             ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) { Text("♿ Accessibility:", style = MaterialTheme.typography.bodyMedium); Spacer(Modifier.weight(1f)); Text(if (isServiceEnabled) "✅ Bật" else "❌ Tắt", color = if (isServiceEnabled) Color(0xFF2E7D32) else Color(0xFFB71C1C)); if (!isServiceEnabled) { Spacer(Modifier.width(8.dp)); FilledTonalButton(onClick = onRequestPermission) { Text("Bật", style = MaterialTheme.typography.labelSmall) } } }
-                Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("🔔 Đọc Thông Báo:", style = MaterialTheme.typography.bodyMedium); Spacer(Modifier.weight(1f)); Text(if (isNotifEnabled) "✅ Bật" else "❌ Tắt", color = if (isNotifEnabled) Color(0xFF2E7D32) else Color(0xFFB71C1C)); if (!isNotifEnabled) { Spacer(Modifier.width(8.dp)); FilledTonalButton(onClick = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }) { Text("Bật", style = MaterialTheme.typography.labelSmall) } } }
             } }
-            Spacer(Modifier.height(16.dp))
             // == SCHEDULING ==
             Text("⏰ Lịch Trình Tự Động", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Text("Tải từ Server · Tùy chỉnh rồi bấm Lưu ở dưới", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
