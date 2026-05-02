@@ -472,6 +472,7 @@ class FbAutoService : AccessibilityService() {
         currentPostId.value = task.postId
         currentStep = Step.WAITING_FOR_FB_LOAD
         retryCount = 0
+        healingCount = 0
 
         Log.d(TAG, "Processing post ${currentIndex + 1}/${tasks.size}: ${task.url}")
 
@@ -592,14 +593,12 @@ class FbAutoService : AccessibilityService() {
                         recycleNodes(allNodes2)
                         
                         debugLog("⚠️ Kẹt ở bước $currentStep. Màn hình hiện tại: $screen")
-                        if (screen != ScreenType.UNKNOWN) {
-                            val healed = attemptSelfHealing(screen)
-                            if (healed) {
-                                retryCount = 0
-                                root2.recycle()
-                                handler.postDelayed(this, 1000)
-                                return
-                            }
+                        val healed = attemptSelfHealing(screen)
+                        if (healed) {
+                            retryCount = 0
+                            root2.recycle()
+                            handler.postDelayed(this, 1000)
+                            return
                         }
                         root2.recycle()
                     }
@@ -2026,6 +2025,7 @@ class FbAutoService : AccessibilityService() {
         currentTask = null
         currentPostId.value = null
         stopRequested.value = false
+        healingCount = 0
         handler.removeCallbacksAndMessages(null)
         try {
             if (wakeLock?.isHeld == true) {
