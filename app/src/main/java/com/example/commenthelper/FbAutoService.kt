@@ -866,8 +866,14 @@ class FbAutoService : AccessibilityService() {
 
     /* ================== STEP HANDLERS ================== */
 
+    private var lastLoadLogTime = 0L
+
     private fun handleWaitingForLoad() {
-        debugLog("Đang chờ Facebook tải xong... (retry=$retryCount)")
+        val now = System.currentTimeMillis()
+        if (now - lastLoadLogTime >= 1000) {
+            debugLog("Đang chờ Facebook tải xong... (retry=$retryCount)")
+            lastLoadLogTime = now
+        }
         if (retryCount >= 10 && retryCount % 5 == 0) dumpScreenToLog("WAITING_FOR_FB_LOAD")
         val root = rootInActiveWindow ?: return
         
