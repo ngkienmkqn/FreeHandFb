@@ -1536,7 +1536,14 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
 
 /* ================== HELPERS ================== */
 
-private fun copyToClipboard(ctx: Context, text: String) { (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("comment", text)) }
+private fun copyToClipboard(ctx: Context, text: String) {
+    try {
+        val safeText = if (text.length > 50000) text.substring(text.length - 50000) else text
+        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("comment", safeText))
+    } catch (e: Exception) {
+        toast(ctx, "Lỗi copy: ${e.message}")
+    }
+}
 private fun openPost(ctx: Context, url: String) {
     val cleanUrl = url.replace("m.facebook.com", "www.facebook.com").replace("mbasic.facebook.com", "www.facebook.com")
     try { 
