@@ -963,6 +963,8 @@ class FbAutoService : AccessibilityService() {
                     val hasJoinButton = allNodes2.any {
                         val txt = it.text?.toString()?.lowercase() ?: ""
                         val desc = it.contentDescription?.toString()?.lowercase() ?: ""
+                        if (txt.contains("đã tham gia") || desc.contains("đã tham gia") || 
+                            txt.contains("đã gia nhập") || desc.contains("đã gia nhập")) return@any false
                         Engine.groupJoin.any { anchor -> txt.contains(anchor) || desc.contains(anchor) }
                     }
                     recycleNodes(allNodes2)
