@@ -2074,6 +2074,13 @@ class FbAutoService : AccessibilityService() {
         if (task.postId == "APPROVED_POST") {
             debugLog("Chuyển sang check thông báo tiếp theo...")
             performGlobalAction(GLOBAL_ACTION_BACK)
+            
+            // Restore currentTask back to NOTIF_SCAN to prevent infinite BACK loop
+            val q = taskQueue.value
+            if (currentIndex >= 0 && currentIndex < q.size) {
+                currentTask = q[currentIndex]
+            }
+            
             currentStep = Step.SCANNING_NOTIFICATIONS
             retryCount = 0
             handler.postDelayed({
