@@ -40,6 +40,7 @@ function saveJson(file, data) {
 }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function hashPw(pw) { return crypto.createHash('sha256').update(pw).digest('hex'); }
+function getVerifyCode(username) { return '#' + crypto.createHash('md5').update(username).digest('hex').slice(0, 6).toUpperCase(); }
 
 // --- Data stores ---
 let users = loadJson(USERS_FILE, []);
@@ -216,25 +217,25 @@ app.post('/api/splash', authMiddleware, adminOnly, (req, res) => {
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, isLocked: !!u.isLocked, isDebug: !!u.isDebug, history: u.history || [], maxGroupPostsPerDay: u.maxGroupPostsPerDay !== undefined ? u.maxGroupPostsPerDay : 1 })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, verifyCode: getVerifyCode(u.username), group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, facebookName: u.facebookName || '', isLocked: !!u.isLocked, isDebug: !!u.isDebug, history: u.history || [], maxGroupPostsPerDay: u.maxGroupPostsPerDay !== undefined ? u.maxGroupPostsPerDay : 1 })));
 });
 
 app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
-    const { username, password, group, role, phone, zaloLink } = req.body;
+    const { username, password, group, role, phone, zaloLink, facebookName } = req.body;
     if (!username || !password || !group) return res.status(400).json({ error: 'username, password, group required' });
     if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
 
-    const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user', phone: phone || '', zaloLink: zaloLink || '', isLocked: false, maxGroupPostsPerDay: req.body.maxGroupPostsPerDay !== undefined ? req.body.maxGroupPostsPerDay : 1 };
+    const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user', phone: phone || '', zaloLink: zaloLink || '', facebookName: facebookName || '', isLocked: false, maxGroupPostsPerDay: req.body.maxGroupPostsPerDay !== undefined ? req.body.maxGroupPostsPerDay : 1 };
     users.push(user);
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, phone: user.phone, zaloLink: user.zaloLink, isLocked: false, maxGroupPostsPerDay: user.maxGroupPostsPerDay });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, phone: user.phone, zaloLink: user.zaloLink, facebookName: user.facebookName, isLocked: false, maxGroupPostsPerDay: user.maxGroupPostsPerDay });
 });
 
 app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     const user = users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink, isLocked, isDebug } = req.body;
+    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink, facebookName, isLocked, isDebug } = req.body;
     const changes = [];
     if (deviceId === null || deviceId === "") user.deviceId = null;
     if (webDeviceId === null || webDeviceId === "") user.webDeviceId = null;
@@ -269,6 +270,7 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     if (role && role !== user.role) { changes.push(`Role: ${user.role||''} -> ${role}`); user.role = role; }
     if (phone !== undefined && phone !== user.phone) { changes.push(`SĐT: ${user.phone||'[Trống]'} -> ${phone}`); user.phone = phone; }
     if (zaloLink !== undefined && zaloLink !== user.zaloLink) { changes.push(`Zalo: ${user.zaloLink||'[Trống]'} -> ${zaloLink}`); user.zaloLink = zaloLink; }
+    if (facebookName !== undefined && facebookName !== user.facebookName) { changes.push(`Tên FB: ${user.facebookName||'[Trống]'} -> ${facebookName}`); user.facebookName = facebookName; }
     if (points !== undefined) {
         const parsedPoints = parseInt(points, 10) || 0;
         if (parsedPoints !== user.points) { changes.push(`Điểm: ${user.points||0} -> ${parsedPoints}`); user.points = parsedPoints; }
@@ -282,7 +284,7 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     }
 
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, isLocked: !!user.isLocked, isDebug: !!user.isDebug, history: user.history });
+    res.json({ id: user.id, username: user.username, verifyCode: getVerifyCode(user.username), group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, facebookName: user.facebookName || '', isLocked: !!user.isLocked, isDebug: !!user.isDebug, history: user.history });
 });
 
 app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
@@ -409,7 +411,7 @@ app.post('/api/posts', authMiddleware, (req, res) => {
 
     const post = {
         id: genId(), url: url.trim(), title: title?.trim() || null,
-        status: 'PENDING', interactedBy: [], group: req.user.group, ownerName: req.user.username, addedBy: req.user.username,
+        status: 'PENDING', interactedBy: [], verifications: [], group: req.user.group, ownerName: req.user.username, addedBy: req.user.username,
         addedAt: Date.now(), interactedAt: null
     };
     posts.push(post);
@@ -449,7 +451,7 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
             if (!skip && (req.user.role === 'admin' || countTodayPosts(req.user.username) < 5)) {
                 posts.push({
                     id: genId(), url: u, title: title?.trim() || null,
-                    status: 'PENDING', interactedBy: [], group: req.user.group, ownerName: req.user.username, addedBy: req.user.username, addedAt: Date.now(), interactedAt: null
+                    status: 'PENDING', interactedBy: [], verifications: [], group: req.user.group, ownerName: req.user.username, addedBy: req.user.username, addedAt: Date.now(), interactedAt: null
                 });
                 added++;
             }
@@ -464,47 +466,104 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
     res.json({ added, total: groupPosts.length });
 });
 
-app.post('/api/posts/:id/done', authMiddleware, (req, res) => {
+app.post('/api/posts/:id/verify_request', authMiddleware, (req, res) => {
     const post = posts.find(p => p.id === req.params.id && p.group === req.user.group);
     if (!post) return res.status(404).json({ error: 'Post not found' });
     
-    if (!post.interactedBy) post.interactedBy = [];
-    if (post.interactedBy.includes(req.user.username)) return res.json(post); // already interacted
+    if (!post.verifications) post.verifications = [];
+    if (post.verifications.some(v => v.username === req.user.username)) return res.json(post); // already requested
 
-    post.interactedBy.push(req.user.username);
-    post.interactedAt = Date.now();
+    post.verifications.push({
+        username: req.user.username,
+        status: 'PENDING',
+        requestedAt: Date.now()
+    });
+    
     saveJson(POSTS_FILE, posts);
-
-    // Points logic
-    // 1. Interactor gets +1
-    const interactor = users.find(u => u.username === req.user.username);
-    if (interactor) {
-        interactor.points = (interactor.points || 0) + 1;
-    }
-
-    // 2. Post owner gets -1 point (if not the same user)
-    if (post.addedBy && post.addedBy !== req.user.username) {
-        const owner = users.find(u => u.username === post.addedBy);
-        if (owner) {
-            owner.points = (owner.points || 0) - 1;
-            
-            // Add notification for the owner
-            notifications.push({
-                id: genId(),
-                username: owner.username,
-                message: `Bài viết của bạn đã được tương tác bởi ${req.user.username}. Bạn bị trừ 1 điểm.`,
-                read: false,
-                createdAt: Date.now()
-            });
-            saveJson(NOTIFICATIONS_FILE, notifications);
-        }
-    }
-    saveJson(USERS_FILE, users);
 
     // Realtime broadcast: post was interacted
     io.to(`group:${req.user.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === req.user.group) });
 
     res.json(post);
+});
+
+// API for Bot to get queue of posts that need verification
+app.get('/api/verify/queue', authMiddleware, adminOnly, (req, res) => {
+    // A post needs verification if it has any PENDING verifications
+    const queue = posts.filter(p => p.verifications && p.verifications.some(v => v.status === 'PENDING'));
+    res.json(queue);
+});
+
+// API for Bot to submit verification results for a post
+app.post('/api/verify/submit', authMiddleware, adminOnly, (req, res) => {
+    const { postId, foundCodes } = req.body; // foundCodes: array of string
+    if (!postId || !Array.isArray(foundCodes)) return res.status(400).json({ error: 'postId and foundCodes required' });
+
+    const post = posts.find(p => p.id === postId);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+
+    if (!post.verifications) post.verifications = [];
+    
+    const pendingVerifications = post.verifications.filter(v => v.status === 'PENDING');
+    
+    pendingVerifications.forEach(v => {
+        const user = users.find(u => u.username === v.username);
+        if (!user) return;
+
+        const expectedCode = getVerifyCode(user.username);
+        const isVerified = foundCodes.some(code => code.toUpperCase() === expectedCode);
+        
+        if (isVerified) {
+            v.status = 'VERIFIED';
+            // Reward points
+            user.points = (user.points || 0) + 1;
+            
+            // Deduct point from post owner
+            if (post.addedBy && post.addedBy !== user.username) {
+                const owner = users.find(u => u.username === post.addedBy);
+                if (owner) {
+                    owner.points = (owner.points || 0) - 1;
+                    notifications.push({
+                        id: genId(),
+                        username: owner.username,
+                        message: `Bài viết của bạn đã được tương tác thật bởi ${user.username}. Bạn bị trừ 1 điểm.`,
+                        read: false,
+                        createdAt: Date.now()
+                    });
+                }
+            }
+            
+            // Notify interactor
+            notifications.push({
+                id: genId(),
+                username: user.username,
+                message: `Hệ thống đã xác nhận bạn tương tác thật. Bạn được +1 điểm.`,
+                read: false,
+                createdAt: Date.now()
+            });
+
+        } else {
+            v.status = 'REJECTED';
+            // Penalize for cheating
+            user.points = (user.points || 0) - 2; 
+            
+            notifications.push({
+                id: genId(),
+                username: user.username,
+                message: `Phát hiện gian lận! Hệ thống kiểm duyệt không tìm thấy mã bảo mật (${expectedCode}) của bạn trong bình luận. Bạn bị TRỪ 2 điểm.`,
+                read: false,
+                createdAt: Date.now()
+            });
+        }
+    });
+
+    saveJson(USERS_FILE, users);
+    saveJson(NOTIFICATIONS_FILE, notifications);
+    saveJson(POSTS_FILE, posts);
+    
+    io.to(`group:${post.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === post.group) });
+    
+    res.json({ ok: true, verifiedCount: pendingVerifications.length });
 });
 
 app.delete('/api/posts/:id', authMiddleware, (req, res) => {
@@ -581,8 +640,8 @@ app.get('/api/me', authMiddleware, (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     res.json({
-        id: user.id, username: user.username, group: user.group, role: user.role,
-        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '',
+        id: user.id, username: user.username, verifyCode: getVerifyCode(user.username), group: user.group, role: user.role,
+        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '', facebookName: user.facebookName || '',
         isDebug: !!user.isDebug,
         settings: user.settings || {}
     });
@@ -592,11 +651,12 @@ app.put('/api/me', authMiddleware, (req, res) => {
     const user = users.find(u => u.username === req.user.username);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { phone, zaloLink, settings } = req.body;
+    const { phone, zaloLink, facebookName, settings } = req.body;
     const changes = [];
     
     if (phone !== undefined && phone !== user.phone) { changes.push(`SĐT: ${user.phone||'[Trống]'} -> ${phone}`); user.phone = phone; }
     if (zaloLink !== undefined && zaloLink !== user.zaloLink) { changes.push(`Zalo: ${user.zaloLink||'[Trống]'} -> ${zaloLink}`); user.zaloLink = zaloLink; }
+    if (facebookName !== undefined && facebookName !== user.facebookName) { changes.push(`Tên FB: ${user.facebookName||'[Trống]'} -> ${facebookName}`); user.facebookName = facebookName; }
     if (settings !== undefined) {
         user.settings = { ...(user.settings || {}), ...settings };
         if (!changes.includes("Cập nhật Cloud Settings")) changes.push("Cập nhật Cloud Settings");
@@ -610,8 +670,8 @@ app.put('/api/me', authMiddleware, (req, res) => {
     }
     
     res.json({
-        id: user.id, username: user.username, group: user.group, role: user.role,
-        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '',
+        id: user.id, username: user.username, verifyCode: getVerifyCode(user.username), group: user.group, role: user.role,
+        points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '', facebookName: user.facebookName || '',
         settings: user.settings || {}
     });
 });
