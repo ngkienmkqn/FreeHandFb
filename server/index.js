@@ -40,7 +40,6 @@ function saveJson(file, data) {
 }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function hashPw(pw) { return crypto.createHash('sha256').update(pw).digest('hex'); }
-function getVerifyCode(username) { return '#' + crypto.createHash('md5').update(username).digest('hex').slice(0, 6).toUpperCase(); }
 
 // --- Data stores ---
 let users = loadJson(USERS_FILE, []);
@@ -217,7 +216,7 @@ app.post('/api/splash', authMiddleware, adminOnly, (req, res) => {
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, verifyCode: getVerifyCode(u.username), group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, facebookName: u.facebookName || '', isLocked: !!u.isLocked, isDebug: !!u.isDebug, history: u.history || [], maxGroupPostsPerDay: u.maxGroupPostsPerDay !== undefined ? u.maxGroupPostsPerDay : 1 })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, facebookName: u.facebookName || '', isLocked: !!u.isLocked, isDebug: !!u.isDebug, history: u.history || [], maxGroupPostsPerDay: u.maxGroupPostsPerDay !== undefined ? u.maxGroupPostsPerDay : 1 })));
 });
 
 app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
@@ -284,7 +283,7 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     }
 
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, verifyCode: getVerifyCode(user.username), group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, facebookName: user.facebookName || '', isLocked: !!user.isLocked, isDebug: !!user.isDebug, history: user.history });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, facebookName: user.facebookName || '', isLocked: !!user.isLocked, isDebug: !!user.isDebug, history: user.history });
 });
 
 app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
@@ -496,8 +495,8 @@ app.get('/api/verify/queue', authMiddleware, adminOnly, (req, res) => {
 
 // API for Bot to submit verification results for a post
 app.post('/api/verify/submit', authMiddleware, adminOnly, (req, res) => {
-    const { postId, foundCodes } = req.body; // foundCodes: array of string
-    if (!postId || !Array.isArray(foundCodes)) return res.status(400).json({ error: 'postId and foundCodes required' });
+    const { postId, fbNames } = req.body; // fbNames: array of string
+    if (!postId || !Array.isArray(fbNames)) return res.status(400).json({ error: 'postId and fbNames required' });
 
     const post = posts.find(p => p.id === postId);
     if (!post) return res.status(404).json({ error: 'Post not found' });
@@ -510,8 +509,8 @@ app.post('/api/verify/submit', authMiddleware, adminOnly, (req, res) => {
         const user = users.find(u => u.username === v.username);
         if (!user) return;
 
-        const expectedCode = getVerifyCode(user.username);
-        const isVerified = foundCodes.some(code => code.toUpperCase() === expectedCode);
+        // Check if the user's declared facebookName is in the list scraped by the bot
+        const isVerified = user.facebookName && fbNames.some(name => name.toLowerCase() === user.facebookName.toLowerCase());
         
         if (isVerified) {
             v.status = 'VERIFIED';
@@ -526,7 +525,7 @@ app.post('/api/verify/submit', authMiddleware, adminOnly, (req, res) => {
                     notifications.push({
                         id: genId(),
                         username: owner.username,
-                        message: `Bài viết của bạn đã được tương tác thật bởi ${user.username}. Bạn bị trừ 1 điểm.`,
+                        message: `Bài viết của bạn đã được tương tác thật bởi ${user.facebookName || user.username}. Bạn bị trừ 1 điểm.`,
                         read: false,
                         createdAt: Date.now()
                     });
@@ -550,7 +549,7 @@ app.post('/api/verify/submit', authMiddleware, adminOnly, (req, res) => {
             notifications.push({
                 id: genId(),
                 username: user.username,
-                message: `Phát hiện gian lận! Hệ thống kiểm duyệt không tìm thấy mã bảo mật (${expectedCode}) của bạn trong bình luận. Bạn bị TRỪ 2 điểm.`,
+                message: `Phát hiện gian lận! Hệ thống kiểm duyệt không tìm thấy Tên Facebook (${user.facebookName}) của bạn trong bình luận. Bạn bị TRỪ 2 điểm.`,
                 read: false,
                 createdAt: Date.now()
             });
@@ -640,7 +639,7 @@ app.get('/api/me', authMiddleware, (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     res.json({
-        id: user.id, username: user.username, verifyCode: getVerifyCode(user.username), group: user.group, role: user.role,
+        id: user.id, username: user.username, group: user.group, role: user.role,
         points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '', facebookName: user.facebookName || '',
         isDebug: !!user.isDebug,
         settings: user.settings || {}
@@ -670,7 +669,7 @@ app.put('/api/me', authMiddleware, (req, res) => {
     }
     
     res.json({
-        id: user.id, username: user.username, verifyCode: getVerifyCode(user.username), group: user.group, role: user.role,
+        id: user.id, username: user.username, group: user.group, role: user.role,
         points: user.points, phone: user.phone || '', zaloLink: user.zaloLink || '', facebookName: user.facebookName || '',
         settings: user.settings || {}
     });
