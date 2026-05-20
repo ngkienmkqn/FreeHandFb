@@ -12,6 +12,9 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.mozilla.javascript.Context as RhinoContext
+import org.mozilla.javascript.Scriptable
+import org.mozilla.javascript.Function
 
 /**
  * Accessibility Service that automates Like + Comment on native Facebook app.
@@ -82,37 +85,85 @@ class FbAutoService : AccessibilityService() {
         var notificationIgnore = listOf("đăng nhập", "thiết bị", "yêu cầu tham gia", "tham gia nhóm")
         var notificationApprove = listOf("phê duyệt ảnh", "phê duyệt bài", "approved your photo", "approved your post")
 
+        var rhinoScope: Scriptable? = null
+        var lastVersion: String = ""
+
         fun load(context: Context) {
             try {
-                val script = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getString("engine_script", "{}") ?: "{}"
-                val j = org.json.JSONObject(script).optJSONObject("anchors") ?: return
+                val prefs = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+                val script = prefs.getString("engine_script", "{}") ?: "{}"
                 
-                fun getList(key: String, default: List<String>): List<String> {
-                    val a = j.optJSONArray(key) ?: return default
-                    return (0 until a.length()).map { a.getString(it).lowercase() }
-                }
+                val scriptObj = org.json.JSONObject(script)
+                val version = scriptObj.optString("version", "?")
+                val jsCode = scriptObj.optString("jsCode", "")
+                
+                // Hot reload check
+                if (version == lastVersion && rhinoScope != null) return
+                lastVersion = version
 
-                wrongScreen = getList("wrong_screen", wrongScreen)
-                blockDialog = getList("block_dialog", blockDialog)
-                groupJoin = getList("group_join", groupJoin)
-                questionnaireSubmit = getList("questionnaire_submit", questionnaireSubmit)
-                deadLink = getList("dead_link", deadLink)
-                composeButton = getList("compose_button", composeButton)
-                postButton = getList("post_button", postButton)
-                commentButton = getList("comment_button", commentButton)
-                sendComment = getList("send_comment", sendComment)
-                photoButton = getList("photo_button", photoButton)
-                galleryExclude = getList("gallery_exclude", galleryExclude)
-                multiSelectButton = getList("multi_select_button", multiSelectButton)
-                galleryNextButton = getList("gallery_next_button", galleryNextButton)
-                notificationIgnore = getList("notification_ignore", notificationIgnore)
-                notificationApprove = getList("notification_approve", notificationApprove)
-                galleryClickDelay = j.optLong("gallery_click_delay", galleryClickDelay)
-                // Allow local override from Settings UI
-                val localDelay = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getLong("local_gallery_delay", 0L)
-                if (localDelay > 0) galleryClickDelay = localDelay
-                Log.d(TAG, "OTA Engine loaded. Version: ${org.json.JSONObject(script).optString("version", "?")}. GalleryDelay: ${galleryClickDelay}ms")
-            } catch(e: Exception) { Log.e(TAG, "Failed loading OTA script", e) }
+                val j = scriptObj.optJSONObject("anchors")
+                if (j != null) {
+                    fun getList(key: String, default: List<String>): List<String> {
+                        val a = j.optJSONArray(key) ?: return default
+                        return (0 until a.length()).map { a.getString(it).lowercase() }
+                    }
+
+                    wrongScreen = getList("wrong_screen", wrongScreen)
+                    blockDialog = getList("block_dialog", blockDialog)
+                    groupJoin = getList("group_join", groupJoin)
+                    questionnaireSubmit = getList("questionnaire_submit", questionnaireSubmit)
+                    deadLink = getList("dead_link", deadLink)
+                    composeButton = getList("compose_button", composeButton)
+                    postButton = getList("post_button", postButton)
+                    commentButton = getList("comment_button", commentButton)
+                    sendComment = getList("send_comment", sendComment)
+                    photoButton = getList("photo_button", photoButton)
+                    galleryExclude = getList("gallery_exclude", galleryExclude)
+                    multiSelectButton = getList("multi_select_button", multiSelectButton)
+                    galleryNextButton = getList("gallery_next_button", galleryNextButton)
+                    notificationIgnore = getList("notification_ignore", notificationIgnore)
+                    notificationApprove = getList("notification_approve", notificationApprove)
+                    galleryClickDelay = j.optLong("gallery_click_delay", galleryClickDelay)
+                    // Allow local override from Settings UI
+                    val localDelay = prefs.getLong("local_gallery_delay", 0L)
+                    if (localDelay > 0) galleryClickDelay = localDelay
+                }
+                
+                // Init Rhino JS Engine
+                if (jsCode.isNotBlank()) {
+                    val rhino = RhinoContext.enter()
+                    rhino.optimizationLevel = -1 // Required for Android
+                    try {
+                        rhinoScope = rhino.initSafeStandardObjects()
+                        // Pass engine object to JS
+                        org.mozilla.javascript.ScriptableObject.putProperty(rhinoScope, "engine", RhinoContext.javaToJS(this, rhinoScope))
+                        rhino.evaluateString(rhinoScope, jsCode, "OTAScript", 1, null)
+                        Log.d(TAG, "Rhino JS Engine Hot-Reloaded.")
+                    } finally {
+                        RhinoContext.exit()
+                    }
+                }
+                
+                Log.d(TAG, "OTA Engine loaded. Version: $version. GalleryDelay: ${galleryClickDelay}ms")
+            } catch(e: Exception) { Log.e(TAG, "Failed loading OTA script/JS", e) }
+        }
+        
+        fun callJsFunction(funcName: String, vararg args: Any): Any? {
+            val scope = rhinoScope ?: return null
+            val rhino = RhinoContext.enter()
+            rhino.optimizationLevel = -1
+            try {
+                val obj = scope.get(funcName, scope)
+                if (obj is Function) {
+                    val jsArgs = args.map { RhinoContext.javaToJS(it, scope) }.toTypedArray()
+                    return obj.call(rhino, scope, scope, jsArgs)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error executing JS function: $funcName", e)
+            } finally {
+                RhinoContext.exit()
+            }
+            return null
         }
     }
 
@@ -463,12 +514,49 @@ class FbAutoService : AccessibilityService() {
             return
         }
 
-
-
         val task = tasks[currentIndex]
         currentTask = task
         currentPostId.value = task.postId
         
+        // HOT-RELOAD CHECK (Before starting the task)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+                val token = prefs.getString("auth_token", "") ?: ""
+                
+                val urlScripts = "http://dt.ungthien.com/api/engine/scripts"
+                val conn = java.net.URL(urlScripts).openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("Authorization", "Bearer $token")
+                val rc = conn.responseCode
+                if (rc in 200..299) {
+                    val resp = conn.inputStream.bufferedReader().use { it.readText() }
+                    val latestVer = org.json.JSONObject(resp).optString("latest", "")
+                    if (latestVer.isNotBlank() && latestVer != Engine.lastVersion) {
+                        Log.d(TAG, "OTA: New version detected ($latestVer). Downloading...")
+                        val urlScript = "http://dt.ungthien.com/api/engine/script?version=$latestVer"
+                        val conn2 = java.net.URL(urlScript).openConnection() as java.net.HttpURLConnection
+                        conn2.requestMethod = "GET"
+                        conn2.setRequestProperty("Authorization", "Bearer $token")
+                        if (conn2.responseCode in 200..299) {
+                            val sb = conn2.inputStream.bufferedReader().use { it.readText() }
+                            prefs.edit().putString("engine_script", sb).apply()
+                            Engine.load(this@FbAutoService)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Hot-Reload check failed", e)
+            }
+            
+            // Continue on main thread
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                executePostTask(task)
+            }
+        }
+    }
+    
+    private fun executePostTask(task: TaskItem) {
         if (task.url == "ACTION_SCAN_NOTIFICATIONS") {
             currentStep = Step.CLICKING_NOTIFICATION_TAB
             retryCount = 0
@@ -488,7 +576,7 @@ class FbAutoService : AccessibilityService() {
         healingCount = 0
         multiSelectClicked = false
 
-        Log.d(TAG, "Processing post ${currentIndex + 1}/${tasks.size}: ${task.url}")
+        Log.d(TAG, "Processing post ${currentIndex + 1}/${taskQueue.value.size}: ${task.url}")
         if (task.postIndex > 0) {
             debugLog("🚀 Bắt đầu bài thứ ${task.postIndex} trong nhóm này ngày hôm nay.")
         }
@@ -754,6 +842,10 @@ class FbAutoService : AccessibilityService() {
     /* ================== DOM INTERCEPTOR ================== */
 
     private fun interceptWrongScreen(nodes: List<AccessibilityNodeInfo>): Boolean {
+        // JS Override Check
+        val jsResult = Engine.callJsFunction("interceptWrongScreen", nodes, this)
+        if (jsResult is Boolean) return jsResult
+
         val isWrongScreen = nodes.any { 
             val txt = it.text?.toString()?.lowercase() ?: ""
             Engine.wrongScreen.any { wrongStr -> txt.contains(wrongStr) }
