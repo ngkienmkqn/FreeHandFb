@@ -939,7 +939,15 @@ fun MainApp(
         topBar = {
             Column {
                 CenterAlignedTopAppBar(
-                    title = { Text("FreeHand") },
+                    title = {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("FreeHand")
+                            val otaVersion = try { org.json.JSONObject(prefs.getString("engine_script", "{}") ?: "{}").optString("version", "") } catch(e:Exception){""}
+                            if (otaVersion.isNotBlank()) {
+                                Text("Script: $otaVersion", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    },
                     actions = {
                         if (isAutoRunning) {
                             TextButton(onClick = { FbAutoService.instance?.stopProcessing() }) {
