@@ -7,7 +7,8 @@
 - **Mục tiêu**: Một hệ thống Command and Control (C2) Phone Farm. Hệ thống này điều phối hàng loạt các thiết bị Android vật lý để thực hiện các thao tác tương tác trên Facebook (Like, Comment, Đăng Bài Group) một cách hoàn toàn tự động, chạy ngầm (Headless) dựa trên `Android Accessibility Services`.
 - **Cơ chế an toàn**: Hoàn toàn **KHÔNG** sử dụng WebView, **KHÔNG** cắm API Token, **KHÔNG** dùng DOM Scraping bằng JS. Hệ thống mô phỏng thao tác vuốt chạm vật lý trực tiếp trên ứng dụng Facebook gốc (Katana/Lite) nhằm vượt qua 100% thuật toán chống Bot của Meta.
 - **Quản lý mã nguồn (VCS)**: GitHub Private Repository tại `https://github.com/ngkienmkqn/FreeHandFb.git`. Branch chính: `main`. Local path (Google Drive Sync): `g:\Other computers\My Computer\antigravity\FreeHandFb`.
-- **OTA Engine Version**: `v1.3.0_OTA_VPS` (latest)
+- **Đạt chuẩn Tier 4**: Khả năng Self-Healing bằng Server-Driven Logic thông qua **Rhino JS Engine**.
+- **OTA Engine Version**: `Tier 4 (JS Scripts)`
 
 ---
 
@@ -19,9 +20,9 @@
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  server/index.js  (Node.js + Express - Monolith API)     │  │
 │  │  ├── REST: /api/login, /api/me, /api/posts, /api/articles│  │
-│  │  ├── OTA:  /api/engine/script?version=xxx                │  │
-│  │  │         /api/engine/scripts (danh sách phiên bản)     │  │
-│  │  ├── Data: server/data/*.json (users, posts, articles)   │  │
+│  │  ├── OTA:  GET /api/engine/script?version=xxx            │  │
+│  │  │         POST /api/engine/script (Admin push)          │  │
+│  │  ├── Data: server/data/*.json (users, posts, engine.js)  │  │
 │  │  └── Web:  server/public/admin.html (Admin Dashboard)    │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │         ▲ HTTP REST (Bearer Token Auth)    ▲                    │
@@ -41,11 +42,12 @@
 - **Web Dashboard**: `server/public/admin.html` — giao diện Admin quản lý thành viên, duyệt nhóm gợi ý, duyệt bài mẫu và cấu hình hạn mức.
 - **Tính năng Cốt lõi**:
   - **REST Endpoints**: `/api/login`, `/api/me` (GET/PUT sync cấu hình), `/api/posts`, `/api/posts/bulk`, `/api/articles`, `/api/templates`, `/api/suggested-groups`.
-  - **Over-The-Air (OTA) Multi-Version Scripting**: 
-    - `GET /api/engine/scripts` → trả danh sách tất cả các phiên bản script đã đánh số kèm con trỏ `latest`.
-    - `GET /api/engine/script?version=xxx` → trả nội dung JSON Anchors của phiên bản được chỉ định.
-    - **Khi Facebook đổi giao diện**: Chỉ cần thêm version mới vào object `ENGINE_SCRIPTS.versions` trong `server/index.js`, cập nhật trường `latest`, rồi `pm2 restart C2-Dashboard`. Toàn bộ máy Android sẽ tự động nhận script mới khi Sync.
-    - **Khi cần Rollback**: Người dùng vào Cài đặt App → OTA Accessibility Engine → Dropdown chọn lại phiên bản cũ → bấm Sync.
+  - **Over-The-Air (OTA) Multi-Version Scripting (Tier 4)**: 
+    - Khác với cơ chế tĩnh cũ, OTA Server cung cấp cả JSON Anchors lẫn **Mã nguồn Javascript**.
+    - `GET /api/engine/scripts` → Trả về version mới nhất hiện tại trên server.
+    - `GET /api/engine/script?version=xxx` → Trả nội dung JSON (chứa `anchors` và `jsCode` nguyên bản) đọc từ `server/data/engine.js`.
+    - `POST /api/engine/script` (Admin API) → Push code JS và cấu hình mới thẳng lên bộ nhớ máy chủ và ghi đè file `data/engine.js`.
+    - **Khi Facebook đổi giao diện**: Chỉ cần gọi `POST` API (hoặc sửa thẳng file `data/engine.js`) để viết lại hàm xử lý (VD: `interceptWrongScreen`). Toàn bộ máy Android sẽ tự nhận version mới và chạy code JS mới trong phiên cày tiếp theo. KHÔNG cần `pm2 restart` server.
   - **Data Persistence**: Lưu trữ dữ liệu bằng file JSON phẳng (`users.json`, `posts.json`, `articles.json`) tại thư mục `server/data/`. Không dùng database.
   - **Universal Cloud Synchronization**: Cấu hình của app điện thoại (`SharedPreferences` như SĐT, Zalo, Lịch hẹn giờ, Bài viết Spintax đã chọn) được đồng bộ hóa toàn diện vào `user.settings` trên VPS qua `PUT /api/me`. Khi cài lại thiết bị, chế độ **Zero-Touch Recovery** tự động pull `GET /api/me` lấy lại cấu hình.
 
@@ -59,9 +61,11 @@
   - `AutoPublishReceiver.kt` — BroadcastReceiver lên lịch chu kỳ publish qua `AlarmManager`.
 - **Tính năng Cốt lõi**:
   - **Power Management (WakeLock)**: Sử dụng `PowerManager.WakeLock` mức Service để giữ CPU và màn hình luôn thức trong suốt quá trình chạy chuỗi lệnh dài, chống lại chế độ Doze Mode và Screen Timeout của Android khiến app bị "ngủ gật" (Freezing).
+  - **Rhino JS Engine (Server-Driven Logic)**: Trái tim của kịch bản Auto giờ được nhúng engine `Rhino`. Khi tải kịch bản mới, App tự động biên dịch (Compile) chuỗi `jsCode` thành môi trường thực thi (Scriptable scope) ngay trong RAM. 
+  - **Auto-Hot Reload**: Trước khi bắt đầu xử lý mỗi bài post (hàm `processNextPost`), App chạy ngầm một ping lấy version. Nếu phát hiện code mới trên Server, App tải và nhúng lại Rhino Context, cho phép **sửa lỗi logic tức thời** mà không cần khởi động lại App.
   - **Self-Healing & X-RAY (Tự chữa lành)**: Khi kẹt ở một bước quá 32 giây, hệ thống tự động:
     - Kích hoạt máy quét X-RAY: Chụp toàn bộ 50 phần tử UI (có chứa chữ) trên màn hình và in vào Log để phân tích từ xa.
-    - Phân tích `ScreenType` hiện tại để tự đưa ra phác đồ điều trị (Bấm BACK tắt bàn phím, lùi tiến trình về bước trước, hoặc đóng popup rác).
+    - Giao quyền kiểm soát cho các function JS (`callJsFunction`) để tự đưa ra phác đồ điều trị.
     - Giới hạn 3 lần chữa/bài viết. Khôi phục `healingCount` khi chuyển bài mới (ngăn chặn Bug dồn sát thương).
   - **Log Management**: Tự động dọn dẹp `debug_logs.txt` định kỳ (3 ngày/lần vào lúc 3h sáng) và giới hạn dung lượng 2MB để tránh phình to bộ nhớ máy.
   - **OTA Version Selector**: Dropdown trong Settings UI cho phép user chọn phiên bản Script OTA cụ thể (mặc định `latest`).
@@ -74,9 +78,9 @@
 
 ---
 
-## 3. OTA Engine — Tham Số Cấu Hình (v1.3.0)
+## 3. OTA Engine — Tham Số Cấu Hình & Hot-Patching (Tier 4)
 
-Tất cả các tham số dưới đây được lưu trên server trong `ENGINE_SCRIPTS` và tải về app qua `/api/engine/script`. **Sửa trên server → Sync từ Server → app nhận cấu hình mới, KHÔNG cần build APK.**
+Từ Tier 4, cấu trúc OTA đã được nâng cấp lên Server-Driven Logic, được lưu thành file `server/data/engine.json` và `server/data/engine.js`. **Sửa trên server → App tự động nhận cấu hình mới trước khi cày bài post tiếp theo, KHÔNG cần build APK.**
 
 ### Anchors (Text Detection)
 
@@ -102,7 +106,20 @@ Tất cả các tham số dưới đây được lưu trên server trong `ENGINE
 | `gallery_next_button` | Text nút "Tiếp" sau khi chọn ảnh | `["next", "tiếp", "done", "xong", "tiếp tục", "hoàn tất"]` |
 | `gallery_click_delay` | Delay (ms) giữa mỗi lần chọn ảnh | `800` |
 
-**⚠️ Quan trọng:** Khi bot bấm nhầm nút trong gallery → chỉ cần thêm keyword của nút đó vào `gallery_exclude` trên server → `pm2 restart` → Sync → xong. **KHÔNG cần build APK.**
+### Code Javascript Thực Thi Ngầm (RhinoJS)
+
+Ngoài khai báo JSON, Admin có thể viết hàm Javascript để override cách xử lý của Android, ví dụ:
+```javascript
+function interceptWrongScreen(nodes, serviceInstance) {
+    for (var i = 0; i < nodes.size(); i++) {
+        var txt = nodes.get(i).getText() != null ? nodes.get(i).getText().toString().toLowerCase() : "";
+        if (txt.indexOf("bạn đang bị chặn") !== -1) {
+            return true; // Trả về true báo App đã chặn thành công
+        }
+    }
+    return false; // Trả về false để App dùng logic mặc định
+}
+```
 
 ---
 
@@ -123,6 +140,8 @@ FreeHandFb/
 │   ├── index.js                            # ★ Monolith API (Express + OTA Engine)
 │   ├── package.json                        # Node dependencies
 │   ├── data/                               # Persistent JSON storage (auto-created)
+│   │   ├── engine.json                     # OTA Script Metadata (Version, Anchors)
+│   │   ├── engine.js                       # OTA Script Raw Javascript logic
 │   │   ├── users.json
 │   │   ├── posts.json
 │   │   └── articles.json
@@ -218,21 +237,15 @@ MaE6rmXCba/blqUgI+c5AAAADHZwcy1jMi1hZG1pbgE=
 
 ## 8. Sổ tay Quy trình (Developer Workflows)
 
-### Workflow 1: Facebook đổi tên nút bấm → OTA (KHÔNG BUILD APK)
-1. Mở `server/index.js`, tìm object `ENGINE_SCRIPTS`.
-2. Tạo phiên bản mới trong `versions` (VD: `"v1.4.0_OTA_VPS": {...}`).
-3. Cập nhật trường `latest` trỏ đến version mới.
-4. `scp` file lên server → `pm2 restart C2-Dashboard`.
-5. Toàn bộ điện thoại nhận script mới khi Sync!
+### Workflow 1: Facebook đổi tên nút bấm hoặc thay luồng → OTA (KHÔNG BUILD APK)
+1. Có thể sử dụng API `POST /api/engine/script` hoặc cập nhật thẳng 2 file `server/data/engine.json` và `server/data/engine.js`.
+2. Thay đổi giá trị Anchor hoặc viết lại hàm JS (VD: `interceptWrongScreen`).
+3. Tăng trường `version` lên (VD: `v2.0.0`). Server tự động hot-reload cấu hình.
+4. App Android sẽ lấy version mới ngay lập tức trước khi tương tác với post tiếp theo và tự động nạp đoạn JS vào RhinoContext. Không cần khởi động lại máy!
 
-### Workflow 2: Bot bấm nhầm nút trong Gallery → OTA (KHÔNG BUILD APK)
-1. Xác định tên nút bị bấm nhầm (từ log hoặc debug toast).
-2. Thêm keyword vào `gallery_exclude` trong version mới.
-3. Deploy server → `pm2 restart` → Sync → xong!
-
-### Workflow 3: Thay đổi delay chọn ảnh → OTA (KHÔNG BUILD APK)
-1. Sửa `gallery_click_delay` trong version mới (ms).
-2. Deploy server → `pm2 restart` → Sync.
+### Workflow 2: Cập nhật Gallery Config (KHÔNG BUILD APK)
+1. Thêm keyword vào `gallery_exclude` trong file `engine.json`.
+2. Tăng version lên, lưu lại. Xong!
 
 ### Workflow 4: Thay đổi Logic Kotlin → PHẢI BUILD APK
 1. Chỉnh sửa `.kt` files trong Android Studio.
@@ -257,6 +270,7 @@ git push origin main
 | `v1.1.0_OTA_VPS` | 27/04 | Thêm "gia nhập nhóm" |
 | `v1.2.0_OTA_VPS` | 28/04 | Thêm "bạn viết gì đi", "viết bình luận", "write a comment", mở rộng send_comment |
 | `v1.3.0_OTA_VPS` | 28/04 | **Gallery OTA**: thêm `gallery_exclude`, `multi_select_button`, `gallery_next_button`, `gallery_click_delay`. Từ giờ fix gallery chỉ cần update server. |
+| `Tier 4 (JS OTA)` | 20/05/2026 | **Rhino JS Engine**: Thay vì JSON tĩnh, Server nay cung cấp cả mã nguồn JS. App tự compile trong phiên chạy qua `Engine.load()` giúp xử lý các logic phức tạp và vượt mọi đợt thay đổi của Facebook. |
 
 ---
 
