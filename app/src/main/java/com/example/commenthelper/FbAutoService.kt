@@ -134,10 +134,11 @@ class FbAutoService : AccessibilityService() {
                     val rhino = RhinoContext.enter()
                     rhino.optimizationLevel = -1 // Required for Android
                     try {
-                        rhinoScope = rhino.initSafeStandardObjects()
+                        val scope = rhino.initSafeStandardObjects()
+                        rhinoScope = scope
                         // Pass engine object to JS
-                        org.mozilla.javascript.ScriptableObject.putProperty(rhinoScope, "engine", RhinoContext.javaToJS(this, rhinoScope))
-                        rhino.evaluateString(rhinoScope, jsCode, "OTAScript", 1, null)
+                        org.mozilla.javascript.ScriptableObject.putProperty(scope, "engine", RhinoContext.javaToJS(this, scope))
+                        rhino.evaluateString(scope, jsCode, "OTAScript", 1, null)
                         Log.d(TAG, "Rhino JS Engine Hot-Reloaded.")
                     } finally {
                         RhinoContext.exit()
