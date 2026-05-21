@@ -816,7 +816,7 @@ fun MainApp(
             // After publishing (or any queue) finishes, sync and check for new pending interactions
             scope.launch {
                 syncWithServer()
-                val pendingPosts = currentPosts.filter { !it.interactedBy.contains(currentUsername) && it.addedBy != currentUsername && !failedPostIds.contains(it.id) }
+                val pendingPosts = currentPosts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(currentUsername) && it.addedBy != currentUsername && !failedPostIds.contains(it.id) }
                 if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
                     FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
                     FbAutoService.isRunning.value = true
@@ -891,7 +891,7 @@ fun MainApp(
     // Unattended Auto Start
     LaunchedEffect(posts, autoStart, isServiceEnabled) {
         if (autoStart && isServiceEnabled) {
-            val pendingPosts = posts.filter { !it.interactedBy.contains(username) && it.addedBy != username }
+            val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username }
             if (pendingPosts.isNotEmpty()) {
                 val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                 if (!isFbInstalled) {
@@ -978,14 +978,30 @@ fun MainApp(
                                     openAccessibilitySettings(context)
                                 } else {
                                     // Master Start: sync → interact pending → then schedule publish
-                                    val pendingPosts = posts.filter { !it.interactedBy.contains(username) && it.addedBy != username }
+                                    val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username }
                                     val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                                     if (!isFbInstalled) {
                                         toast(context, "Cần cài Facebook trước!")
                                     } else if (pendingPosts.isEmpty()) {
-                                        toast(context, "Không có bài cần tương tác. Đang kích hoạt tiến trình đăng bài nhóm...")
-                                        val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
-                                        androidx.work.WorkManager.getInstance(context).enqueue(req)
+                                        val keywords = prefs.getString("join_keywords", "") ?: ""
+                                        if (keywords.isNotBlank()) {
+                                            toast(context, "Không có bài cần tương tác. Bắt đầu tự động tìm & tham gia nhóm...")
+                                            val kwList = keywords.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                                            if (kwList.isNotEmpty()) {
+                                                val selectedKeyword = kwList.random()
+                                                val joinTask = FbAutoService.TaskItem(
+                                                    postId = "KEYWORD_JOIN_" + System.currentTimeMillis(),
+                                                    url = "fb_join_keyword:$selectedKeyword",
+                                                    comment = ""
+                                                )
+                                                FbAutoService.instance?.startProcessing(listOf(joinTask))
+                                                FbAutoService.isRunning.value = true
+                                            }
+                                        } else {
+                                            toast(context, "Không có bài cần tương tác. Đang kích hoạt tiến trình đăng bài nhóm...")
+                                            val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                                            androidx.work.WorkManager.getInstance(context).enqueue(req)
+                                        }
                                     } else if (templates.isEmpty()) {
                                         toast(context, "Đang tải comments, chờ chút...")
                                     } else {
@@ -1054,15 +1070,31 @@ fun MainApp(
                     onRefresh = { syncWithServer() },
                     onRequestPermission = { openAccessibilitySettings(context) },
                     onStartAuto = {
-                        val pendingPosts = posts.filter { !it.interactedBy.contains(username) && it.addedBy != username }
+                        val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username }
                         val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                         
                         if (!isFbInstalled) {
                             toast(context, "Lỗi: Không tìm thấy ứng dụng Facebook. Vui lòng cài đặt Facebook và đăng nhập trước!")
                         } else if (pendingPosts.isEmpty()) { 
-                            toast(context, "Không có bài chưa làm. Đang kích hoạt tiến trình đăng bài nhóm...")
-                            val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
-                            androidx.work.WorkManager.getInstance(context).enqueue(req)
+                            val keywords = prefs.getString("join_keywords", "") ?: ""
+                            if (keywords.isNotBlank()) {
+                                toast(context, "Không có bài chưa làm. Bắt đầu tự động tìm & tham gia nhóm...")
+                                val kwList = keywords.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                                if (kwList.isNotEmpty()) {
+                                    val selectedKeyword = kwList.random()
+                                    val joinTask = FbAutoService.TaskItem(
+                                        postId = "KEYWORD_JOIN_" + System.currentTimeMillis(),
+                                        url = "fb_join_keyword:$selectedKeyword",
+                                        comment = ""
+                                    )
+                                    FbAutoService.instance?.startProcessing(listOf(joinTask))
+                                    FbAutoService.isRunning.value = true
+                                }
+                            } else {
+                                toast(context, "Không có bài chưa làm. Đang kích hoạt tiến trình đăng bài nhóm...")
+                                val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                                androidx.work.WorkManager.getInstance(context).enqueue(req)
+                            }
                         } else if (templates.isEmpty()) { 
                             toast(context, "Đang tải Comments mặc định, chờ chút.")
                         } else {

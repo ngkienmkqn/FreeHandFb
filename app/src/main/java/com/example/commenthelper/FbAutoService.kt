@@ -643,7 +643,19 @@ class FbAutoService : AccessibilityService() {
         val cleanUrl = url.replace("m.facebook.com", "www.facebook.com")
                           .replace("mbasic.facebook.com", "www.facebook.com")
 
-        val intentKatana = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
+        // Use fb://faceweb/f?href=... deep link scheme to force the Facebook app to view the post directly,
+        // rather than bugging out and opening the Composer/Live-streaming camera for facebook.com/share/p/ links.
+        val targetUrl = if (cleanUrl.startsWith("http")) {
+            try {
+                "fb://faceweb/f?href=" + java.net.URLEncoder.encode(cleanUrl, "UTF-8")
+            } catch (e: Exception) {
+                cleanUrl
+            }
+        } else {
+            cleanUrl
+        }
+
+        val intentKatana = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
