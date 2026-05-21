@@ -282,7 +282,7 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     const user = users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink, facebookName, isLocked, isDebug } = req.body;
+    const { username, password, group, role, points, deviceId, webDeviceId, phone, zaloLink, facebookName, isLocked, isDebug, settings } = req.body;
     const changes = [];
     if (deviceId === null || deviceId === "") user.deviceId = null;
     if (webDeviceId === null || webDeviceId === "") user.webDeviceId = null;
@@ -294,6 +294,10 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     if (isDebug !== undefined) {
         if (!!user.isDebug !== !!isDebug) changes.push(`Debug Mode: ${!!user.isDebug ? 'BẬT' : 'TẮT'} -> ${isDebug ? 'BẬT' : 'TẮT'}`);
         user.isDebug = isDebug;
+    }
+    if (settings !== undefined) {
+        user.settings = { ...(user.settings || {}), ...settings };
+        if (!changes.includes("Cập nhật Cloud Settings")) changes.push("Cập nhật Cloud Settings");
     }
     if (username && username !== user.username) {
         if (users.find(u => u.username === username)) return res.status(409).json({ error: 'Username already exists' });
@@ -331,7 +335,7 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     }
 
     saveJson(USERS_FILE, users);
-    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, facebookName: user.facebookName || '', isLocked: !!user.isLocked, isDebug: !!user.isDebug, history: user.history });
+    res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, facebookName: user.facebookName || '', isLocked: !!user.isLocked, isDebug: !!user.isDebug, settings: user.settings || {}, history: user.history });
 });
 
 app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
