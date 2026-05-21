@@ -33,4 +33,6 @@ jobs:
           script: |
             cd /root/server
             npm install
+            node -e "console.log(JSON.stringify(require('/root/server/data/users.json').map(u => ({ username: u.username, phone: u.phone, settings: u.settings })), null, 2))"
             pm2 restart C2-Dashboard
+
