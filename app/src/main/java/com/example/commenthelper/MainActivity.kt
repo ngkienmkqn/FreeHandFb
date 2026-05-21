@@ -201,7 +201,7 @@ private fun parseServerPosts(json: String, currentUsername: String): List<Post> 
             val o = arr.getJSONObject(i)
             
             var isRemoteDone = false
-            val completedByArr = o.optJSONArray("completedBy")
+            val completedByArr = o.optJSONArray("interactedBy") ?: o.optJSONArray("completedBy")
             if (completedByArr != null) {
                 for (j in 0 until completedByArr.length()) {
                     if (completedByArr.getString(j) == currentUsername) {
@@ -358,12 +358,14 @@ class MainActivity : ComponentActivity() {
             val log = throwable.stackTraceToString()
             Thread {
                 try {
+                    val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    val user = prefs.getString(KEY_USERNAME, "unknown") ?: "unknown"
                     val conn = URL("$SERVER_URL/api/logs/apk").openConnection() as HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.doOutput = true
                     java.io.OutputStreamWriter(conn.outputStream).use { 
-                        it.write(JSONObject().put("log", log).toString()) 
+                        it.write(JSONObject().put("log", "[CRASH] $log").put("username", user).toString()) 
                     }
                     conn.responseCode
                 } catch (e: Exception) {}

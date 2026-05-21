@@ -1153,6 +1153,32 @@ class FbAutoService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
 
+        // Trước khi bình luận, quét xem mình đã cmt bài viết này chưa để tránh cmt trùng
+        val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+        val fbProfileName = prefs.getString("fbProfileName", "") ?: ""
+        val declaredFbName = prefs.getString("facebookName", "") ?: ""
+        
+        var alreadyCommented = false
+        val allNodes = findAllNodes(root)
+        for (n in allNodes) {
+            val txt = n.text?.toString()?.trim() ?: ""
+            if (txt.isNotBlank()) {
+                if ((fbProfileName.isNotBlank() && txt.equals(fbProfileName, ignoreCase = true)) ||
+                    (declaredFbName.isNotBlank() && txt.equals(declaredFbName, ignoreCase = true))) {
+                    alreadyCommented = true
+                    break
+                }
+            }
+        }
+        recycleNodes(allNodes)
+        
+        if (alreadyCommented) {
+            debugLog("ℹ️ Phát hiện bạn đã bình luận bài viết này rồi! Bỏ qua comment.")
+            markCurrentDone(success = true)
+            root.recycle()
+            return
+        }
+
         // First try: find existing comment input that's already visible
         var commentInput = findCommentInput(root)
 
@@ -1343,6 +1369,21 @@ class FbAutoService : AccessibilityService() {
 
     private var multiSelectClicked = false
 
+    private fun isHighValueLog(msg: String): Boolean {
+        val lowValueKeywords = listOf(
+            "Đang chờ Facebook",
+            "Đang tìm nút Like",
+            "Đang tìm ô Bình luận",
+            "Đang tìm ô Soạn bài",
+            "Đang tìm nút Thêm Ảnh",
+            "Đang gõ nội dung bài viết",
+            "Đang xử lý lấy link bài viết",
+            "Đang dọn dẹp FB",
+            "Đợi lâu không thấy bài đăng"
+        )
+        return lowValueKeywords.none { msg.contains(it) }
+    }
+
     private fun debugLog(msg: String, alwaysToast: Boolean = false) {
         Log.d(TAG, "DEBUG_TRACE: $msg")
         try {
@@ -1357,6 +1398,26 @@ class FbAutoService : AccessibilityService() {
                 file.writeText("--- Log Truncated ---\n")
             }
         } catch (e: Exception) {}
+
+        if (isHighValueLog(msg)) {
+            Thread {
+                try {
+                    val prefs = getSharedPreferences("comment_helper_prefs", android.content.Context.MODE_PRIVATE)
+                    val user = prefs.getString("username", "unknown") ?: "unknown"
+                    val conn = java.net.URL("http://dt.ungthien.com/api/logs/apk").openConnection() as java.net.HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.doOutput = true
+                    val payload = org.json.JSONObject().apply {
+                        put("log", msg)
+                        put("username", user)
+                    }
+                    conn.outputStream.write(payload.toString().toByteArray())
+                    conn.responseCode
+                } catch (e: Exception) {}
+            }.start()
+        }
+
         if (isDebugMode || alwaysToast) {
             try { handler.post { android.widget.Toast.makeText(this, "🐢 $msg", android.widget.Toast.LENGTH_SHORT).show() } } catch(_: Exception) {}
         }

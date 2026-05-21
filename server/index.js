@@ -28,8 +28,10 @@ const ARTICLES_FILE = path.join(DATA_DIR, 'articles.json');
 const SUGGESTED_GROUPS_FILE = path.join(DATA_DIR, 'suggested_groups.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const APK_LOGS_FILE = path.join(DATA_DIR, 'apk_logs.txt');
+const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
 
 function loadJson(file, fallback) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
@@ -50,6 +52,51 @@ let notifications = loadJson(NOTIFICATIONS_FILE, []); // [{ id, userId, message,
 let articles = loadJson(ARTICLES_FILE, []); // [{ id, title, category, content, images }]
 let suggestedGroups = loadJson(SUGGESTED_GROUPS_FILE, []); // [{ id, name, url, memberCount, status, addedBy, createdAt }]
 let appSettings = loadJson(SETTINGS_FILE, { maxGroupPostsPerDay: 1 });
+
+function runLogsCleanup() {
+    try {
+        console.log('[LOGS] Running weekly logs garbage collection...');
+        const now = Date.now();
+        const SEVEN_DAYS_MS = 7 * 24 * 3600 * 1000;
+        
+        if (fs.existsSync(LOGS_DIR)) {
+            const files = fs.readdirSync(LOGS_DIR);
+            files.forEach(file => {
+                const filePath = path.join(LOGS_DIR, file);
+                const stats = fs.statSync(filePath);
+                if (now - stats.mtimeMs > SEVEN_DAYS_MS) {
+                    fs.unlinkSync(filePath);
+                    console.log(`[LOGS] Deleted old user log: ${file}`);
+                }
+            });
+        }
+        
+        if (fs.existsSync(APK_LOGS_FILE)) {
+            const stats = fs.statSync(APK_LOGS_FILE);
+            if (now - stats.mtimeMs > SEVEN_DAYS_MS) {
+                fs.writeFileSync(APK_LOGS_FILE, '[CLEANED] Monolithic log truncated.\n', 'utf8');
+                console.log('[LOGS] Truncated monolithic apk_logs.txt');
+            }
+        }
+        
+        appSettings.lastLogsCleanup = now;
+        saveJson(SETTINGS_FILE, appSettings);
+    } catch (e) {
+        console.error('[LOGS] Error during weekly garbage collection:', e);
+    }
+}
+
+// Check on startup and schedule daily check
+const lastCleanup = appSettings.lastLogsCleanup || 0;
+if (Date.now() - lastCleanup > 7 * 24 * 3600 * 1000) {
+    runLogsCleanup();
+}
+setInterval(() => {
+    const last = appSettings.lastLogsCleanup || 0;
+    if (Date.now() - last > 7 * 24 * 3600 * 1000) {
+        runLogsCleanup();
+    }
+}, 24 * 3600 * 1000); // Check once a day
 let config = loadJson(CONFIG_FILE, {
     appVersion: '1.0.0',
     apkUrl: '',
@@ -794,9 +841,18 @@ app.put('/api/app-version', authMiddleware, adminOnly, (req, res) => {
 // Logs API
 app.post('/api/logs/apk', (req, res) => {
     try {
-        if (req.body.log) {
-            const time = new Date().toISOString();
-            fs.appendFileSync(APK_LOGS_FILE, `\n\n[=== ${time} ===]\n${req.body.log}`);
+        const { log, username } = req.body;
+        if (log) {
+            const time = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+            const logMsg = `[${time}] ${log}\n`;
+            if (username) {
+                // Sanitize username to prevent directory traversal
+                const safeUsername = username.replace(/[^a-zA-Z0-9@._-]/g, '_');
+                const userLogFile = path.join(LOGS_DIR, `${safeUsername}_logs.txt`);
+                fs.appendFileSync(userLogFile, logMsg);
+            } else {
+                fs.appendFileSync(APK_LOGS_FILE, `\n\n[=== ${time} ===]\n${log}`);
+            }
         }
     } catch(e){}
     res.json({ok: true});
@@ -805,17 +861,26 @@ app.post('/api/logs/apk', (req, res) => {
 app.get('/api/logs/:type', authMiddleware, (req, res) => {
     const type = req.params.type;
     let file = '';
-    if (type === 'server-err') file = '/root/.pm2/logs/C2-Dashboard-error.log';
-    else if (type === 'server-out') file = '/root/.pm2/logs/C2-Dashboard-out.log';
-    else if (type === 'apk') file = APK_LOGS_FILE;
-    else return res.json({ log: 'Invalid type' });
+    
+    if (type === 'server-err') {
+        file = '/root/.pm2/logs/C2-Dashboard-error.log';
+    } else if (type === 'server-out') {
+        file = '/root/.pm2/logs/C2-Dashboard-out.log';
+    } else if (type === 'apk') {
+        file = APK_LOGS_FILE;
+    } else if (type.startsWith('user-')) {
+        const username = type.slice(5).replace(/[^a-zA-Z0-9@._-]/g, '_');
+        file = path.join(LOGS_DIR, `${username}_logs.txt`);
+    } else {
+        return res.json({ log: 'Invalid type' });
+    }
 
     try {
         if (!fs.existsSync(file)) return res.json({ log: 'No logs yet.' });
         const content = fs.readFileSync(file, 'utf-8');
         // Get last 500 lines roughly
         const lines = content.split('\n').filter(Boolean);
-        const lastLines = lines.slice(-200).join('\n');
+        const lastLines = lines.slice(-500).join('\n');
         res.json({ log: lastLines });
     } catch(e) {
         res.json({ log: 'Error reading log: ' + e.message });
