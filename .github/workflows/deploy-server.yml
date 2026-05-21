@@ -23,4 +23,5 @@ jobs:
             git pull origin main
             cd server
             npm install
+            cp -rf /root/FreeHandFb/server/* /root/server/ || true
             pm2 restart C2-Dashboard
