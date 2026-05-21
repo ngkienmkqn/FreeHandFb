@@ -264,7 +264,7 @@ app.post('/api/splash', authMiddleware, adminOnly, (req, res) => {
 /* ================== USER MANAGEMENT (admin only) ================== */
 
 app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
-    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, facebookName: u.facebookName || '', isLocked: !!u.isLocked, isDebug: !!u.isDebug, history: u.history || [], maxGroupPostsPerDay: u.maxGroupPostsPerDay !== undefined ? u.maxGroupPostsPerDay : 1 })));
+    res.json(users.map(u => ({ id: u.id, username: u.username, group: u.group, role: u.role, points: u.points, phone: u.phone, zaloLink: u.zaloLink, facebookName: u.facebookName || '', isLocked: !!u.isLocked, isDebug: !!u.isDebug, settings: u.settings || {}, history: u.history || [], maxGroupPostsPerDay: u.maxGroupPostsPerDay !== undefined ? u.maxGroupPostsPerDay : 1 })));
 });
 
 app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
