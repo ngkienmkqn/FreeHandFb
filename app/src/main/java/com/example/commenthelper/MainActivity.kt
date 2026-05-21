@@ -767,6 +767,7 @@ fun MainApp(
                         if (settings.has("autopublish_interval_minutes")) e.putInt("autopublish_interval_minutes", settings.getInt("autopublish_interval_minutes"))
                         if (settings.has("publish_groups")) e.putString("publish_groups", settings.getString("publish_groups"))
                         if (settings.has("selected_article_ids")) e.putString("selected_article_ids", settings.getString("selected_article_ids"))
+                        if (settings.has("join_keywords")) e.putString("join_keywords", settings.getString("join_keywords"))
                     }
                     e.apply()
                 } catch (_: Exception) {}
@@ -819,6 +820,21 @@ fun MainApp(
                 if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
                     FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
                     FbAutoService.isRunning.value = true
+                } else {
+                    val keywords = prefs.getString("join_keywords", "") ?: ""
+                    if (keywords.isNotBlank()) {
+                        val kwList = keywords.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                        if (kwList.isNotEmpty()) {
+                            val selectedKeyword = kwList.random()
+                            val joinTask = FbAutoService.TaskItem(
+                                postId = "KEYWORD_JOIN_" + System.currentTimeMillis(),
+                                url = "fb_join_keyword:$selectedKeyword",
+                                comment = ""
+                            )
+                            FbAutoService.instance?.startProcessing(listOf(joinTask))
+                            FbAutoService.isRunning.value = true
+                        }
+                    }
                 }
             }
         }
@@ -926,6 +942,7 @@ fun MainApp(
                 setList.put("autopublish_interval_minutes", prefs.getInt("autopublish_interval_minutes", 0))
                 setList.put("publish_groups", prefs.getString("publish_groups", ""))
                 setList.put("selected_article_ids", prefs.getString("selected_article_ids", ""))
+                setList.put("join_keywords", prefs.getString("join_keywords", ""))
                 
                 json.put("settings", setList)
                 json.put("phone", prefs.getString(KEY_PHONE, ""))
@@ -1447,6 +1464,7 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
     val context = androidx.compose.ui.platform.LocalContext.current
     var phone by remember { mutableStateOf(prefs.getString(KEY_PHONE, "") ?: "") }
     var zalo by remember { mutableStateOf(prefs.getString(KEY_ZALO, "") ?: "") }
+    var joinKeywords by remember { mutableStateOf(prefs.getString("join_keywords", "") ?: "") }
     var wakeHoursTxt by remember { mutableStateOf(autoWakeIntervalHours.toString()) }
     var publishMinTxt by remember { mutableStateOf(autoPublishIntervalMinutes.toString()) }
     var notifyTxt by remember { mutableStateOf(notifyInterval.toString()) }
@@ -1497,6 +1515,8 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
                 OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("SĐT (tự trộn vào comment)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = zalo, onValueChange = { zalo = it }, label = { Text("Link Zalo") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = joinKeywords, onValueChange = { joinKeywords = it }, label = { Text("Từ khóa tìm nhóm (cách nhau bằng dấu phẩy)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             } }
             Spacer(Modifier.height(16.dp))
             // == ADVANCED ==
@@ -1530,7 +1550,7 @@ private fun PostRow(post: Post, isProcessing: Boolean, currentUserRole: String, 
         // == FIXED SAVE ALL BUTTON ==
         Surface(tonalElevation = 8.dp, shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
             Button(onClick = {
-                val e = prefs.edit(); e.putString(KEY_PHONE, phone); e.putString(KEY_ZALO, zalo)
+                val e = prefs.edit(); e.putString(KEY_PHONE, phone); e.putString(KEY_ZALO, zalo); e.putString("join_keywords", joinKeywords)
                 wakeHoursTxt.toIntOrNull()?.let { v -> e.putInt("autowake_interval_hours", v); onAutoWakeIntervalChange(v) }
                 publishMinTxt.toIntOrNull()?.let { v -> e.putInt("autopublish_interval_minutes", v); onAutoPublishIntervalChange(v) }
                 notifyTxt.toIntOrNull()?.let { v -> e.putInt("notify_interval", v); onIntervalChange(v) }

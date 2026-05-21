@@ -575,6 +575,22 @@ class FbAutoService : AccessibilityService() {
             }, 2000)
             return
         }
+
+        if (task.url.startsWith("fb_join_keyword:")) {
+            currentStep = Step.WAITING_FOR_FB_LOAD
+            retryCount = 0
+            healingCount = 0
+            multiSelectClicked = false
+            Log.d(TAG, "Processing keyword group-joining task: ${task.url}")
+            
+            forceStopFacebook()
+            handler.postDelayed({
+                val kw = task.url.substringAfter("fb_join_keyword:")
+                openFacebookLink("fb://search/groups?query=$kw")
+                startRetryChecker()
+            }, 2000)
+            return
+        }
         
         currentStep = Step.WAITING_FOR_FB_LOAD
         retryCount = 0
@@ -1916,26 +1932,39 @@ class FbAutoService : AccessibilityService() {
             val cd = cm.primaryClip
             if (cd != null && cd.itemCount > 0) {
                 val copiedLink = cd.getItemAt(0).text?.toString() ?: ""
-                if (copiedLink.contains("facebook.com")) {
-                    Log.d(TAG, "Extracted link successfully: $copiedLink")
-                    val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
-                    val token = prefs.getString("auth_token", "")
-                    if (!token.isNullOrBlank()) {
-                        Thread {
-                            try {
-                                val urlObj = java.net.URL("http://dt.ungthien.com/api/posts/bulk")
-                                val conn = urlObj.openConnection() as java.net.HttpURLConnection
-                                conn.requestMethod = "POST"
-                                conn.setRequestProperty("Authorization", "Bearer $token")
-                                conn.setRequestProperty("Content-Type", "application/json")
-                                conn.doOutput = true
-                                val titleJson = task.comment.substring(0, Math.min(task.comment.length, 30)).replace("\n", " ")
-                                val payload = """{"items": [{"url": "$copiedLink", "title": "[TỰ ĐỘNG] $titleJson..."}]}"""
-                                conn.outputStream.write(payload.toByteArray())
-                                val rc = conn.responseCode
-                                Log.d(TAG, "Bulk submit seeded back: $rc")
-                            } catch (e: Exception) { Log.e(TAG, "C2 submit link failed", e) }
-                        }.start()
+                if (copiedLink.contains("facebook.com") || copiedLink.contains("fb.com")) {
+                    // Check if it's a pure group link (not a post)
+                    val isPureGroup = copiedLink.contains("/groups/") && 
+                        !copiedLink.contains("/posts/") && 
+                        !copiedLink.contains("/permalink/") && 
+                        !copiedLink.contains("/permalink.php") &&
+                        !copiedLink.contains("multi_permalinks") &&
+                        !copiedLink.contains("story_fbid")
+                        
+                    if (isPureGroup) {
+                        debugLog("⚠️ Bỏ qua link nhóm (không phải bài viết): $copiedLink")
+                        Log.w(TAG, "Skipping pure group link: $copiedLink")
+                    } else {
+                        Log.d(TAG, "Extracted link successfully: $copiedLink")
+                        val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
+                        val token = prefs.getString("auth_token", "")
+                        if (!token.isNullOrBlank()) {
+                            Thread {
+                                try {
+                                    val urlObj = java.net.URL("http://dt.ungthien.com/api/posts/bulk")
+                                    val conn = urlObj.openConnection() as java.net.HttpURLConnection
+                                    conn.requestMethod = "POST"
+                                    conn.setRequestProperty("Authorization", "Bearer $token")
+                                    conn.setRequestProperty("Content-Type", "application/json")
+                                    conn.doOutput = true
+                                    val titleJson = task.comment.substring(0, Math.min(task.comment.length, 30)).replace("\n", " ")
+                                    val payload = """{"items": [{"url": "$copiedLink", "title": "[TỰ ĐỘNG] $titleJson..."}]}"""
+                                    conn.outputStream.write(payload.toByteArray())
+                                    val rc = conn.responseCode
+                                    Log.d(TAG, "Bulk submit seeded back: $rc")
+                                } catch (e: Exception) { Log.e(TAG, "C2 submit link failed", e) }
+                            }.start()
+                        }
                     }
                 }
             }
