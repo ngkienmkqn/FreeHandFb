@@ -12,13 +12,25 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to VPS
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Copy Server Files to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "server/**"
+          target: "/root"
+
+      - name: Restart C2-Dashboard via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            ls -la /root
-            find /root -maxdepth 2 -name ".git" || true
+            cd /root/server
+            npm install
             pm2 restart C2-Dashboard
