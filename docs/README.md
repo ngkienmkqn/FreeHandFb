@@ -50,6 +50,8 @@
     - **Khi Facebook đổi giao diện**: Chỉ cần gọi `POST` API (hoặc sửa thẳng file `data/engine.js`) để viết lại hàm xử lý (VD: `interceptWrongScreen`). Toàn bộ máy Android sẽ tự nhận version mới và chạy code JS mới trong phiên cày tiếp theo. KHÔNG cần `pm2 restart` server.
   - **Data Persistence**: Lưu trữ dữ liệu bằng file JSON phẳng (`users.json`, `posts.json`, `articles.json`) tại thư mục `server/data/`. Không dùng database.
   - **Universal Cloud Synchronization**: Cấu hình của app điện thoại (`SharedPreferences` như SĐT, Zalo, Lịch hẹn giờ, Bài viết Spintax đã chọn) được đồng bộ hóa toàn diện vào `user.settings` trên VPS qua `PUT /api/me`. Khi cài lại thiết bị, chế độ **Zero-Touch Recovery** tự động pull `GET /api/me` lấy lại cấu hình.
+  - **User-Isolated Logging System**: API `/api/logs/apk` tự động ghi log được phân mảnh theo tên người dùng (`data/logs/<username>_logs.txt`). Admin có thể truy vấn trực tiếp 500 dòng log gần nhất của một user bất kỳ qua `/api/logs/user-<username>`.
+  - **Weekly Logs GC (Dọn rác tự động)**: Hệ thống `runLogsCleanup` chạy hằng ngày (an toàn qua restarts nhờ lưu trạng thái `lastLogsCleanup` trong `settings.json`) sẽ tự động xóa các log của người dùng cũ hơn 7 ngày và dọn trống file monolithic `apk_logs.txt`.
 
 ### B. Client Node (Native Android App) — Thư mục `app/`
 - **Vai trò**: Máy Cày (The Worker). Ứng dụng chạy nền, thu nhận lệnh và thực thi trên điện thoại.
@@ -67,7 +69,8 @@
     - Kích hoạt máy quét X-RAY: Chụp toàn bộ 50 phần tử UI (có chứa chữ) trên màn hình và in vào Log để phân tích từ xa.
     - Giao quyền kiểm soát cho các function JS (`callJsFunction`) để tự đưa ra phác đồ điều trị.
     - Giới hạn 3 lần chữa/bài viết. Khôi phục `healingCount` khi chuyển bài mới (ngăn chặn Bug dồn sát thương).
-  - **Log Management**: Tự động dọn dẹp `debug_logs.txt` định kỳ (3 ngày/lần vào lúc 3h sáng) và giới hạn dung lượng 2MB để tránh phình to bộ nhớ máy.
+  - **Log Management**: Tự động dọn dẹp `debug_logs.txt` định kỳ (3 ngày/lần vào lúc 3h sáng) và giới hạn dung lượng 2MB. Đồng thời, bộ lọc `isHighValueLog` sẽ lọc bỏ các log thăm dò lặp lại liên tục, chỉ tải lên server các log sự kiện/lỗi thực tế cùng `username` tương ứng một cách bất đồng bộ để phục vụ việc giám sát trực tiếp.
+  - **Crash Logging Integration**: Bắt các sự kiện crash ứng dụng chưa được xử lý tại `MainActivity` để thu thập `stackTrace`, đính kèm `username` và gửi trực tiếp tới máy chủ chỉ huy.
   - **OTA Version Selector**: Dropdown trong Settings UI cho phép user chọn phiên bản Script OTA cụ thể (mặc định `latest`).
   - **Spintax Engine**: Biến `{PHONE}`, `{ZALO}` / `{ZALO_LINK}` và spin `{A|B|C}` ngay trên thiết bị.
   - **Auto Image Picker**: Tải ảnh → lưu `MediaStore` → bấm "Chọn nhiều file" → chọn từng ảnh với delay OTA-configurable → bấm "Tiếp". Debug Toast hiện từng bước.
@@ -75,6 +78,7 @@
   - **Select All / Deselect All**: Nút chọn/bỏ tất cả bài mẫu cho Robot Auto hàng loạt.
   - **FORCE_RUN**: Nút "Chạy Ngay" bypass khung giờ hoạt động và block timeout.
   - **Safety Interceptor**: Quét màn hình liên tục mỗi 800ms để phát hiện Action Block, Dead Links, Share Sheet/Messenger → tự động bấm BACK hoặc Halt bảo vệ tài khoản.
+  - **Visible Self-Comment Scan (Chống bình luận trùng)**: Tại bước gõ comment, hệ thống sẽ thực hiện quét toàn bộ phần tử văn bản trên màn hình. Nếu phát hiện bình luận của tài khoản Facebook hiện tại (`fbProfileName` học được ở runtime hoặc `facebookName` khai báo), hệ thống sẽ chủ động bỏ qua bước bình luận và lập tức đánh dấu hoàn tất để chuyển sang bài viết khác.
 
 ---
 
@@ -278,6 +282,8 @@ git push origin main
 
 | Ngày | Component | Thay đổi |
 |------|-----------|----------|
+| **21/05/2026** | Server/App | **Log Phân Mảnh Theo User & Cơ Chế GC Hằng Tuần:** Ghi log theo từng user riêng biệt; tự động dọn dẹp các log cũ hơn 7 ngày hằng tuần; bổ sung API xem trực tiếp log của từng user cho Admin trên web. Android client tự lọc log nhiễu và đính kèm username khi báo crash. |
+| **21/05/2026** | App/Server | **Ngăn Chặn Comment Trùng Lặp (Dual-Layer):** Sửa lỗi kiểm tra trạng thái tương tác từ server (chuyển đổi từ `completedBy` sang `interactedBy`); bổ sung kịch bản quét màn hình phát hiện comment của bản thân trước khi tương tác để tự động skip. |
 | **02/05/2026** | App/Server | **Chuyển đổi HTTP Polling sang Socket.io Real-time Push:** Đồng bộ trạng thái bài viết ngay lập tức giữa các máy trong cùng nhóm khi có thao tác thêm/xóa/tương tác bài. |
 | **02/05/2026** | App | **Sửa lỗi lọc Tab "Cần Giúp":** Bổ sung điều kiện kiểm tra `interactedBy` giúp bài viết lập tức bị ẩn khỏi Tab Cần Giúp với người vừa tương tác, dù trạng thái Global vẫn là PENDING. |
 | **02/05/2026** | Server | **Tích hợp CI/CD:** Thêm GitHub Actions (`deploy-server.yml`) cho phép Auto-Deploy lên VPS qua SSH Key khi push code. |
