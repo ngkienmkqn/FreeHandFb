@@ -43,5 +43,11 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("io.socket:socket.io-client:2.1.0")
-    implementation("org.mozilla:rhino:1.7.13")
+    implementation("org.mozilla:rhino:1.7.12")
+}
+
+configurations.all {
+    resolutionStrategy {
+        force("org.mozilla:rhino:1.7.12")
+    }
 }
