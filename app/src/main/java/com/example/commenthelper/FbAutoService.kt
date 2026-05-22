@@ -2442,6 +2442,7 @@ class FbAutoService : AccessibilityService() {
         stopRequested.value = false
         healingCount = 0
         multiSelectClicked = false
+        isMarkingDone = false
         processedNotifications.clear()
         handler.removeCallbacksAndMessages(null)
         try {
