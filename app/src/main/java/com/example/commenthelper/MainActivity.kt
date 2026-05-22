@@ -447,6 +447,21 @@ class MainActivity : ComponentActivity() {
             }
             intent.removeExtra("EXTRA_AUTO_PUBLISH")
         }
+        
+        if (intent.getBooleanExtra("EXTRA_KEYWORD_JOIN", false)) {
+            val keyword = intent.getStringExtra("EXTRA_KEYWORD") ?: ""
+            if (keyword.isNotBlank()) {
+                val joinTask = FbAutoService.TaskItem(
+                    postId = "KEYWORD_JOIN_" + System.currentTimeMillis(),
+                    url = "fb_join_keyword:$keyword",
+                    comment = ""
+                )
+                FbAutoService.instance?.startProcessing(listOf(joinTask))
+                FbAutoService.isRunning.value = true
+                android.widget.Toast.makeText(this, "Hết nhóm đăng bài. Tự động tìm & tham gia nhóm: $keyword", android.widget.Toast.LENGTH_LONG).show()
+            }
+            intent.removeExtra("EXTRA_KEYWORD_JOIN")
+        }
     }
 
     override fun onDestroy() { super.onDestroy(); try { unregisterReceiver(localReceiver) } catch (_: Exception) {} }
@@ -983,25 +998,9 @@ fun MainApp(
                                     if (!isFbInstalled) {
                                         toast(context, "Cần cài Facebook trước!")
                                     } else if (pendingPosts.isEmpty()) {
-                                        val keywords = prefs.getString("join_keywords", "") ?: ""
-                                        if (keywords.isNotBlank()) {
-                                            toast(context, "Không có bài cần tương tác. Bắt đầu tự động tìm & tham gia nhóm...")
-                                            val kwList = keywords.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                                            if (kwList.isNotEmpty()) {
-                                                val selectedKeyword = kwList.random()
-                                                val joinTask = FbAutoService.TaskItem(
-                                                    postId = "KEYWORD_JOIN_" + System.currentTimeMillis(),
-                                                    url = "fb_join_keyword:$selectedKeyword",
-                                                    comment = ""
-                                                )
-                                                FbAutoService.instance?.startProcessing(listOf(joinTask))
-                                                FbAutoService.isRunning.value = true
-                                            }
-                                        } else {
-                                            toast(context, "Không có bài cần tương tác. Đang kích hoạt tiến trình đăng bài nhóm...")
-                                            val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
-                                            androidx.work.WorkManager.getInstance(context).enqueue(req)
-                                        }
+                                        toast(context, "Không có bài cần tương tác. Đang kích hoạt tiến trình đăng bài nhóm...")
+                                        val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                                        androidx.work.WorkManager.getInstance(context).enqueue(req)
                                     } else if (templates.isEmpty()) {
                                         toast(context, "Đang tải comments, chờ chút...")
                                     } else {
@@ -1076,25 +1075,9 @@ fun MainApp(
                         if (!isFbInstalled) {
                             toast(context, "Lỗi: Không tìm thấy ứng dụng Facebook. Vui lòng cài đặt Facebook và đăng nhập trước!")
                         } else if (pendingPosts.isEmpty()) { 
-                            val keywords = prefs.getString("join_keywords", "") ?: ""
-                            if (keywords.isNotBlank()) {
-                                toast(context, "Không có bài chưa làm. Bắt đầu tự động tìm & tham gia nhóm...")
-                                val kwList = keywords.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                                if (kwList.isNotEmpty()) {
-                                    val selectedKeyword = kwList.random()
-                                    val joinTask = FbAutoService.TaskItem(
-                                        postId = "KEYWORD_JOIN_" + System.currentTimeMillis(),
-                                        url = "fb_join_keyword:$selectedKeyword",
-                                        comment = ""
-                                    )
-                                    FbAutoService.instance?.startProcessing(listOf(joinTask))
-                                    FbAutoService.isRunning.value = true
-                                }
-                            } else {
-                                toast(context, "Không có bài chưa làm. Đang kích hoạt tiến trình đăng bài nhóm...")
-                                val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
-                                androidx.work.WorkManager.getInstance(context).enqueue(req)
-                            }
+                            toast(context, "Không có bài chưa làm. Đang kích hoạt tiến trình đăng bài nhóm...")
+                            val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                            androidx.work.WorkManager.getInstance(context).enqueue(req)
                         } else if (templates.isEmpty()) { 
                             toast(context, "Đang tải Comments mặc định, chờ chút.")
                         } else {

@@ -66,7 +66,8 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
                 val arr = JSONArray(historyRes.second!!)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
-                    if (o.optString("addedBy") == username && o.optLong("addedAt", 0) >= startOfDay) {
+                    val isDone = o.optString("status") == "DONE"
+                    if (isDone && o.optString("addedBy") == username && o.optLong("addedAt", 0) >= startOfDay) {
                         todayTotalPosts++
                         val urlMatch = Regex("/groups/([0-9a-zA-Z._-]+)/?").find(o.getString("url"))
                         urlMatch?.let { 
@@ -97,7 +98,24 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
             groupId == null || (postedFbGroupCounts[groupId] ?: 0) < maxGroupPosts
         }
 
-        if (targetGroups.isEmpty()) return@withContext Result.success()
+        if (targetGroups.isEmpty()) {
+            Log.d("AutoPublishWorker", "No target groups available for publish today.")
+            val keywords = prefs.getString("join_keywords", "") ?: ""
+            if (keywords.isNotBlank()) {
+                val kwList = keywords.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                if (kwList.isNotEmpty()) {
+                    val selectedKeyword = kwList.random()
+                    Log.d("AutoPublishWorker", "Falling back to keyword group-joining: $selectedKeyword")
+                    val launchIntent = Intent(context, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        putExtra("EXTRA_KEYWORD_JOIN", true)
+                        putExtra("EXTRA_KEYWORD", selectedKeyword)
+                    }
+                    context.startActivity(launchIntent)
+                }
+            }
+            return@withContext Result.success()
+        }
         val groupToPost = targetGroups.random()
 
         // 4. Fetch Articles & Pick Explicit Selection
