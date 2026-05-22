@@ -880,17 +880,48 @@ class FbAutoService : AccessibilityService() {
         val jsResult = Engine.callJsFunction("interceptWrongScreen", nodes, this)
         if (jsResult is Boolean) return jsResult
 
+        // 1. Direct Discard Dialog handler - Try to click 'Bỏ bài viết' (Discard) to exit clean
+        val discardNode = nodes.firstOrNull { 
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            txt.contains("bỏ bài viết") || txt.contains("discard post") || txt.contains("discard")
+        }
+        if (discardNode != null) {
+            Log.w(TAG, "Discard dialog detected! Attempting to click 'Bỏ bài viết' (Discard) to return to main feed.")
+            var clicked = false
+            var temp: AccessibilityNodeInfo? = discardNode
+            while (temp != null) {
+                if (temp.isClickable) {
+                    clicked = temp.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+                    if (clicked) {
+                        Log.d(TAG, "Successfully clicked discard button ancestor.")
+                        break
+                    }
+                }
+                temp = temp.parent
+            }
+            if (clicked) return true
+        }
+
+        // 2. Secondary fallback - Try to click 'Tiếp tục chỉnh sửa' (Continue Editing)
         val continueEditNode = nodes.firstOrNull { 
             val txt = it.text?.toString()?.lowercase() ?: ""
             txt.contains("tiếp tục chỉnh sửa") || txt.contains("continue editing")
         }
         if (continueEditNode != null) {
-            Log.w(TAG, "Discard dialog detected! Clicking 'Tiếp tục chỉnh sửa' to return to Composer.")
-            val clicked = continueEditNode.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
-            if (!clicked) {
-                continueEditNode.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            Log.w(TAG, "Discard dialog detected! Attempting to click 'Tiếp tục chỉnh sửa' (Continue editing) to return to composer.")
+            var clicked = false
+            var temp: AccessibilityNodeInfo? = continueEditNode
+            while (temp != null) {
+                if (temp.isClickable) {
+                    clicked = temp.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+                    if (clicked) {
+                        Log.d(TAG, "Successfully clicked continue editing ancestor.")
+                        break
+                    }
+                }
+                temp = temp.parent
             }
-            return true
+            if (clicked) return true
         }
 
         val isWrongScreen = nodes.any { 
@@ -2001,6 +2032,18 @@ class FbAutoService : AccessibilityService() {
                                     conn.outputStream.write(payload.toByteArray())
                                     val rc = conn.responseCode
                                     Log.d(TAG, "Bulk submit seeded back: $rc")
+                                    if ((rc == 200 || rc == 201) && !task.postId.isNullOrBlank() && task.postId != "APPROVED_POST") {
+                                        try {
+                                            val delUrl = java.net.URL("http://dt.ungthien.com/api/posts/${task.postId}")
+                                            val delConn = delUrl.openConnection() as java.net.HttpURLConnection
+                                            delConn.requestMethod = "DELETE"
+                                            delConn.setRequestProperty("Authorization", "Bearer $token")
+                                            val delRc = delConn.responseCode
+                                            Log.d(TAG, "Deleted temporary group post: $delRc")
+                                        } catch (de: Exception) {
+                                            Log.e(TAG, "Failed to delete temporary group post", de)
+                                        }
+                                    }
                                 } catch (e: Exception) { Log.e(TAG, "C2 submit link failed", e) }
                             }.start()
                         }
@@ -2113,18 +2156,6 @@ class FbAutoService : AccessibilityService() {
                 node.className?.toString() == "android.widget.MultiAutoCompleteTextView") {
                 editNode = AccessibilityNodeInfo.obtain(node)
                 break
-            }
-        }
-        
-        if (editNode == null) {
-            // Fallback: look for common composer hints dynamically synced from server
-            for (node in nodes) {
-                val text = node.text?.toString()?.lowercase() ?: ""
-                val cd = node.contentDescription?.toString()?.lowercase() ?: ""
-                if (Engine.composeButton.any { text.contains(it) || cd.contains(it) }) {
-                    editNode = AccessibilityNodeInfo.obtain(node)
-                    break
-                }
             }
         }
         recycleNodes(nodes)

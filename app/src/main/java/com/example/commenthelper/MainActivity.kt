@@ -835,21 +835,6 @@ fun MainApp(
                 if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
                     FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
                     FbAutoService.isRunning.value = true
-                } else {
-                    val keywords = prefs.getString("join_keywords", "") ?: ""
-                    if (keywords.isNotBlank()) {
-                        val kwList = keywords.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                        if (kwList.isNotEmpty()) {
-                            val selectedKeyword = kwList.random()
-                            val joinTask = FbAutoService.TaskItem(
-                                postId = "KEYWORD_JOIN_" + System.currentTimeMillis(),
-                                url = "fb_join_keyword:$selectedKeyword",
-                                comment = ""
-                            )
-                            FbAutoService.instance?.startProcessing(listOf(joinTask))
-                            FbAutoService.isRunning.value = true
-                        }
-                    }
                 }
             }
         }

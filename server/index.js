@@ -413,7 +413,7 @@ function countTodayPosts(username) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfDay = today.getTime();
-    return posts.filter(p => p.addedBy === username && p.addedAt >= startOfDay).length;
+    return posts.filter(p => p.addedBy === username && p.addedAt >= startOfDay && !p.isPublishingGroup).length;
 }
 
 app.get('/api/posts', authMiddleware, (req, res) => {
@@ -447,7 +447,8 @@ app.post('/api/posts', authMiddleware, (req, res) => {
         const countToday = posts.filter(p => 
             p.addedBy === req.user.username && 
             p.addedAt >= startOfDay && 
-            p.url.includes(`/groups/${fbGroupId}`)
+            p.url.includes(`/groups/${fbGroupId}`) &&
+            !p.isPublishingGroup
         ).length;
         
         const limit = req.user.maxGroupPostsPerDay !== undefined ? req.user.maxGroupPostsPerDay : (appSettings.maxGroupPostsPerDay || 1);
@@ -463,7 +464,8 @@ app.post('/api/posts', authMiddleware, (req, res) => {
     const post = {
         id: genId(), url: url.trim(), title: title?.trim() || null,
         status: 'PENDING', interactedBy: [], verifications: [], group: req.user.group, ownerName: req.user.username, addedBy: req.user.username,
-        addedAt: Date.now(), interactedAt: null
+        addedAt: Date.now(), interactedAt: null,
+        isPublishingGroup: !!req.body.isPublishingGroup
     };
     posts.push(post);
     saveJson(POSTS_FILE, posts);
@@ -494,7 +496,8 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
                 const alreadyPostedToGroupToday = posts.some(p => 
                     p.addedBy === req.user.username && 
                     p.addedAt >= startOfDay && 
-                    p.url.includes(`/groups/${fbGroupId}`)
+                    p.url.includes(`/groups/${fbGroupId}`) &&
+                    !p.isPublishingGroup
                 );
                 if (alreadyPostedToGroupToday) skip = true;
             }
@@ -535,6 +538,21 @@ app.post('/api/posts/:id/verify_request', authMiddleware, (req, res) => {
     // Realtime broadcast: post was interacted
     io.to(`group:${req.user.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === req.user.group) });
 
+    res.json(post);
+});
+
+app.post('/api/posts/:id/done', authMiddleware, (req, res) => {
+    const post = posts.find(p => p.id === req.params.id && p.group === req.user.group);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    
+    post.status = 'DONE';
+    post.interactedAt = Date.now();
+    
+    saveJson(POSTS_FILE, posts);
+    
+    // Realtime broadcast: post marked done
+    io.to(`group:${post.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === post.group) });
+    
     res.json(post);
 });
 
