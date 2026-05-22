@@ -835,6 +835,10 @@ fun MainApp(
                 if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
                     FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
                     FbAutoService.isRunning.value = true
+                } else {
+                    // Trigger AutoPublishWorker since there are no pending posts
+                    val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                    androidx.work.WorkManager.getInstance(context).enqueue(req)
                 }
             }
         }
@@ -984,7 +988,9 @@ fun MainApp(
                                         toast(context, "Cần cài Facebook trước!")
                                     } else if (pendingPosts.isEmpty()) {
                                         toast(context, "Không có bài cần tương tác. Đang kích hoạt tiến trình đăng bài nhóm...")
-                                        val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                                        val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>()
+                                            .setInputData(androidx.work.Data.Builder().putBoolean("FORCE_RUN", true).build())
+                                            .build()
                                         androidx.work.WorkManager.getInstance(context).enqueue(req)
                                     } else if (templates.isEmpty()) {
                                         toast(context, "Đang tải comments, chờ chút...")
@@ -1061,7 +1067,9 @@ fun MainApp(
                             toast(context, "Lỗi: Không tìm thấy ứng dụng Facebook. Vui lòng cài đặt Facebook và đăng nhập trước!")
                         } else if (pendingPosts.isEmpty()) { 
                             toast(context, "Không có bài chưa làm. Đang kích hoạt tiến trình đăng bài nhóm...")
-                            val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                            val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>()
+                                .setInputData(androidx.work.Data.Builder().putBoolean("FORCE_RUN", true).build())
+                                .build()
                             androidx.work.WorkManager.getInstance(context).enqueue(req)
                         } else if (templates.isEmpty()) { 
                             toast(context, "Đang tải Comments mặc định, chờ chút.")
@@ -1098,7 +1106,9 @@ fun MainApp(
                     },
                     onTriggerNow = {
                         val wm = androidx.work.WorkManager.getInstance(context)
-                        val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>().build()
+                        val req = androidx.work.OneTimeWorkRequestBuilder<AutoPublishWorker>()
+                            .setInputData(androidx.work.Data.Builder().putBoolean("FORCE_RUN", true).build())
+                            .build()
                         wm.enqueue(req)
                         toast(context, "Đã kích hoạt ngầm 1 luồng thả Bài!")
                     },

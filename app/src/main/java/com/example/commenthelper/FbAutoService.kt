@@ -887,19 +887,15 @@ class FbAutoService : AccessibilityService() {
         }
         if (discardNode != null) {
             Log.w(TAG, "Discard dialog detected! Attempting to click 'Bỏ bài viết' (Discard) to return to main feed.")
-            var clicked = false
             var temp: AccessibilityNodeInfo? = discardNode
             while (temp != null) {
-                if (temp.isClickable) {
-                    clicked = temp.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
-                    if (clicked) {
-                        Log.d(TAG, "Successfully clicked discard button ancestor.")
-                        break
-                    }
+                val clicked = temp.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+                if (clicked) {
+                    Log.d(TAG, "Successfully clicked discard button ancestor.")
+                    return true
                 }
                 temp = temp.parent
             }
-            if (clicked) return true
         }
 
         // 2. Secondary fallback - Try to click 'Tiếp tục chỉnh sửa' (Continue Editing)
@@ -909,19 +905,15 @@ class FbAutoService : AccessibilityService() {
         }
         if (continueEditNode != null) {
             Log.w(TAG, "Discard dialog detected! Attempting to click 'Tiếp tục chỉnh sửa' (Continue editing) to return to composer.")
-            var clicked = false
             var temp: AccessibilityNodeInfo? = continueEditNode
             while (temp != null) {
-                if (temp.isClickable) {
-                    clicked = temp.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
-                    if (clicked) {
-                        Log.d(TAG, "Successfully clicked continue editing ancestor.")
-                        break
-                    }
+                val clicked = temp.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+                if (clicked) {
+                    Log.d(TAG, "Successfully clicked continue editing ancestor.")
+                    return true
                 }
                 temp = temp.parent
             }
-            if (clicked) return true
         }
 
         val isWrongScreen = nodes.any { 
