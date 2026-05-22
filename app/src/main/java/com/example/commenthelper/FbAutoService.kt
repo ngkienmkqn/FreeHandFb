@@ -318,7 +318,8 @@ class FbAutoService : AccessibilityService() {
         val hasGalleryUI = nodes.any { 
             val txt = it.text?.toString()?.lowercase() ?: ""
             val cd = it.contentDescription?.toString()?.lowercase() ?: ""
-            txt.contains("tiếp") || cd.contains("tiếp") || txt.contains("chọn nhiều") || cd.contains("chọn nhiều")
+            (txt == "tiếp" || cd == "tiếp" || txt == "tiếp tục" || cd == "tiếp tục" || txt.contains("chọn nhiều") || cd.contains("chọn nhiều")) &&
+            !txt.contains("chỉnh sửa") && !cd.contains("chỉnh sửa")
         }
         if (hasGalleryUI) result = ScreenType.GALLERY
 
@@ -879,6 +880,19 @@ class FbAutoService : AccessibilityService() {
         val jsResult = Engine.callJsFunction("interceptWrongScreen", nodes, this)
         if (jsResult is Boolean) return jsResult
 
+        val continueEditNode = nodes.firstOrNull { 
+            val txt = it.text?.toString()?.lowercase() ?: ""
+            txt.contains("tiếp tục chỉnh sửa") || txt.contains("continue editing")
+        }
+        if (continueEditNode != null) {
+            Log.w(TAG, "Discard dialog detected! Clicking 'Tiếp tục chỉnh sửa' to return to Composer.")
+            val clicked = continueEditNode.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+            if (!clicked) {
+                continueEditNode.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+            return true
+        }
+
         val isWrongScreen = nodes.any { 
             val txt = it.text?.toString()?.lowercase() ?: ""
             Engine.wrongScreen.any { wrongStr -> txt.contains(wrongStr) }
@@ -1027,6 +1041,19 @@ class FbAutoService : AccessibilityService() {
         if (retryCount >= 10 && retryCount % 5 == 0) dumpScreenToLog("WAITING_FOR_FB_LOAD")
         val root = rootInActiveWindow ?: return
         
+        val task = currentTask
+        if (task != null && task.url.startsWith("fb_join_keyword:")) {
+            // For keyword group-joining, wait 15 seconds to let DOM interceptors click join buttons, then succeed
+            if (retryCount >= 30) {
+                debugLog("✅ Đã hoàn thành tìm kiếm và tham gia nhóm cho từ khóa.")
+                markCurrentDone(success = true)
+            } else {
+                setNextStepDelay(500)
+            }
+            root.recycle()
+            return
+        }
+
         val allNodes = findAllNodes(root)
         
         // Dead link check takes absolute priority
