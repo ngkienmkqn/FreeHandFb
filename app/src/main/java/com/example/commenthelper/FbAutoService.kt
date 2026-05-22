@@ -150,7 +150,7 @@ class FbAutoService : AccessibilityService() {
                 }
                 
                 Log.d(TAG, "OTA Engine loaded. Version: $version. GalleryDelay: ${galleryClickDelay}ms")
-            } catch(e: Exception) { Log.e(TAG, "Failed loading OTA script/JS", e) }
+            } catch(e: Throwable) { Log.e(TAG, "Failed loading OTA script/JS", e) }
         }
         
         fun callJsFunction(funcName: String, vararg args: Any): Any? {
@@ -550,7 +550,7 @@ class FbAutoService : AccessibilityService() {
                         }
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Hot-Reload check failed", e)
             }
             
