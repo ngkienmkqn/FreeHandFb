@@ -831,7 +831,7 @@ fun MainApp(
             // After publishing (or any queue) finishes, sync and check for new pending interactions
             scope.launch {
                 syncWithServer()
-                val pendingPosts = currentPosts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(currentUsername) && it.addedBy != currentUsername && !failedPostIds.contains(it.id) }
+                val pendingPosts = currentPosts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(currentUsername) && it.addedBy != currentUsername && !failedPostIds.contains(it.id) && isCommentablePost(it.url) }
                 if (pendingPosts.isNotEmpty() && currentTemplates.isNotEmpty()) {
                     FbAutoService.instance?.startProcessing(pendingPosts.map { p -> FbAutoService.TaskItem(p.id, p.url, currentTemplates.random()) })
                     FbAutoService.isRunning.value = true
@@ -895,7 +895,7 @@ fun MainApp(
     // Unattended Auto Start
     LaunchedEffect(posts, autoStart, isServiceEnabled) {
         if (autoStart && isServiceEnabled) {
-            val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username }
+            val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username && isCommentablePost(it.url) }
             if (pendingPosts.isNotEmpty()) {
                 val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                 if (!isFbInstalled) {
@@ -982,7 +982,7 @@ fun MainApp(
                                     openAccessibilitySettings(context)
                                 } else {
                                     // Master Start: sync → interact pending → then schedule publish
-                                    val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username }
+                                    val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username && isCommentablePost(it.url) }
                                     val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                                     if (!isFbInstalled) {
                                         toast(context, "Cần cài Facebook trước!")
@@ -1060,7 +1060,7 @@ fun MainApp(
                     onRefresh = { syncWithServer() },
                     onRequestPermission = { openAccessibilitySettings(context) },
                     onStartAuto = {
-                        val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username }
+                        val pendingPosts = posts.filter { it.status == PostStatus.PENDING && !it.interactedBy.contains(username) && it.addedBy != username && isCommentablePost(it.url) }
                         val isFbInstalled = try { context.packageManager.getPackageInfo("com.facebook.katana", 0); true } catch (e: Exception) { false }
                         
                         if (!isFbInstalled) {
@@ -2026,3 +2026,15 @@ private fun showNotification(context: Context, text: String) {
         }
     }
 }
+
+private fun isCommentablePost(url: String): Boolean {
+    if (url.contains("/groups/")) {
+        return url.contains("/posts/") || 
+               url.contains("/permalink/") || 
+               url.contains("/permalink.php") || 
+               url.contains("multi_permalinks") || 
+               url.contains("story_fbid")
+    }
+    return true
+}
+

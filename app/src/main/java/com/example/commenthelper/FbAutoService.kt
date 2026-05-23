@@ -323,15 +323,20 @@ class FbAutoService : AccessibilityService() {
         }
         if (hasGalleryUI) result = ScreenType.GALLERY
 
-        // 2. Composer check (Tạo bài viết, Bạn đang nghĩ gì, or Thêm ảnh)
+        // 2. Composer check (Tạo bài viết, Bạn đang nghĩ gì, or Thêm ảnh with an active EditText)
         if (result == ScreenType.UNKNOWN) {
+            val hasEditText = nodes.any { 
+                it.isEditable || 
+                it.className?.toString() == "android.widget.EditText" || 
+                it.className?.toString() == "android.widget.MultiAutoCompleteTextView"
+            }
             val hasComposerUI = nodes.any {
                 val txt = it.text?.toString()?.lowercase() ?: ""
                 val cd = it.contentDescription?.toString()?.lowercase() ?: ""
                 Engine.composeButton.any { cb -> txt.contains(cb) || cd.contains(cb) } ||
                 Engine.photoButton.any { pb -> txt.contains(pb) || cd.contains(pb) }
             }
-            if (hasComposerUI) result = ScreenType.COMPOSER
+            if (hasComposerUI && hasEditText) result = ScreenType.COMPOSER
         }
 
         // 3. Post options sheet (Share/Copy link)
@@ -1265,10 +1270,7 @@ class FbAutoService : AccessibilityService() {
             val commentPlaceholder = findCommentPlaceholder(root)
             if (commentPlaceholder != null) {
                 Log.d(TAG, "Clicking comment placeholder to open input")
-                commentPlaceholder.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                if (!commentPlaceholder.isClickable) {
-                    commentPlaceholder.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                }
+                performClick(commentPlaceholder)
                 commentPlaceholder.recycle()
                 root.recycle()
                 // Wait and retry
@@ -1357,8 +1359,7 @@ class FbAutoService : AccessibilityService() {
         if (composer != null) {
             debugLog("✅ Tìm thấy ô Soạn bài! Đang mở...")
             dumpScreenToLog("COMPOSER_FOUND")
-            composer.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (!composer.isClickable) composer.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            performClick(composer)
             composer.recycle()
             
             currentStep = Step.WAITING_FOR_COMPOSER_INPUT
@@ -1424,8 +1425,7 @@ class FbAutoService : AccessibilityService() {
         if (photoBtn != null) {
             debugLog("✅ Tìm thấy nút Thêm Ảnh! Đang mở Gallery...")
             dumpScreenToLog("PHOTO_BUTTON_FOUND")
-            photoBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (!photoBtn.isClickable) photoBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            performClick(photoBtn)
             photoBtn.recycle()
             
             currentStep = Step.SELECTING_PHOTOS
@@ -2303,6 +2303,18 @@ class FbAutoService : AccessibilityService() {
         return list
     }
 
+    private fun performClick(node: AccessibilityNodeInfo?): Boolean {
+        var temp = node
+        while (temp != null) {
+            if (temp.isClickable) {
+                val success = temp.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (success) return true
+            }
+            temp = temp.parent
+        }
+        return node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+    }
+
     /* ================== STATE MANAGEMENT ================== */
 
     private var isMarkingDone = false
@@ -2313,6 +2325,12 @@ class FbAutoService : AccessibilityService() {
             return
         }
         isMarkingDone = true
+        handler.postDelayed({
+            if (isMarkingDone) {
+                debugLog("⚠️ Khôi phục isMarkingDone về false do quá thời gian chờ chuyển bài.")
+                isMarkingDone = false
+            }
+        }, 15000)
 
         val task = currentTask ?: run {
             isMarkingDone = false
