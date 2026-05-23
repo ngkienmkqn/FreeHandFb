@@ -416,6 +416,18 @@ function countTodayPosts(username) {
     return posts.filter(p => p.addedBy === username && p.addedAt >= startOfDay && !p.isPublishingGroup).length;
 }
 
+function isCommentablePost(url) {
+    if (!url) return false;
+    if (url.includes("/groups/")) {
+        return url.includes("/posts/") || 
+               url.includes("/permalink/") || 
+               url.includes("/permalink.php") || 
+               url.includes("multi_permalinks") || 
+               url.includes("story_fbid");
+    }
+    return true;
+}
+
 app.get('/api/posts', authMiddleware, (req, res) => {
     // Admin can filter by group or see all
     if (req.user.role === 'admin') {
@@ -423,7 +435,8 @@ app.get('/api/posts', authMiddleware, (req, res) => {
         const result = g ? posts.filter(p => p.group === g) : posts;
         return res.json(result);
     }
-    res.json(posts.filter(p => p.group === req.user.group));
+    const filtered = posts.filter(p => p.group === req.user.group && !p.isPublishingGroup && isCommentablePost(p.url));
+    res.json(filtered);
 });
 
 app.post('/api/posts', authMiddleware, (req, res) => {

@@ -443,6 +443,22 @@ class MainActivity : ComponentActivity() {
                         downloadImages(this@MainActivity, images)
                     }
                     FbAutoService.instance?.startPublishing(tasks)
+                } else {
+                    val keywords = prefs.getString("join_keywords", "") ?: ""
+                    val kwList = if (keywords.isNotBlank()) keywords.split(",").map { it.trim() }.filter { it.isNotBlank() } else emptyList()
+                    if (kwList.isNotEmpty()) {
+                        val selectedKeyword = kwList.random()
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            android.widget.Toast.makeText(this@MainActivity, "Hôm nay đã đạt giới hạn đăng bài. Bắt đầu tự động tìm & tham gia nhóm với từ khóa: $selectedKeyword", android.widget.Toast.LENGTH_LONG).show()
+                            val joinTask = FbAutoService.TaskItem(
+                                postId = "KEYWORD_JOIN_" + System.currentTimeMillis(),
+                                url = "fb_join_keyword:$selectedKeyword",
+                                comment = ""
+                            )
+                            FbAutoService.instance?.startProcessing(listOf(joinTask))
+                            FbAutoService.isRunning.value = true
+                        }
+                    }
                 }
             }
             intent.removeExtra("EXTRA_AUTO_PUBLISH")

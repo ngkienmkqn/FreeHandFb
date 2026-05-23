@@ -80,7 +80,19 @@ class AutoPublishWorker(private val context: Context, params: WorkerParameters) 
         } catch (e: Exception) {}
 
         if (!forceRun && todayTotalPosts >= 20) {
-            Log.d("AutoPublishWorker", "Global daily quota of 20 reached. Going back to sleep.")
+            Log.d("AutoPublishWorker", "Global daily quota of 20 reached. Falling back to keyword group-joining.")
+            val keywords = prefs.getString("join_keywords", "") ?: ""
+            val kwList = if (keywords.isNotBlank()) keywords.split(",").map { it.trim() }.filter { it.isNotBlank() } else emptyList()
+            if (kwList.isNotEmpty()) {
+                val selectedKeyword = kwList.random()
+                Log.d("AutoPublishWorker", "Daily quota reached fallback — keyword group-joining: $selectedKeyword")
+                val launchIntent = Intent(context, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    putExtra("EXTRA_KEYWORD_JOIN", true)
+                    putExtra("EXTRA_KEYWORD", selectedKeyword)
+                }
+                context.startActivity(launchIntent)
+            }
             return@withContext Result.success()
         }
 
