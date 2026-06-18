@@ -16,7 +16,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                  VPS Cloud (dt.ungthien.com:3000)               │
+│                  VPS Cloud (free.xommuaban.com)                 │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  server/index.js  (Node.js + Express - Monolith API)     │  │
 │  │  ├── REST: /api/login, /api/me, /api/posts, /api/articles│  │
@@ -163,7 +163,7 @@ FreeHandFb/
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| **Domain/IP** | `dt.ungthien.com` |
+| **Domain/IP** | `free.xommuaban.com` |
 | **Port** | `3000` (API & WebApp) |
 | **Process Manager** | `PM2` (tên: `C2-Dashboard`) |
 | **Đường dẫn code trên VPS** | `/root/server/` |
@@ -174,10 +174,10 @@ FreeHandFb/
 ### Quy trình Deploy lên VPS
 ```bash
 # 1. SSH vào server
-ssh -i ~/.ssh/id_ed25519_dtvps root@dt.ungthien.com
+ssh -i ~/.ssh/id_ed25519_dtvps root@free.xommuaban.com
 
 # 2. Copy file server từ local
-scp -i ~/.ssh/id_ed25519_dtvps server/index.js root@dt.ungthien.com:/root/server/index.js
+scp -i ~/.ssh/id_ed25519_dtvps server/index.js root@free.xommuaban.com:/root/server/index.js
 
 # 3. Restart service
 pm2 restart C2-Dashboard
@@ -187,7 +187,7 @@ pm2 logs C2-Dashboard --lines 50
 ```
 
 ### Thông tin chứng thực SSH (Dành cho Cập Nhật tự động)
-Để AI Agents hoặc Developer truy cập và deploy code lên máy chủ Cloud `dt.ungthien.com`, sử dụng **Ed25519 Private Key** (quyền root) dưới đây:
+Để AI Agents hoặc Developer truy cập và deploy code lên máy chủ Cloud `free.xommuaban.com`, sử dụng **Ed25519 Private Key** (quyền root) dưới đây:
 
 ```text
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -202,7 +202,7 @@ MaE6rmXCba/blqUgI+c5AAAADHZwcy1jMi1hZG1pbgE=
 **Cách sử dụng:**
 1. Lưu nội dung trên vào tệp `~/.ssh/id_ed25519_dtvps`.
 2. `chmod 600 ~/.ssh/id_ed25519_dtvps`
-3. `ssh -i ~/.ssh/id_ed25519_dtvps root@dt.ungthien.com`
+3. `ssh -i ~/.ssh/id_ed25519_dtvps root@free.xommuaban.com`
 
 ---
 

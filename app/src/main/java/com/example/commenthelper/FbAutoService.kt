@@ -535,7 +535,7 @@ class FbAutoService : AccessibilityService() {
                 val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
                 val token = prefs.getString("auth_token", "") ?: ""
                 
-                val urlScripts = "http://dt.ungthien.com/api/engine/scripts"
+                val urlScripts = "https://free.xommuaban.com/api/engine/scripts"
                 val conn = java.net.URL(urlScripts).openConnection() as java.net.HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.setRequestProperty("Authorization", "Bearer $token")
@@ -545,7 +545,7 @@ class FbAutoService : AccessibilityService() {
                     val latestVer = org.json.JSONObject(resp).optString("latest", "")
                     if (latestVer.isNotBlank() && latestVer != Engine.lastVersion) {
                         Log.d(TAG, "OTA: New version detected ($latestVer). Downloading...")
-                        val urlScript = "http://dt.ungthien.com/api/engine/script?version=$latestVer"
+                        val urlScript = "https://free.xommuaban.com/api/engine/script?version=$latestVer"
                         val conn2 = java.net.URL(urlScript).openConnection() as java.net.HttpURLConnection
                         conn2.requestMethod = "GET"
                         conn2.setRequestProperty("Authorization", "Bearer $token")
@@ -1482,7 +1482,7 @@ class FbAutoService : AccessibilityService() {
                 try {
                     val prefs = getSharedPreferences("comment_helper_prefs", android.content.Context.MODE_PRIVATE)
                     val user = prefs.getString("username", "unknown") ?: "unknown"
-                    val conn = java.net.URL("http://dt.ungthien.com/api/logs/apk").openConnection() as java.net.HttpURLConnection
+                    val conn = java.net.URL("https://free.xommuaban.com/api/logs/apk").openConnection() as java.net.HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.doOutput = true
@@ -2013,7 +2013,7 @@ class FbAutoService : AccessibilityService() {
                         if (!token.isNullOrBlank()) {
                             Thread {
                                 try {
-                                    val urlObj = java.net.URL("http://dt.ungthien.com/api/posts/bulk")
+                                    val urlObj = java.net.URL("https://free.xommuaban.com/api/posts/bulk")
                                     val conn = urlObj.openConnection() as java.net.HttpURLConnection
                                     conn.requestMethod = "POST"
                                     conn.setRequestProperty("Authorization", "Bearer $token")
@@ -2026,7 +2026,7 @@ class FbAutoService : AccessibilityService() {
                                     Log.d(TAG, "Bulk submit seeded back: $rc")
                                     if ((rc == 200 || rc == 201) && !task.postId.isNullOrBlank() && task.postId != "APPROVED_POST") {
                                         try {
-                                            val delUrl = java.net.URL("http://dt.ungthien.com/api/posts/${task.postId}")
+                                            val delUrl = java.net.URL("https://free.xommuaban.com/api/posts/${task.postId}")
                                             val delConn = delUrl.openConnection() as java.net.HttpURLConnection
                                             delConn.requestMethod = "DELETE"
                                             delConn.setRequestProperty("Authorization", "Bearer $token")
@@ -2378,7 +2378,7 @@ class FbAutoService : AccessibilityService() {
                 if (!token.isNullOrBlank()) {
                     Thread {
                         try {
-                            val conn = java.net.URL("http://dt.ungthien.com/api/posts/${task.postId}/done").openConnection() as java.net.HttpURLConnection
+                            val conn = java.net.URL("https://free.xommuaban.com/api/posts/${task.postId}/done").openConnection() as java.net.HttpURLConnection
                             conn.requestMethod = "POST"
                             conn.setRequestProperty("Authorization", "Bearer $token")
                             conn.setRequestProperty("Content-Type", "application/json")

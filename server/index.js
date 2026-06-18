@@ -800,7 +800,7 @@ app.post('/api/articles', authMiddleware, (req, res) => {
     const { category, title, content, images, base64Images, scope } = req.body;
     let finalImages = images || [];
     if (base64Images && Array.isArray(base64Images)) {
-        base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("http://dt.ungthien.com" + u); });
+        base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("https://free.xommuaban.com" + u); });
     }
     const finalScope = scope === 'personal' ? 'personal' : 'global';
     const status = (finalScope === 'personal' || req.user.role === 'admin') ? 'approved' : 'pending';
@@ -819,7 +819,7 @@ app.put('/api/articles/:id', authMiddleware, adminOnly, (req, res) => {
     const { category, title, content, images, base64Images, status, scope } = req.body;
     let finalImages = images || articles[idx].images || [];
     if (base64Images && Array.isArray(base64Images)) {
-        base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("http://dt.ungthien.com" + u); });
+        base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("https://free.xommuaban.com" + u); });
     }
     articles[idx] = { 
         ...articles[idx], 
