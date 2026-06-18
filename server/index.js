@@ -1049,7 +1049,7 @@ io.on('connection', (socket) => {
 
 /* ================== START ================== */
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3030;
 http.listen(PORT, '0.0.0.0', () => {
     console.log(`Comment Helper Server listening on port ${PORT}`);
     console.log(`Users: ${users.length}, Posts: ${posts.length}`);
