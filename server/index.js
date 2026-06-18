@@ -113,13 +113,13 @@ users.forEach(u => {
 if (usersMigrated) saveJson(USERS_FILE, users);
 
 // Ensure system admin always exists
-const SYSTEM_ADMIN = 'admin@ungthien.com';
+const SYSTEM_ADMIN = 'admin@xommuaban.com';
 const existingAdmin = users.find(u => u.username === SYSTEM_ADMIN);
 if (!existingAdmin) {
     users.push({
         id: genId(),
         username: SYSTEM_ADMIN,
-        password: hashPw('@Kien123!!'),
+        password: hashPw('16691'),
         group: 'default',
         role: 'admin'
     });
@@ -127,7 +127,7 @@ if (!existingAdmin) {
     console.log(`[INIT] Created system admin: ${SYSTEM_ADMIN}`);
 } else {
     // Always reset password to latest
-    existingAdmin.password = hashPw('@Kien123!!');
+    existingAdmin.password = hashPw('16691');
     existingAdmin.role = 'admin';
     saveJson(USERS_FILE, users);
 }
