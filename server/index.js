@@ -428,6 +428,13 @@ function isCommentablePost(url) {
     return true;
 }
 
+function normalizeFbUrlForNative(url) {
+    return url.trim()
+        .replace(/www\.facebook\.com/gi, 'm.facebook.com')
+        .replace(/mbasic\.facebook\.com/gi, 'm.facebook.com')
+        .replace(/web\.facebook\.com/gi, 'm.facebook.com');
+}
+
 app.get('/api/posts', authMiddleware, (req, res) => {
     // Admin can filter by group or see all
     if (req.user.role === 'admin') {
@@ -442,6 +449,7 @@ app.get('/api/posts', authMiddleware, (req, res) => {
 app.post('/api/posts', authMiddleware, (req, res) => {
     const { url, title } = req.body;
     if (!url) return res.status(400).json({ error: 'url is required' });
+    const normalizedUrl = normalizeFbUrlForNative(url);
 
     // Rate limit: 5 posts/day per non-admin user
     if (req.user.role !== 'admin') {
@@ -450,7 +458,7 @@ app.post('/api/posts', authMiddleware, (req, res) => {
     }
 
     // Phase 12 Compliance: Max 1 post per Facebook Group per day per user
-    let fbGroupIdMatch = url.match(/\/groups\/([0-9a-zA-Z._-]+)/);
+    let fbGroupIdMatch = normalizedUrl.match(/\/groups\/([0-9a-zA-Z._-]+)/);
     if (fbGroupIdMatch) {
         const fbGroupId = fbGroupIdMatch[1];
         const today = new Date();
@@ -470,12 +478,12 @@ app.post('/api/posts', authMiddleware, (req, res) => {
         }
     }
 
-    if (posts.find(p => p.url === url.trim() && p.group === req.user.group)) {
+    if (posts.find(p => p.url === normalizedUrl && p.group === req.user.group)) {
         return res.status(409).json({ error: 'Bài đã tồn tại trong nhóm' });
     }
 
     const post = {
-        id: genId(), url: url.trim(), title: title?.trim() || null,
+        id: genId(), url: normalizedUrl, title: title?.trim() || null,
         status: 'PENDING', interactedBy: [], verifications: [], group: req.user.group, ownerName: req.user.username, addedBy: req.user.username,
         addedAt: Date.now(), interactedAt: null,
         isPublishingGroup: !!req.body.isPublishingGroup
@@ -499,7 +507,7 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
 
     let added = 0;
     items.forEach(({ url, title }) => {
-        const u = url?.trim();
+        const u = url?.trim() ? normalizeFbUrlForNative(url.trim()) : '';
         if (u && !posts.find(p => p.url === u && p.group === req.user.group)) {
             // Phase 12 Compliance: Max 1 post per Facebook Group per day per user
             let fbGroupIdMatch = u.match(/\/groups\/([0-9a-zA-Z._-]+)/);

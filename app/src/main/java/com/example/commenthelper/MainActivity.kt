@@ -72,7 +72,7 @@ private const val KEY_USERNAME = "username"
 private const val KEY_GROUP = "user_group"
 private const val KEY_PHONE = "user_phone"
 private const val KEY_ZALO = "user_zalo"
-private const val SERVER_URL = "http://dt.ungthien.com"
+private const val SERVER_URL = "https://free.xommuaban.com"
 private const val APP_VERSION = "1.0.0"
 
 /* ================== DATA MODEL ================== */
@@ -1601,17 +1601,32 @@ private fun copyToClipboard(ctx: Context, text: String) {
     }
 }
 private fun openPost(ctx: Context, url: String) {
-    val cleanUrl = url.replace("m.facebook.com", "www.facebook.com").replace("mbasic.facebook.com", "www.facebook.com")
-    try { 
-        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).setPackage("com.facebook.katana"))
-    } catch (e: Exception) { 
+    val targetUrl = FbUrlHelper.buildFbOpenUrl(url)
+    val mobileFallback = FbUrlHelper.normalizeFbUrlForNative(url)
+    try {
+        ctx.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .setPackage("com.facebook.katana")
+        )
+    } catch (e: Exception) {
         try {
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).setPackage("com.facebook.lite"))
-        } catch(e2: Exception) {
-            try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-            catch(e3: Exception) { toast(ctx, "Lỗi: ${e3.message}") }
+            ctx.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(mobileFallback))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .setPackage("com.facebook.lite")
+            )
+        } catch (e2: Exception) {
+            try {
+                ctx.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(mobileFallback))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (e3: Exception) {
+                toast(ctx, "Lỗi: ${e3.message}")
+            }
         }
-    } 
+    }
 }
 private fun toast(ctx: Context, msg: String) { Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show() }
 private val URL_REGEX = Regex("""https?://\S+""")
