@@ -227,6 +227,11 @@
                             <button class="btn btn-success" onclick="saveAppVersion()">💾 Lưu cấu hình</button>
                             <div id="cfgStatus" style="margin-top:8px;font-size:0.85rem"></div>
                         </div>
+                        <div class="glass-panel" style="border-color:rgba(239,68,68,.5)">
+                            <h2 style="color:#ef4444">⚠️ Reset Queue Executor</h2>
+                            <div class="bulk-hint" style="margin-bottom:12px">Xoá vĩnh viễn toàn bộ task Tương tác và Đăng bài, kể cả task đang chạy. Không xoá tài khoản, cấu hình hoặc bài mẫu.</div>
+                            <button class="btn btn-danger" style="width:100%;padding:12px" onclick="resetAllExecutorQueues()">🗑️ RESET TẤT CẢ TASK</button>
+                        </div>
                     </div>
                     <div>
                         <div class="glass-panel">
@@ -941,6 +946,19 @@ async function saveGlobalSettings() {
     }
 }
 
+async function resetAllExecutorQueues() {
+    if (!confirm('CẢNH BÁO: Xoá vĩnh viễn tất cả task trong cả hai queue?')) return;
+    if (!confirm('Xác nhận lần cuối: task đang chạy cũng sẽ bị xoá và không thể khôi phục.')) return;
+    try {
+        const res = await apiFetch('/api/executor/queues/reset', { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) return alert(data.error || 'Reset queue thất bại.');
+        alert(`Đã xoá ${data.totalDeleted} task (Tương tác: ${data.deleted.interaction}, Đăng bài: ${data.deleted.publishing}).`);
+    } catch (e) {
+        alert('Không thể kết nối server để reset queue.');
+    }
+}
+
 document.getElementById('splashImageUpload').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -1002,4 +1020,3 @@ async function viewLog(type) {
 }
 
 </script></body></html>
-

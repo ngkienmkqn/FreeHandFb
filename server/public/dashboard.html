@@ -178,33 +178,34 @@
             <!-- TAB: HOME -->
             <div class="tab-content active" id="tab-home">
                 <div class="glass card">
-                    <div class="card-header"><i class="ph-fill ph-link"></i> Thêm Post Mới</div>
-                    <textarea id="bulkUrls" rows="3" placeholder="Dán link Facebook vào đây...&#10;(Hỗ trợ nhiều link, mỗi dòng 1 link)"></textarea>
-                    <button class="btn-primary" style="width: 100%; margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px" onclick="submitUrls()">
-                        <i class="ph-bold ph-plus-circle"></i> Bơm Link Lên Trạm
+                    <div class="card-header"><i class="ph-fill ph-heart"></i> Tạo yêu cầu tương tác</div>
+                    <input id="interactionUrl" placeholder="Link bài Facebook" />
+                    <textarea id="interactionComment" rows="3" style="margin-top:10px" placeholder="Comment cuối cùng app sẽ gửi"></textarea>
+                    <button class="btn-primary" style="width: 100%; margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px" onclick="createInteractionJob()">
+                        <i class="ph-bold ph-paper-plane-right"></i> Đưa vào queue tương tác
                     </button>
                 </div>
 
-                <div class="stat-grid">
-                    <div class="stat-box">
-                        <div class="stat-val" id="statPending" style="color: var(--warn)">0</div>
-                        <div class="stat-label">Đang chờ (Pending)</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-val" id="statDone" style="color: var(--success)">0</div>
-                        <div class="stat-label">Đã tương tác xong</div>
-                    </div>
+                <div class="glass card">
+                    <div class="card-header"><i class="ph-fill ph-upload-simple"></i> Tạo yêu cầu đăng bài</div>
+                    <input id="publishingGroupUrl" placeholder="Link group Facebook" />
+                    <textarea id="publishingContent" rows="4" style="margin-top:10px" placeholder="Nội dung cuối cùng app sẽ đăng"></textarea>
+                    <textarea id="publishingImages" rows="3" style="margin-top:10px" placeholder="Link ảnh, mỗi dòng một link (không bắt buộc)"></textarea>
+                    <button class="btn-success" style="width:100%; margin-top:12px" onclick="createPublishingJob()">
+                        <i class="ph-bold ph-paper-plane-right"></i> Đưa vào queue đăng bài
+                    </button>
                 </div>
 
                 <div class="glass card">
                     <div class="card-header" style="justify-content: space-between">
-                        <div><i class="ph-fill ph-list-dashes"></i> Hàng đợi gần đây</div>
-                        <button class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px" onclick="fetchPosts()">Góp mới</button>
+                        <div><i class="ph-fill ph-list-dashes"></i> Trạng thái executor</div>
+                        <button class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px" onclick="fetchExecutorQueues()">Tải lại</button>
                     </div>
-                    <div id="postList">
-                        <!-- Posts injected via JS -->
-                        <div style="text-align:center; color:var(--text-muted); padding:20px 0; font-size:0.9rem">Không có bài viết nào</div>
+                    <div class="stat-grid">
+                        <div class="stat-box"><div class="stat-val" id="interactionQueued" style="color:var(--warn)">0</div><div class="stat-label">Tương tác chờ</div></div>
+                        <div class="stat-box"><div class="stat-val" id="publishingQueued" style="color:var(--warn)">0</div><div class="stat-label">Đăng bài chờ</div></div>
                     </div>
+                    <div id="executorJobList"></div>
                 </div>
             </div>
 
@@ -259,6 +260,14 @@
                         <div style="font-size:0.85rem; color:var(--text-muted)">Cấu hình APK, quản lý tất cả Bài Viết Mẫu (Articles), thêm/xóa ảnh, cấu hình Comment hệ thống, xuất Logs...</div>
                         <button class="btn-primary" style="margin-top: 8px; justify-content:center; display:flex" onclick="window.location.href='/admin.html'">Truy Cập Desktop Admin</button>
                     </div>
+
+                    <div class="glass card" style="border-color:rgba(239,68,68,.45)">
+                        <div class="card-header" style="color:var(--error)"><i class="ph-fill ph-warning"></i> Reset Queue Executor</div>
+                        <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:12px">Xoá vĩnh viễn toàn bộ task Tương tác và Đăng bài, kể cả task đang chạy. Không xoá tài khoản, cấu hình hoặc bài mẫu.</div>
+                        <button class="btn-danger" style="width:100%;padding:12px" onclick="resetAllExecutorQueues()">
+                            <i class="ph-bold ph-trash"></i> RESET TẤT CẢ TASK
+                        </button>
+                    </div>
                     
                     <div class="glass card">
                         <div class="card-header"><i class="ph-fill ph-users"></i> Quản lý User Mới</div>
@@ -287,9 +296,9 @@
         </main>
 
         <nav>
-            <button class="nav-item active" onclick="switchTab('home', this)">
-                <i class="ph-fill ph-house"></i>
-                <span>Thêm Bài</span>
+            <button class="nav-item active" onclick="switchTab('home', this); fetchExecutorQueues()">
+                <i class="ph-fill ph-queue"></i>
+                <span>Yêu Cầu</span>
             </button>
             <button class="nav-item" onclick="switchTab('articles', this); fetchArticles()">
                 <i class="ph-fill ph-article"></i>
@@ -354,7 +363,7 @@ function showMainApp() {
     }
 
     // Default Load
-    fetchPosts();
+    fetchExecutorQueues();
 }
 
 async function apiCall(endpoint, opts = {}) {
@@ -417,6 +426,60 @@ function switchTab(tabId, el) {
 }
 
 // ==== DATA FETCHING (USER) ====
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+}
+
+async function createInteractionJob() {
+    const url = document.getElementById('interactionUrl').value.trim();
+    const comment = document.getElementById('interactionComment').value.trim();
+    if (!url || !comment) return alert('Nhập đủ link bài và comment cuối cùng.');
+    const res = await apiCall('/api/executor/interaction', {
+        method: 'POST', body: JSON.stringify({ url, comment })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(data.error || 'Không tạo được yêu cầu tương tác.');
+    document.getElementById('interactionUrl').value = '';
+    document.getElementById('interactionComment').value = '';
+    await fetchExecutorQueues();
+}
+
+async function createPublishingJob() {
+    const groupUrl = document.getElementById('publishingGroupUrl').value.trim();
+    const content = document.getElementById('publishingContent').value.trim();
+    const images = document.getElementById('publishingImages').value.split('\n').map(v => v.trim()).filter(Boolean);
+    if (!groupUrl || !content) return alert('Nhập đủ link group và nội dung cuối cùng.');
+    const res = await apiCall('/api/executor/publishing', {
+        method: 'POST', body: JSON.stringify({ groupUrl, content, images })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(data.error || 'Không tạo được yêu cầu đăng bài.');
+    document.getElementById('publishingGroupUrl').value = '';
+    document.getElementById('publishingContent').value = '';
+    document.getElementById('publishingImages').value = '';
+    await fetchExecutorQueues();
+}
+
+async function fetchExecutorQueues() {
+    if (!authToken) return;
+    try {
+        const res = await apiCall('/api/executor/queues');
+        const data = await res.json();
+        document.getElementById('interactionQueued').textContent = data.interaction?.counts?.QUEUED || 0;
+        document.getElementById('publishingQueued').textContent = data.publishing?.counts?.QUEUED || 0;
+        const jobs = [...(data.interaction?.jobs || []), ...(data.publishing?.jobs || [])]
+            .sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
+        const labels = { QUEUED:'Đang chờ', RUNNING:'Đang chạy', SUCCEEDED:'Hoàn tất', FAILED:'Thất bại', INTERRUPTED:'Cần kiểm tra' };
+        document.getElementById('executorJobList').innerHTML = jobs.map(job => `
+            <div class="list-item">
+                <div class="list-title">${escapeHtml(job.id)} · ${job.type === 'interaction' ? 'Tương tác' : 'Đăng bài'}</div>
+                <div style="font-size:.8rem;color:var(--text-muted);word-break:break-all">${escapeHtml(job.payload?.url || job.payload?.groupUrl || '')}</div>
+                <div class="list-meta"><span>${escapeHtml(job.createdBy)}</span><span class="badge ${job.status === 'SUCCEEDED' ? 'done' : 'pending'}">${labels[job.status] || job.status}</span></div>
+                ${job.lastError ? `<div style="font-size:.78rem;color:var(--error);margin-top:6px">${escapeHtml(job.lastError)}</div>` : ''}
+            </div>`).join('') || '<div style="text-align:center;color:var(--text-muted);padding:20px">Queue đang trống</div>';
+    } catch (e) {}
+}
+
 async function fetchPosts() {
     try {
         // Just fetch user's group posts
@@ -709,7 +772,22 @@ async function resetApkDevice(id) {
     alert('Thành công!');
 }
 
+async function resetAllExecutorQueues() {
+    if (!confirm('CẢNH BÁO: Xoá vĩnh viễn tất cả task trong cả hai queue?')) return;
+    if (!confirm('Xác nhận lần cuối: task đang chạy cũng sẽ bị xoá và không thể khôi phục.')) return;
+    try {
+        const res = await apiCall('/api/executor/queues/reset', { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) return alert(data.error || 'Reset queue thất bại.');
+        alert(`Đã xoá ${data.totalDeleted} task (Tương tác: ${data.deleted.interaction}, Đăng bài: ${data.deleted.publishing}).`);
+        await fetchExecutorQueues();
+    } catch (e) {
+        alert('Không thể kết nối server để reset queue.');
+    }
+}
+
 init();
+setInterval(() => { if (authToken) fetchExecutorQueues(); }, 10000);
 </script>
 </body>
 </html>

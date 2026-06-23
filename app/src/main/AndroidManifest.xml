@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <queries>
         <package android:name="com.facebook.katana" />
@@ -29,12 +31,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Nhận link share từ FB hoặc app khác -->
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
         </activity>
 
         <!-- Accessibility Service for auto Like + Comment -->
@@ -50,23 +46,10 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Receiver for post completion broadcasts -->
-        <receiver android:name=".PostDoneReceiver" android:exported="false">
-            <intent-filter>
-                <action android:name="com.example.commenthelper.POST_DONE" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Receiver for Auto Wake Schedule -->
-        <receiver android:name=".AutoWakeReceiver" android:enabled="true" android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Receiver for Sub-Hour Alarm Scheduling -->
-        <receiver android:name=".AutoPublishReceiver" android:exported="false" />
-
+        <service
+            android:name=".ExecutorForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 </manifest>

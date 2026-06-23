@@ -17,7 +17,7 @@ import java.util.Calendar
 
 class AutoPublishWorker(private val context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
-    private val SERVER_URL = "https://free.xommuaban.com"
+    private val SERVER_URL = "http://192.168.0.104:3030"
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val prefs = context.getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)

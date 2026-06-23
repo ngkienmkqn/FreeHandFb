@@ -28,6 +28,8 @@ const NOTIFICATIONS_FILE = path.join(DATA_DIR, 'notifications.json');
 const ARTICLES_FILE = path.join(DATA_DIR, 'articles.json');
 const SUGGESTED_GROUPS_FILE = path.join(DATA_DIR, 'suggested_groups.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+const INTERACTION_QUEUE_FILE = path.join(DATA_DIR, 'interaction_queue.json');
+const PUBLISHING_QUEUE_FILE = path.join(DATA_DIR, 'publishing_queue.json');
 const APK_LOGS_FILE = path.join(DATA_DIR, 'apk_logs.txt');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
@@ -53,6 +55,8 @@ let notifications = loadJson(NOTIFICATIONS_FILE, []); // [{ id, userId, message,
 let articles = loadJson(ARTICLES_FILE, []); // [{ id, title, category, content, images }]
 let suggestedGroups = loadJson(SUGGESTED_GROUPS_FILE, []); // [{ id, name, url, memberCount, status, addedBy, createdAt }]
 let appSettings = loadJson(SETTINGS_FILE, { maxGroupPostsPerDay: 1 });
+let interactionQueue = loadJson(INTERACTION_QUEUE_FILE, []);
+let publishingQueue = loadJson(PUBLISHING_QUEUE_FILE, []);
 
 function runLogsCleanup() {
     try {
@@ -113,13 +117,13 @@ users.forEach(u => {
 if (usersMigrated) saveJson(USERS_FILE, users);
 
 // Ensure system admin always exists
-const SYSTEM_ADMIN = 'admin@ungthien.com';
+const SYSTEM_ADMIN = 'admin@xommuaban.com';
 const existingAdmin = users.find(u => u.username === SYSTEM_ADMIN);
 if (!existingAdmin) {
     users.push({
         id: genId(),
         username: SYSTEM_ADMIN,
-        password: hashPw('@Kien123!!'),
+        password: hashPw('16691'),
         group: 'default',
         role: 'admin'
     });
@@ -127,7 +131,7 @@ if (!existingAdmin) {
     console.log(`[INIT] Created system admin: ${SYSTEM_ADMIN}`);
 } else {
     // Always reset password to latest
-    existingAdmin.password = hashPw('@Kien123!!');
+    existingAdmin.password = hashPw('16691');
     existingAdmin.role = 'admin';
     saveJson(USERS_FILE, users);
 }
@@ -209,6 +213,242 @@ function adminOnly(req, res, next) {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
     next();
 }
+
+/* ================== EXECUTOR QUEUES ================== */
+
+const EXECUTOR_LEASE_MS = 60 * 1000;
+const executorQueues = {
+    interaction: () => interactionQueue,
+    publishing: () => publishingQueue
+};
+
+function saveExecutorQueue(type) {
+    if (type === 'interaction') saveJson(INTERACTION_QUEUE_FILE, interactionQueue);
+    if (type === 'publishing') saveJson(PUBLISHING_QUEUE_FILE, publishingQueue);
+}
+
+function getExecutorQueue(type) {
+    return executorQueues[type]?.() || null;
+}
+
+function publicExecutorJob(job) {
+    const copy = { ...job };
+    delete copy.leaseToken;
+    return copy;
+}
+
+function reclaimExpiredExecutorJobs() {
+    const now = Date.now();
+    ['interaction', 'publishing'].forEach(type => {
+        const queue = getExecutorQueue(type);
+        let changed = false;
+        queue.forEach(job => {
+            if (job.status === 'RUNNING' && now - (job.heartbeatAt || job.claimedAt || 0) > EXECUTOR_LEASE_MS) {
+                job.status = job.irreversibleAt ? 'INTERRUPTED' : 'QUEUED';
+                job.lastError = job.irreversibleAt
+                    ? 'Mất heartbeat sau thao tác Gửi/Đăng; cần kiểm tra thủ công.'
+                    : 'Lease hết hạn; job đã được trả lại queue.';
+                job.claimedBy = null;
+                job.deviceId = null;
+                job.leaseToken = null;
+                job.updatedAt = now;
+                changed = true;
+            }
+        });
+        if (changed) saveExecutorQueue(type);
+    });
+}
+
+function findExecutorJob(id) {
+    for (const type of ['interaction', 'publishing']) {
+        const job = getExecutorQueue(type).find(item => item.id === id);
+        if (job) return { type, job };
+    }
+    return null;
+}
+
+function emitExecutorUpdate(group) {
+    io.to(`group:${group}`).emit('executor_jobs_updated', { group });
+}
+
+app.get('/api/executor/queues', authMiddleware, (req, res) => {
+    reclaimExpiredExecutorJobs();
+    const result = {};
+    for (const type of ['interaction', 'publishing']) {
+        const jobs = getExecutorQueue(type)
+            .filter(job => req.user.role === 'admin' || job.group === req.user.group)
+            .sort((a, b) => b.createdAt - a.createdAt);
+        result[type] = {
+            counts: jobs.reduce((acc, job) => {
+                acc[job.status] = (acc[job.status] || 0) + 1;
+                return acc;
+            }, {}),
+            jobs: jobs.slice(0, 50).map(publicExecutorJob)
+        };
+    }
+    res.json(result);
+});
+
+app.delete('/api/executor/queues/reset', authMiddleware, adminOnly, (req, res) => {
+    const deleted = {
+        interaction: interactionQueue.length,
+        publishing: publishingQueue.length
+    };
+    const affectedGroups = [...new Set([
+        ...interactionQueue.map(job => job.group),
+        ...publishingQueue.map(job => job.group)
+    ].filter(Boolean))];
+
+    interactionQueue = [];
+    publishingQueue = [];
+    saveExecutorQueue('interaction');
+    saveExecutorQueue('publishing');
+    affectedGroups.forEach(emitExecutorUpdate);
+
+    res.json({ ok: true, deleted, totalDeleted: deleted.interaction + deleted.publishing });
+});
+
+app.post('/api/executor/interaction', authMiddleware, (req, res) => {
+    const url = String(req.body.url || '').trim();
+    const comment = String(req.body.comment || '').trim();
+    if (!/^https?:\/\//i.test(url) || !comment) {
+        return res.status(400).json({ error: 'URL và comment hoàn chỉnh là bắt buộc.' });
+    }
+    const now = Date.now();
+    const job = {
+        id: `INT-${genId()}`, type: 'interaction', group: req.user.group,
+        payload: { url: normalizeFbUrlForNative(url), comment },
+        status: 'QUEUED', attempts: 0, createdBy: req.user.username,
+        createdAt: now, updatedAt: now
+    };
+    interactionQueue.push(job);
+    saveExecutorQueue('interaction');
+    emitExecutorUpdate(job.group);
+    res.status(201).json(publicExecutorJob(job));
+});
+
+app.post('/api/executor/publishing', authMiddleware, (req, res) => {
+    const groupUrl = String(req.body.groupUrl || '').trim();
+    const content = String(req.body.content || '').trim();
+    const images = Array.isArray(req.body.images)
+        ? req.body.images.map(value => String(value).trim()).filter(Boolean)
+        : [];
+    if (!/^https?:\/\//i.test(groupUrl) || !content || images.some(url => !/^https?:\/\//i.test(url) && !url.startsWith('data:image'))) {
+        return res.status(400).json({ error: 'Link group, nội dung hoàn chỉnh và link ảnh hợp lệ là bắt buộc.' });
+    }
+    const now = Date.now();
+    const job = {
+        id: `PUB-${genId()}`, type: 'publishing', group: req.user.group,
+        payload: { groupUrl: normalizeFbUrlForNative(groupUrl), content, images },
+        status: 'QUEUED', attempts: 0, createdBy: req.user.username,
+        createdAt: now, updatedAt: now
+    };
+    publishingQueue.push(job);
+    saveExecutorQueue('publishing');
+    emitExecutorUpdate(job.group);
+    res.status(201).json(publicExecutorJob(job));
+});
+
+app.post('/api/executor/:type/claim', authMiddleware, (req, res) => {
+    const type = req.params.type;
+    const queue = getExecutorQueue(type);
+    const deviceId = String(req.body.deviceId || '').trim();
+    if (!queue || !deviceId) return res.status(400).json({ error: 'Queue type hoặc deviceId không hợp lệ.' });
+    reclaimExpiredExecutorJobs();
+
+    const active = ['interaction', 'publishing']
+        .flatMap(queueType => getExecutorQueue(queueType))
+        .find(job => job.status === 'RUNNING' && job.claimedBy === req.user.username);
+    if (active) {
+        if (active.type !== type) return res.status(409).json({ error: `Luồng ${active.type} đang chạy.`, activeJob: publicExecutorJob(active) });
+        if (active.deviceId !== deviceId) return res.status(409).json({ error: 'Tài khoản đang chạy trên thiết bị khác.' });
+        return res.json({ job: publicExecutorJob(active), leaseToken: active.leaseToken, recovered: true });
+    }
+
+    const job = queue.find(item => item.group === req.user.group && item.status === 'QUEUED');
+    if (!job) return res.status(204).end();
+    const now = Date.now();
+    job.status = 'RUNNING';
+    job.claimedBy = req.user.username;
+    job.deviceId = deviceId;
+    job.claimedAt = now;
+    job.heartbeatAt = now;
+    job.updatedAt = now;
+    job.attempts = (job.attempts || 0) + 1;
+    job.leaseToken = crypto.randomUUID();
+    saveExecutorQueue(type);
+    emitExecutorUpdate(job.group);
+    res.json({ job: publicExecutorJob(job), leaseToken: job.leaseToken });
+});
+
+function ownedExecutorJob(req, res) {
+    const found = findExecutorJob(req.params.id);
+    const leaseToken = String(req.body.leaseToken || '');
+    if (!found) { res.status(404).json({ error: 'Job không tồn tại.' }); return null; }
+    const { type, job } = found;
+    if (job.status !== 'RUNNING' || job.claimedBy !== req.user.username || !leaseToken || leaseToken !== job.leaseToken) {
+        res.status(409).json({ error: 'Lease của job không còn hợp lệ.' });
+        return null;
+    }
+    return { type, job };
+}
+
+app.post('/api/executor/jobs/:id/heartbeat', authMiddleware, (req, res) => {
+    const found = ownedExecutorJob(req, res); if (!found) return;
+    found.job.heartbeatAt = Date.now();
+    found.job.updatedAt = Date.now();
+    saveExecutorQueue(found.type);
+    res.json({ ok: true });
+});
+
+app.post('/api/executor/jobs/:id/checkpoint', authMiddleware, (req, res) => {
+    const found = ownedExecutorJob(req, res); if (!found) return;
+    found.job.irreversibleAt = Date.now();
+    found.job.heartbeatAt = Date.now();
+    found.job.updatedAt = Date.now();
+    saveExecutorQueue(found.type);
+    res.json({ ok: true });
+});
+
+app.post('/api/executor/jobs/:id/complete', authMiddleware, (req, res) => {
+    const found = ownedExecutorJob(req, res); if (!found) return;
+    found.job.status = 'SUCCEEDED';
+    found.job.result = req.body.result || {};
+    found.job.finishedAt = Date.now();
+    found.job.updatedAt = Date.now();
+    found.job.leaseToken = null;
+    saveExecutorQueue(found.type);
+    emitExecutorUpdate(found.job.group);
+    res.json({ ok: true });
+});
+
+app.post('/api/executor/jobs/:id/fail', authMiddleware, (req, res) => {
+    const found = ownedExecutorJob(req, res); if (!found) return;
+    found.job.status = 'FAILED';
+    found.job.lastError = String(req.body.error || 'Executor báo thất bại.');
+    found.job.finishedAt = Date.now();
+    found.job.updatedAt = Date.now();
+    found.job.leaseToken = null;
+    saveExecutorQueue(found.type);
+    emitExecutorUpdate(found.job.group);
+    res.json({ ok: true });
+});
+
+app.post('/api/executor/jobs/:id/interrupted', authMiddleware, (req, res) => {
+    const found = ownedExecutorJob(req, res); if (!found) return;
+    const safeToRetry = req.body.safeToRetry === true && !found.job.irreversibleAt;
+    found.job.status = safeToRetry ? 'QUEUED' : 'INTERRUPTED';
+    found.job.lastError = String(req.body.error || 'Người dùng đã dừng executor.');
+    found.job.updatedAt = Date.now();
+    found.job.claimedBy = null;
+    found.job.deviceId = null;
+    found.job.leaseToken = null;
+    saveExecutorQueue(found.type);
+    emitExecutorUpdate(found.job.group);
+    res.json({ ok: true, status: found.job.status });
+});
+
+setInterval(reclaimExpiredExecutorJobs, 30 * 1000);
 
 /* ================== CONSTANTS & SETTINGS ================== */
 
@@ -808,7 +1048,7 @@ app.post('/api/articles', authMiddleware, (req, res) => {
     const { category, title, content, images, base64Images, scope } = req.body;
     let finalImages = images || [];
     if (base64Images && Array.isArray(base64Images)) {
-        base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("http://dt.ungthien.com" + u); });
+        base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("https://free.xommuaban.com" + u); });
     }
     const finalScope = scope === 'personal' ? 'personal' : 'global';
     const status = (finalScope === 'personal' || req.user.role === 'admin') ? 'approved' : 'pending';
@@ -827,7 +1067,7 @@ app.put('/api/articles/:id', authMiddleware, adminOnly, (req, res) => {
     const { category, title, content, images, base64Images, status, scope } = req.body;
     let finalImages = images || articles[idx].images || [];
     if (base64Images && Array.isArray(base64Images)) {
-        base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("http://dt.ungthien.com" + u); });
+        base64Images.forEach(b64 => { const u = saveBase64Image(b64); if (u) finalImages.push("https://free.xommuaban.com" + u); });
     }
     articles[idx] = { 
         ...articles[idx], 
@@ -1057,7 +1297,7 @@ io.on('connection', (socket) => {
 
 /* ================== START ================== */
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3030;
 http.listen(PORT, '0.0.0.0', () => {
     console.log(`Comment Helper Server listening on port ${PORT}`);
     console.log(`Users: ${users.length}, Posts: ${posts.length}`);

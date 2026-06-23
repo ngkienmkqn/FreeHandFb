@@ -61,6 +61,8 @@ class FbAutoService : AccessibilityService() {
         var onQueueFinished: (() -> Unit)? = null
         /** Callback invoked when a post is marked as DEAD */
         var onPostDead: ((String) -> Unit)? = null
+        /** Executor callback immediately before the irreversible Send/Post click. */
+        var onIrreversibleAction: ((String) -> Boolean)? = null
 
         fun isServiceEnabled(context: Context): Boolean {
             val enabledServices = android.provider.Settings.Secure.getString(
@@ -179,7 +181,9 @@ class FbAutoService : AccessibilityService() {
         val isPublishingGroup: Boolean = false,
         val imageCount: Int = 0,
         val isScrapingGroup: Boolean = false,
-        val postIndex: Int = 0
+        val postIndex: Int = 0,
+        val executorJobId: String? = null,
+        val reportLegacyCompletion: Boolean = true
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -428,14 +432,14 @@ class FbAutoService : AccessibilityService() {
 
     /* ================== PUBLIC API ================== */
 
-    fun startProcessing(tasks: List<TaskItem>) {
+    fun startProcessing(tasks: List<TaskItem>, appendNotificationScan: Boolean = true) {
         if (tasks.isEmpty()) return
         if (isRunning.value) {
             Log.w(TAG, "⚠️ LOCK: Đang chạy task khác, từ chối startProcessing mới. Hãy đợi task cũ hoàn thành.")
             return
         }
         val finalTasks = tasks.toMutableList()
-        finalTasks.add(TaskItem("NOTIF_SCAN", "ACTION_SCAN_NOTIFICATIONS", ""))
+        if (appendNotificationScan) finalTasks.add(TaskItem("NOTIF_SCAN", "ACTION_SCAN_NOTIFICATIONS", ""))
         
         taskQueue.value = finalTasks
         progress.value = 0 to finalTasks.size
@@ -454,14 +458,14 @@ class FbAutoService : AccessibilityService() {
         processNextPost()
     }
 
-    fun startPublishing(tasks: List<TaskItem>) {
+    fun startPublishing(tasks: List<TaskItem>, appendNotificationScan: Boolean = true) {
         if (tasks.isEmpty()) return
         if (isRunning.value) {
             Log.w(TAG, "⚠️ LOCK: Đang chạy task khác, từ chối startPublishing mới. Hãy đợi task cũ hoàn thành.")
             return
         }
         val finalTasks = tasks.toMutableList()
-        finalTasks.add(TaskItem("NOTIF_SCAN", "ACTION_SCAN_NOTIFICATIONS", ""))
+        if (appendNotificationScan) finalTasks.add(TaskItem("NOTIF_SCAN", "ACTION_SCAN_NOTIFICATIONS", ""))
 
         taskQueue.value = finalTasks
         progress.value = 0 to finalTasks.size
@@ -535,7 +539,7 @@ class FbAutoService : AccessibilityService() {
                 val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
                 val token = prefs.getString("auth_token", "") ?: ""
                 
-                val urlScripts = "https://free.xommuaban.com/api/engine/scripts"
+                val urlScripts = "http://192.168.0.104:3030/api/engine/scripts"
                 val conn = java.net.URL(urlScripts).openConnection() as java.net.HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.setRequestProperty("Authorization", "Bearer $token")
@@ -545,7 +549,7 @@ class FbAutoService : AccessibilityService() {
                     val latestVer = org.json.JSONObject(resp).optString("latest", "")
                     if (latestVer.isNotBlank() && latestVer != Engine.lastVersion) {
                         Log.d(TAG, "OTA: New version detected ($latestVer). Downloading...")
-                        val urlScript = "https://free.xommuaban.com/api/engine/script?version=$latestVer"
+                        val urlScript = "http://192.168.0.104:3030/api/engine/script?version=$latestVer"
                         val conn2 = java.net.URL(urlScript).openConnection() as java.net.HttpURLConnection
                         conn2.requestMethod = "GET"
                         conn2.setRequestProperty("Authorization", "Bearer $token")
@@ -1307,6 +1311,14 @@ class FbAutoService : AccessibilityService() {
         if (sendButton != null) {
             debugLog("✅ Tìm thấy nút Gửi/Đăng! Đang bấm...")
             dumpScreenToLog("SEND_BUTTON_FOUND")
+            val checkpointAccepted = task.executorJobId?.let { onIrreversibleAction?.invoke(it) ?: false } ?: true
+            if (!checkpointAccepted) {
+                debugLog("❌ Không xác nhận được checkpoint với server; không bấm Gửi/Đăng.")
+                sendButton.recycle()
+                root.recycle()
+                markCurrentDone(success = false)
+                return
+            }
             sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (!sendButton.isClickable) {
                 sendButton.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -1470,7 +1482,7 @@ class FbAutoService : AccessibilityService() {
                 try {
                     val prefs = getSharedPreferences("comment_helper_prefs", android.content.Context.MODE_PRIVATE)
                     val user = prefs.getString("username", "unknown") ?: "unknown"
-                    val conn = java.net.URL("https://free.xommuaban.com/api/logs/apk").openConnection() as java.net.HttpURLConnection
+                    val conn = java.net.URL("http://192.168.0.104:3030/api/logs/apk").openConnection() as java.net.HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.doOutput = true
@@ -2001,7 +2013,7 @@ class FbAutoService : AccessibilityService() {
                         if (!token.isNullOrBlank()) {
                             Thread {
                                 try {
-                                    val urlObj = java.net.URL("https://free.xommuaban.com/api/posts/bulk")
+                                    val urlObj = java.net.URL("http://192.168.0.104:3030/api/posts/bulk")
                                     val conn = urlObj.openConnection() as java.net.HttpURLConnection
                                     conn.requestMethod = "POST"
                                     conn.setRequestProperty("Authorization", "Bearer $token")
@@ -2014,7 +2026,7 @@ class FbAutoService : AccessibilityService() {
                                     Log.d(TAG, "Bulk submit seeded back: $rc")
                                     if ((rc == 200 || rc == 201) && !task.postId.isNullOrBlank() && task.postId != "APPROVED_POST") {
                                         try {
-                                            val delUrl = java.net.URL("https://free.xommuaban.com/api/posts/${task.postId}")
+                                            val delUrl = java.net.URL("http://192.168.0.104:3030/api/posts/${task.postId}")
                                             val delConn = delUrl.openConnection() as java.net.HttpURLConnection
                                             delConn.requestMethod = "DELETE"
                                             delConn.setRequestProperty("Authorization", "Bearer $token")
@@ -2361,12 +2373,12 @@ class FbAutoService : AccessibilityService() {
                 prefs.edit().putString("posts_v1", arr.toString()).apply()
             }
 
-            if (success) {
+            if (success && task.reportLegacyCompletion) {
                 val token = prefs.getString("auth_token", "")
                 if (!token.isNullOrBlank()) {
                     Thread {
                         try {
-                            val conn = java.net.URL("https://free.xommuaban.com/api/posts/${task.postId}/done").openConnection() as java.net.HttpURLConnection
+                            val conn = java.net.URL("http://192.168.0.104:3030/api/posts/${task.postId}/done").openConnection() as java.net.HttpURLConnection
                             conn.requestMethod = "POST"
                             conn.setRequestProperty("Authorization", "Bearer $token")
                             conn.setRequestProperty("Content-Type", "application/json")
