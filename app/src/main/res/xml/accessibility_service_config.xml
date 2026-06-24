@@ -5,5 +5,6 @@
     android:notificationTimeout="200"
     android:packageNames="com.facebook.katana,com.facebook.lite"
     android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
     android:accessibilityFlags="flagDefault|flagIncludeNotImportantViews|flagReportViewIds"
     android:description="@string/accessibility_service_description" />

@@ -16,3 +16,4 @@ local.properties
 node_modules/
 .trash-*
 app/build
+server/data/

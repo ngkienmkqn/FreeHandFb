@@ -180,6 +180,8 @@
                 <div class="glass card">
                     <div class="card-header"><i class="ph-fill ph-heart"></i> Tạo yêu cầu tương tác</div>
                     <input id="interactionUrl" placeholder="Link bài Facebook" />
+                    <input id="interactionAuthor" style="margin-top:10px" placeholder="Tên tác giả bài viết (không bắt buộc)" />
+                    <textarea id="interactionPostText" rows="4" style="margin-top:10px" placeholder="Nội dung bài viết mục tiêu để nhận diện đúng bài"></textarea>
                     <textarea id="interactionComment" rows="3" style="margin-top:10px" placeholder="Comment cuối cùng app sẽ gửi"></textarea>
                     <button class="btn-primary" style="width: 100%; margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px" onclick="createInteractionJob()">
                         <i class="ph-bold ph-paper-plane-right"></i> Đưa vào queue tương tác
@@ -432,14 +434,22 @@ function escapeHtml(value) {
 
 async function createInteractionJob() {
     const url = document.getElementById('interactionUrl').value.trim();
+    const author = document.getElementById('interactionAuthor').value.trim();
+    const postText = document.getElementById('interactionPostText').value.trim();
     const comment = document.getElementById('interactionComment').value.trim();
-    if (!url || !comment) return alert('Nhập đủ link bài và comment cuối cùng.');
+    if (!url || !postText || !comment) return alert('Nhập đủ link, nội dung bài mục tiêu và comment cuối cùng.');
     const res = await apiCall('/api/executor/interaction', {
-        method: 'POST', body: JSON.stringify({ url, comment })
+        method: 'POST', body: JSON.stringify({
+            url,
+            comment,
+            targetPost: { author, text: postText }
+        })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return alert(data.error || 'Không tạo được yêu cầu tương tác.');
     document.getElementById('interactionUrl').value = '';
+    document.getElementById('interactionAuthor').value = '';
+    document.getElementById('interactionPostText').value = '';
     document.getElementById('interactionComment').value = '';
     await fetchExecutorQueues();
 }

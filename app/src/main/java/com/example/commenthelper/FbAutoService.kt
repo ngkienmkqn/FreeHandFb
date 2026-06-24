@@ -2,8 +2,11 @@ package com.example.commenthelper
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
+import android.graphics.Path
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -19,6 +22,8 @@ import kotlinx.coroutines.withContext
 import org.mozilla.javascript.Context as RhinoContext
 import org.mozilla.javascript.Scriptable
 import org.mozilla.javascript.Function
+import java.text.Normalizer
+import kotlin.math.abs
 
 /**
  * Accessibility Service that automates Like + Comment on native Facebook app.
@@ -34,6 +39,8 @@ class FbAutoService : AccessibilityService() {
 
     companion object {
         private const val TAG = "FbAutoService"
+        private val UI_DIACRITICS = Regex("\\p{Mn}+")
+        private val UI_NON_ALPHANUMERIC = Regex("[^\\p{L}\\p{N}]+")
 
         /** Task queue sent from MainActivity */
         val taskQueue = MutableStateFlow<List<TaskItem>>(emptyList())
@@ -183,7 +190,10 @@ class FbAutoService : AccessibilityService() {
         val isScrapingGroup: Boolean = false,
         val postIndex: Int = 0,
         val executorJobId: String? = null,
-        val reportLegacyCompletion: Boolean = true
+        val reportLegacyCompletion: Boolean = true,
+        val targetPostAuthor: String = "",
+        val targetPostText: String = "",
+        val targetPostAnchors: List<String> = emptyList()
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -194,11 +204,13 @@ class FbAutoService : AccessibilityService() {
     private enum class Step {
         IDLE,
         WAITING_FOR_FB_LOAD,
+        SEEKING_TARGET_POST,
         LOOKING_FOR_LIKE,
         LOOKING_FOR_COMMENT_FIELD,
         WAITING_FOR_COMMENT_SENT,
         LOOKING_FOR_COMPOSER, 
         WAITING_FOR_COMPOSER_INPUT, 
+        LOOKING_FOR_COMPOSER_DONE,
         LOOKING_FOR_PHOTO_BUTTON, 
         SELECTING_PHOTOS, 
         WAITING_FOR_POST_TO_UPLOAD,
@@ -222,6 +234,12 @@ class FbAutoService : AccessibilityService() {
     private var currentIndex = 0
     private var retryCount = 0
     private var nextStepTime = 0L
+    private var commentEntryOpened = false
+    private var targetSearchScrollCount = 0
+    private var targetSearchStartedAt = 0L
+    private var lastTargetSearchSignature = 0
+    private var unchangedTargetSearchCount = 0
+    private var postUploadStableChecks = 0
     
     // Auto-learned Facebook display name of the device owner
     private var fbProfileName: String? = null
@@ -279,11 +297,13 @@ class FbAutoService : AccessibilityService() {
         val baseMsg = when(currentStep) {
             Step.IDLE -> "Đang rảnh"
             Step.WAITING_FOR_FB_LOAD -> "Đang mở bài viết trên ứng dụng FB..."
+            Step.SEEKING_TARGET_POST -> "Đang tự cuộn tìm bài viết mục tiêu..."
             Step.LOOKING_FOR_LIKE -> "Đang tìm kiếm nút Thích..."
             Step.LOOKING_FOR_COMMENT_FIELD -> "Đang tìm kiếm ô nhập Bình luận..."
             Step.WAITING_FOR_COMMENT_SENT -> "Đang gửi bình luận..."
             Step.LOOKING_FOR_COMPOSER -> "Đang chuẩn bị viết bài mới..."
             Step.WAITING_FOR_COMPOSER_INPUT -> "Đang nhập nội dung bài viết..."
+            Step.LOOKING_FOR_COMPOSER_DONE -> "Đang xác nhận nội dung bài viết..."
             Step.LOOKING_FOR_PHOTO_BUTTON -> "Đang tìm nút tải ảnh lên..."
             Step.SELECTING_PHOTOS -> "Đang chọn ảnh từ thư viện..."
             Step.WAITING_FOR_POST_TO_UPLOAD -> "Đang chờ Facebook tải bài lên..."
@@ -307,7 +327,11 @@ class FbAutoService : AccessibilityService() {
         currentStatusText.value = baseMsg + if (currentStep != Step.IDLE && currentStep != Step.DONE) nextMsg else ""
     }
     private val MAX_RETRIES: Int
-        get() = if (currentStep == Step.WAITING_FOR_POST_TO_UPLOAD || currentStep == Step.WAITING_FOR_COMMENT_SENT) 80 else 40 // 40s for upload, 20s for other steps
+        get() = when (currentStep) {
+            Step.WAITING_FOR_POST_TO_UPLOAD, Step.WAITING_FOR_COMMENT_SENT -> 80
+            Step.SEEKING_TARGET_POST -> 70
+            else -> 40
+        }
     private val STEP_DELAY: Long
         get() = if (getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE).getBoolean("global_debug_mode", false)) 2500L else 800L
     
@@ -411,11 +435,13 @@ class FbAutoService : AccessibilityService() {
         // Process based on current step
         when (currentStep) {
             Step.WAITING_FOR_FB_LOAD -> handleWaitingForLoad()
+            Step.SEEKING_TARGET_POST -> handleSeekingTargetPost()
             Step.LOOKING_FOR_LIKE -> handleLookingForLike()
             Step.LOOKING_FOR_COMMENT_FIELD -> handleLookingForCommentField()
             Step.WAITING_FOR_COMMENT_SENT -> findAndClickSend()
             Step.LOOKING_FOR_COMPOSER -> handleLookingForComposer()
             Step.WAITING_FOR_COMPOSER_INPUT -> handleWaitingForComposerInput()
+            Step.LOOKING_FOR_COMPOSER_DONE -> handleLookingForComposerDone()
             Step.LOOKING_FOR_PHOTO_BUTTON -> { handleLookingForPhotoButton() }
             Step.SELECTING_PHOTOS -> { handleSelectingPhotos() }
             Step.WAITING_FOR_POST_TO_UPLOAD -> { handleWaitingForPostToUpload() }
@@ -572,6 +598,8 @@ class FbAutoService : AccessibilityService() {
     }
     
     private fun executePostTask(task: TaskItem) {
+        commentEntryOpened = false
+        postUploadStableChecks = 0
         if (task.url == "ACTION_SCAN_NOTIFICATIONS") {
             currentStep = Step.CLICKING_NOTIFICATION_TAB
             retryCount = 0
@@ -602,6 +630,7 @@ class FbAutoService : AccessibilityService() {
             return
         }
         
+        resetTargetSearch()
         currentStep = Step.WAITING_FOR_FB_LOAD
         retryCount = 0
         healingCount = 0
@@ -761,11 +790,13 @@ class FbAutoService : AccessibilityService() {
                 // Actively try to find elements
                 when (currentStep) {
                     Step.WAITING_FOR_FB_LOAD -> handleWaitingForLoad()
+                    Step.SEEKING_TARGET_POST -> handleSeekingTargetPost()
                     Step.LOOKING_FOR_LIKE -> handleLookingForLike()
                     Step.LOOKING_FOR_COMMENT_FIELD -> handleLookingForCommentField()
                     Step.WAITING_FOR_COMMENT_SENT -> handleWaitingForCommentSent()
                     Step.LOOKING_FOR_COMPOSER -> handleLookingForComposer()
                     Step.WAITING_FOR_COMPOSER_INPUT -> handleWaitingForComposerInput()
+                    Step.LOOKING_FOR_COMPOSER_DONE -> handleLookingForComposerDone()
                     Step.LOOKING_FOR_PHOTO_BUTTON -> { handleLookingForPhotoButton() }
                     Step.SELECTING_PHOTOS -> { handleSelectingPhotos() }
                     Step.WAITING_FOR_POST_TO_UPLOAD -> { handleWaitingForPostToUpload() }
@@ -1052,6 +1083,18 @@ class FbAutoService : AccessibilityService() {
 
     private var lastLoadLogTime = 0L
 
+    private fun taskRequiresTargetPostSearch(task: TaskItem?): Boolean {
+        return task != null && !task.isPublishingGroup && !task.isScrapingGroup &&
+            (task.targetPostAnchors.isNotEmpty() || task.targetPostText.isNotBlank() || task.targetPostAuthor.isNotBlank())
+    }
+
+    private fun resetTargetSearch() {
+        targetSearchScrollCount = 0
+        targetSearchStartedAt = 0L
+        lastTargetSearchSignature = 0
+        unchangedTargetSearchCount = 0
+    }
+
     private fun handleWaitingForLoad() {
         val now = System.currentTimeMillis()
         if (now - lastLoadLogTime >= 1000) {
@@ -1087,6 +1130,28 @@ class FbAutoService : AccessibilityService() {
             val hasGroupInfo = allNodes.any { it.text?.toString()?.contains("thành viên", ignoreCase = true) == true }
             recycleNodes(allNodes)
             if (hasGroupInfo) currentStep = Step.SCRAPING_GROUP_INFO
+            root.recycle()
+            return
+        }
+
+        if (taskRequiresTargetPostSearch(currentTask)) {
+            val targetRegion = resolveTargetPostRegion(root, allNodes)
+            val pageReady = allNodes.count { it.isVisibleToUser } >= 6
+            recycleNodes(allNodes)
+
+            if (targetRegion != null) {
+                debugLog("🎯 Đã khóa đúng bài mục tiêu ngay khi mở link (điểm=${targetRegion.confidence}).")
+                currentStep = Step.LOOKING_FOR_LIKE
+                retryCount = 0
+                setNextStepDelay(STEP_DELAY)
+            } else if (pageReady) {
+                resetTargetSearch()
+                targetSearchStartedAt = System.currentTimeMillis()
+                currentStep = Step.SEEKING_TARGET_POST
+                retryCount = 0
+                debugLog("🔎 Chưa thấy bài mục tiêu trong màn hình đầu; bắt đầu tự cuộn ngay.")
+                setNextStepDelay(350)
+            }
             root.recycle()
             return
         }
@@ -1161,6 +1226,96 @@ class FbAutoService : AccessibilityService() {
             }
         }
         root.recycle()
+    }
+
+    private fun targetSearchSignature(nodes: List<AccessibilityNodeInfo>): Int {
+        return nodes.asSequence()
+            .filter { it.isVisibleToUser }
+            .mapNotNull { node ->
+                val label = nodeFields(node).joinToString(" ").take(100)
+                if (label.isBlank()) null else {
+                    val bounds = nodeBounds(node)
+                    "$label@${bounds.top}:${bounds.bottom}"
+                }
+            }
+            .take(30)
+            .joinToString("|")
+            .hashCode()
+    }
+
+    private fun dispatchSearchSwipe(): Boolean {
+        val metrics = resources.displayMetrics
+        val x = metrics.widthPixels * 0.5f
+        val startY = metrics.heightPixels * 0.78f
+        val endY = metrics.heightPixels * 0.28f
+        val path = Path().apply {
+            moveTo(x, startY)
+            lineTo(x, endY)
+        }
+        return dispatchGesture(
+            GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 550))
+                .build(),
+            null,
+            null
+        )
+    }
+
+    private fun handleSeekingTargetPost() {
+        val root = rootInActiveWindow ?: return
+        val nodes = findAllNodes(root)
+
+        if (interceptDeadLink(nodes)) {
+            recycleNodes(nodes)
+            root.recycle()
+            return
+        }
+
+        val region = resolveTargetPostRegion(root, nodes)
+        if (region != null) {
+            debugLog("🎯 Đã tìm thấy bài mục tiêu sau $targetSearchScrollCount lần cuộn (điểm=${region.confidence}).")
+            recycleNodes(nodes)
+            root.recycle()
+            currentStep = Step.LOOKING_FOR_LIKE
+            retryCount = 0
+            setNextStepDelay(STEP_DELAY)
+            return
+        }
+
+        val elapsed = System.currentTimeMillis() - targetSearchStartedAt
+        if (targetSearchScrollCount >= 15 || elapsed >= 30_000L || unchangedTargetSearchCount >= 5) {
+            debugLog("❌ TARGET_POST_NOT_FOUND: Không tìm thấy bài sau $targetSearchScrollCount lần cuộn/${elapsed / 1000}s.")
+            dumpScreenToLog("TARGET_POST_NOT_FOUND")
+            recycleNodes(nodes)
+            root.recycle()
+            markCurrentDone(success = false)
+            return
+        }
+
+        val signature = targetSearchSignature(nodes)
+        if (lastTargetSearchSignature != 0 && signature == lastTargetSearchSignature) {
+            unchangedTargetSearchCount++
+        } else {
+            unchangedTargetSearchCount = 0
+        }
+        lastTargetSearchSignature = signature
+
+        val scrollable = nodes.asSequence()
+            .filter { it.isVisibleToUser && it.isScrollable }
+            .maxByOrNull {
+                val bounds = nodeBounds(it)
+                bounds.width().toLong() * bounds.height().toLong()
+            }
+        var scrollStarted = scrollable?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) == true
+        recycleNodes(nodes)
+        root.recycle()
+
+        if (!scrollStarted) scrollStarted = dispatchSearchSwipe()
+        targetSearchScrollCount++
+        currentStatusText.value = "Đang tự cuộn tìm bài mục tiêu... ($targetSearchScrollCount/15)"
+        debugLog("🔎 Chưa thấy bài mục tiêu; cuộn lần $targetSearchScrollCount/15 (${if (scrollStarted) "đã gửi lệnh" else "không cuộn được"}).")
+        if (!scrollStarted) unchangedTargetSearchCount++
+        setNextStepDelay(1_100L)
     }
 
     private fun handleScrapingGroupInfo() {
@@ -1262,7 +1417,7 @@ class FbAutoService : AccessibilityService() {
             val commentPlaceholder = findCommentPlaceholder(root)
             if (commentPlaceholder != null) {
                 Log.d(TAG, "Clicking comment placeholder to open input")
-                performClick(commentPlaceholder)
+                commentEntryOpened = performClick(commentPlaceholder)
                 commentPlaceholder.recycle()
                 root.recycle()
                 // Wait and retry
@@ -1303,9 +1458,42 @@ class FbAutoService : AccessibilityService() {
         root.recycle()
     }
 
+    private fun isExpectedCommentSubmitted(root: AccessibilityNodeInfo, expectedComment: String): Boolean {
+        val expected = normalizeUiText(expectedComment)
+        if (expected.isBlank()) return false
+        val nodes = findAllNodes(root)
+        val found = nodes.any { node ->
+            node.isVisibleToUser && !node.isEditable &&
+                node.className?.toString() != "android.widget.EditText" &&
+                nodeFields(node).any { field -> field == expected }
+        }
+        recycleNodes(nodes)
+        return found
+    }
+
+    private fun dispatchTap(node: AccessibilityNodeInfo): Boolean {
+        val bounds = nodeBounds(node)
+        if (bounds.isEmpty) return false
+        val path = Path().apply { moveTo(bounds.exactCenterX(), bounds.exactCenterY()) }
+        return dispatchGesture(
+            GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 120))
+                .build(),
+            null,
+            null
+        )
+    }
+
     private fun findAndClickSend() {
         val root = rootInActiveWindow ?: return
         val task = currentTask ?: return
+
+        if (!task.isPublishingGroup && isExpectedCommentSubmitted(root, task.comment)) {
+            debugLog("✅ Nội dung bình luận đã xuất hiện ngoài ô nhập; xác nhận Facebook đã gửi thành công.")
+            root.recycle()
+            markCurrentDone(success = true)
+            return
+        }
 
         val sendButton = findSendButton(root)
         if (sendButton != null) {
@@ -1319,9 +1507,13 @@ class FbAutoService : AccessibilityService() {
                 markCurrentDone(success = false)
                 return
             }
-            sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (!sendButton.isClickable) {
-                sendButton.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            val clicked = performClick(sendButton) || dispatchTap(sendButton)
+            if (!clicked) {
+                debugLog("⚠️ Đã nhận diện nút Gửi nhưng không thể click node/ancestor/tọa độ.")
+                sendButton.recycle()
+                root.recycle()
+                setNextStepDelay(800)
+                return
             }
             sendButton.recycle()
             root.recycle()
@@ -1402,7 +1594,7 @@ class FbAutoService : AccessibilityService() {
                 retryCount = 0
                 setNextStepDelay(STEP_DELAY)
             } else {
-                currentStep = Step.WAITING_FOR_COMMENT_SENT
+                currentStep = Step.LOOKING_FOR_COMPOSER_DONE
                 retryCount = 0
                 setNextStepDelay(STEP_DELAY)
             }
@@ -1412,6 +1604,45 @@ class FbAutoService : AccessibilityService() {
                 dumpScreenToLog("COMPOSER_INPUT_NOT_FOUND")
             }
             setNextStepDelay(500)
+        }
+        root.recycle()
+    }
+
+    private fun handleLookingForComposerDone() {
+        val root = rootInActiveWindow ?: return
+        val doneButton = findBestCandidate(root, ActionTarget.COMPOSER_DONE)
+        if (doneButton != null) {
+            debugLog("✅ Tìm thấy nút Xong sau khi nhập nội dung; đang bấm...")
+            dumpScreenToLog("COMPOSER_DONE_FOUND")
+            val clicked = performClick(doneButton) || dispatchTap(doneButton)
+            doneButton.recycle()
+            if (clicked) {
+                currentStep = Step.WAITING_FOR_COMMENT_SENT
+                retryCount = 0
+                setNextStepDelay(1_200L)
+            } else {
+                debugLog("⚠️ Nhận diện được nút Xong nhưng chưa click được.")
+                setNextStepDelay(700L)
+            }
+            root.recycle()
+            return
+        }
+
+        // Gallery may return directly to the final publish screen without a
+        // separate Done button. In that case, move on only after scoring Post.
+        val publishButton = findBestCandidate(root, ActionTarget.PUBLISH_POST)
+        if (publishButton != null) {
+            debugLog("ℹ️ Không còn bước Xong; màn hình đã sẵn sàng nút Đăng.")
+            publishButton.recycle()
+            currentStep = Step.WAITING_FOR_COMMENT_SENT
+            retryCount = 0
+            setNextStepDelay(300L)
+        } else {
+            if (retryCount % 3 == 0) {
+                debugLog("⚠️ Chưa tìm thấy nút Xong hoặc Đăng (retry=$retryCount).")
+                dumpScreenToLog("COMPOSER_DONE_NOT_FOUND")
+            }
+            setNextStepDelay(700L)
         }
         root.recycle()
     }
@@ -1597,7 +1828,7 @@ class FbAutoService : AccessibilityService() {
                     debugLog("⚠️ rootInActiveWindow null, bỏ qua tìm nút Tiếp...")
                 }
                 
-                currentStep = Step.WAITING_FOR_COMMENT_SENT
+                currentStep = Step.LOOKING_FOR_COMPOSER_DONE
                 retryCount = 0
                 multiSelectClicked = false
                 setNextStepDelay(2500)
@@ -1616,7 +1847,7 @@ class FbAutoService : AccessibilityService() {
                 Log.w(TAG, "Gallery stuck $retryCount retries. Posting text only.")
                 multiSelectClicked = false
                 performGlobalAction(GLOBAL_ACTION_BACK)
-                currentStep = Step.WAITING_FOR_COMMENT_SENT
+                currentStep = Step.LOOKING_FOR_COMPOSER_DONE
                 retryCount = 0
                 setNextStepDelay(1500)
             } else {
@@ -1639,6 +1870,7 @@ class FbAutoService : AccessibilityService() {
             text.contains("đang đăng") || text.contains("posting")
         }
         if (isUploading) {
+            postUploadStableChecks = 0
             setNextStepDelay(1000)
             recycleNodes(allNodes)
             root.recycle()
@@ -1655,6 +1887,44 @@ class FbAutoService : AccessibilityService() {
         if (isPending) {
             Log.d(TAG, "Post requires admin approval. Cannot grab link.")
             markCurrentDone(success = true) 
+            recycleNodes(allNodes)
+            root.recycle()
+            return
+        }
+
+        // Executor jobs only need a reliable success acknowledgement. Copying the
+        // newly-created link via the fragile "Bạn" tab is a separate concern.
+        if (task.executorJobId != null || !task.reportLegacyCompletion) {
+            val hasComposerInput = allNodes.any {
+                it.isVisibleToUser && (it.isEditable || it.className?.toString() == "android.widget.EditText")
+            }
+            val postTerms = Engine.postButton.map(::normalizeUiText)
+            val hasPostButton = allNodes.any { node ->
+                val fields = nodeFields(node)
+                fields.any { field -> postTerms.any { term -> field == term } }
+            }
+            val composerStillOpen = hasComposerInput && hasPostButton
+
+            if (composerStillOpen) {
+                postUploadStableChecks = 0
+                debugLog("⏳ Composer vẫn đang mở sau khi bấm Đăng; tiếp tục chờ xác nhận...")
+                setNextStepDelay(1000)
+                recycleNodes(allNodes)
+                root.recycle()
+                return
+            }
+
+            postUploadStableChecks++
+            if (postUploadStableChecks >= 2) {
+                debugLog("✅ Composer đã đóng ổn định; xác nhận bài đăng thành công.")
+                recycleNodes(allNodes)
+                root.recycle()
+                markCurrentDone(success = true)
+                return
+            }
+
+            debugLog("🔍 Composer đã đóng; kiểm tra ổn định ${postUploadStableChecks}/2...")
+            setNextStepDelay(800)
             recycleNodes(allNodes)
             root.recycle()
             return
@@ -2057,58 +2327,374 @@ class FbAutoService : AccessibilityService() {
 
     /* ================== NODE FINDERS ================== */
 
-    private fun findLikeButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        // Strategy 1: Find by content description containing "Like" (most reliable)
-        val likeDescriptions = listOf("Like", "Thích", "like", "thích")
-        for (desc in likeDescriptions) {
-            val nodes = root.findAccessibilityNodeInfosByText(desc)
-            for (node in nodes) {
-                val cd = node.contentDescription?.toString()?.lowercase() ?: ""
-                val text = node.text?.toString()?.lowercase() ?: ""
-                // Match "Like" but not "Unlike" / "Bỏ thích"
-                if ((cd.contains("like") && !cd.contains("unlike")) ||
-                    (cd.contains("thích") && !cd.contains("bỏ thích")) ||
-                    (text == "like" || text == "thích")
-                ) {
-                    return node
+    private enum class ActionTarget {
+        LIKE,
+        COMMENT_INPUT,
+        COMMENT_TRIGGER,
+        SEND_COMMENT,
+        COMPOSER_DONE,
+        PUBLISH_POST
+    }
+
+    private data class TargetPostRegion(
+        val bounds: Rect,
+        val anchorBounds: Rect,
+        val confidence: Int
+    )
+
+    private data class NodeCandidate(
+        val node: AccessibilityNodeInfo,
+        val score: Int,
+        val reasons: List<String>
+    )
+
+    private fun normalizeUiText(value: CharSequence?): String {
+        if (value == null) return ""
+        return Normalizer.normalize(value.toString(), Normalizer.Form.NFD)
+            .replace(UI_DIACRITICS, "")
+            .replace('đ', 'd')
+            .replace('Đ', 'd')
+            .lowercase()
+            .replace(UI_NON_ALPHANUMERIC, " ")
+            .trim()
+    }
+
+    private fun nodeBounds(node: AccessibilityNodeInfo): Rect = Rect().also(node::getBoundsInScreen)
+
+    private fun nodeFields(node: AccessibilityNodeInfo): List<String> = listOf(
+        normalizeUiText(node.text),
+        normalizeUiText(node.hintText),
+        normalizeUiText(node.contentDescription),
+        normalizeUiText(node.viewIdResourceName)
+    ).filter { it.isNotBlank() }
+
+    private fun isNodeActionable(node: AccessibilityNodeInfo): Boolean {
+        var cursor: AccessibilityNodeInfo? = node
+        var depth = 0
+        while (cursor != null && depth <= 5) {
+            val actionable = cursor.isClickable || cursor.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
+            val parent = if (actionable) null else cursor.parent
+            if (depth > 0) cursor.recycle()
+            if (actionable) return true
+            cursor = parent
+            depth++
+        }
+        cursor?.recycle()
+        return false
+    }
+
+    private fun targetFingerprints(task: TaskItem): List<String> {
+        val supplied = task.targetPostAnchors.map(::normalizeUiText)
+        val textFallback = normalizeUiText(task.targetPostText).let { text ->
+            if (text.length >= 12) listOf(text.take(160)) else emptyList()
+        }
+        return (supplied + textFallback).filter { it.length >= 8 }.distinct().take(6)
+    }
+
+    private fun resolveTargetPostRegion(
+        root: AccessibilityNodeInfo,
+        nodes: List<AccessibilityNodeInfo>
+    ): TargetPostRegion? {
+        val task = currentTask ?: return null
+        if (task.isPublishingGroup) return null
+        val fingerprints = targetFingerprints(task)
+        val author = normalizeUiText(task.targetPostAuthor)
+        if (fingerprints.isEmpty() && author.isBlank()) return null
+
+        var bestNode: AccessibilityNodeInfo? = null
+        var bestScore = Int.MIN_VALUE
+        for (node in nodes) {
+            if (!node.isVisibleToUser) continue
+            val content = nodeFields(node).joinToString(" ")
+            if (content.isBlank()) continue
+            var score = 0
+            for (anchor in fingerprints) {
+                score += when {
+                    content == anchor -> 90
+                    content.contains(anchor) -> 70
+                    anchor.contains(content) && content.length >= 18 -> 35
+                    else -> 0
                 }
-                node.recycle()
+            }
+            if (author.isNotBlank()) {
+                if (content == author) score += 30
+                else if (content.contains(author)) score += 18
+            }
+            if (score > bestScore) {
+                bestNode = node
+                bestScore = score
             }
         }
-        return null
+        val anchorNode = bestNode ?: return null
+        if (bestScore < 35) return null
+
+        val rootBounds = nodeBounds(root)
+        val anchorBounds = nodeBounds(anchorNode)
+        var selected: Rect? = null
+        var cursor = anchorNode.parent
+        while (cursor != null) {
+            val bounds = nodeBounds(cursor)
+            val minHeight = maxOf(220, anchorBounds.height() + 140)
+            val wideEnough = rootBounds.width() <= 0 || bounds.width() >= rootBounds.width() * 0.60
+            val notWholeScreen = rootBounds.height() <= 0 || bounds.height() <= rootBounds.height() * 0.88
+            if (wideEnough && notWholeScreen && bounds.height() >= minHeight) {
+                selected = Rect(bounds)
+                cursor.recycle()
+                break
+            }
+            val parent = cursor.parent
+            cursor.recycle()
+            cursor = parent
+        }
+
+        val region = selected ?: Rect(
+            rootBounds.left,
+            maxOf(rootBounds.top, anchorBounds.top - 220),
+            rootBounds.right,
+            minOf(rootBounds.bottom, anchorBounds.bottom + 850)
+        )
+        return TargetPostRegion(region, anchorBounds, bestScore)
+    }
+
+    private fun referenceCommentInputBounds(nodes: List<AccessibilityNodeInfo>): Rect? {
+        val expected = normalizeUiText(currentTask?.comment)
+        val commentTerms = Engine.commentButton.map(::normalizeUiText)
+        return nodes.asSequence()
+            .filter { it.isVisibleToUser && (it.isEditable || it.className?.toString() == "android.widget.EditText") }
+            .map { node ->
+                val fields = nodeFields(node)
+                val score = when {
+                    expected.isNotBlank() && fields.any { it.contains(expected) || expected.contains(it) } -> 100
+                    fields.any { field -> commentTerms.any(field::contains) } -> 60
+                    else -> 10
+                }
+                score to nodeBounds(node)
+            }
+            .maxByOrNull { it.first }
+            ?.second
+    }
+
+    private fun scoreNode(
+        node: AccessibilityNodeInfo,
+        target: ActionTarget,
+        targetRegion: TargetPostRegion?,
+        inputBounds: Rect?,
+        targetRequested: Boolean
+    ): NodeCandidate {
+        val reasons = mutableListOf<String>()
+        if (!node.isVisibleToUser) return NodeCandidate(node, -1000, listOf("ẩn"))
+        val fields = nodeFields(node)
+        val text = normalizeUiText(node.text)
+        val hint = normalizeUiText(node.hintText)
+        val description = normalizeUiText(node.contentDescription)
+        val combined = fields.joinToString(" ")
+        val bounds = nodeBounds(node)
+        var score = 10
+        reasons += "+10 hiển thị"
+
+        if (isNodeActionable(node)) {
+            score += 15
+            reasons += "+15 click"
+        } else if (target != ActionTarget.COMMENT_INPUT) {
+            score -= 55
+            reasons += "-55 không click được"
+        }
+
+        val needsPostScope = target == ActionTarget.LIKE || target == ActionTarget.COMMENT_TRIGGER ||
+            (target == ActionTarget.COMMENT_INPUT && !commentEntryOpened)
+        if (needsPostScope && targetRegion != null) {
+            if (targetRegion.bounds.contains(bounds.centerX(), bounds.centerY())) {
+                score += 35
+                reasons += "+35 đúng vùng bài"
+                if (bounds.top >= targetRegion.anchorBounds.top) {
+                    score += 8
+                    reasons += "+8 dưới nội dung"
+                }
+            } else {
+                score -= 70
+                reasons += "-70 ngoài vùng bài"
+            }
+        } else if (needsPostScope && targetRequested) {
+            score -= 45
+            reasons += "-45 chưa nhận diện bài"
+        }
+
+        when (target) {
+            ActionTarget.LIKE -> {
+                val exact = text in listOf("like", "thich", "unlike", "bo thich") ||
+                    description in listOf("like", "thich", "unlike", "bo thich")
+                if (exact) {
+                    score += 50
+                    reasons += "+50 Like chính xác"
+                } else if (listOf("like", "thich", "unlike", "bo thich").any(combined::contains)) {
+                    score += 32
+                    reasons += "+32 có từ Like"
+                }
+                if (combined.contains("thich binh luan") || combined.contains("like comment") ||
+                    combined.contains("reaction to comment")) {
+                    score -= 160
+                    reasons += "-160 Like của bình luận"
+                }
+            }
+            ActionTarget.COMMENT_INPUT -> {
+                val editable = node.isEditable || node.className?.toString() == "android.widget.EditText"
+                if (editable) {
+                    score += 45
+                    reasons += "+45 ô nhập"
+                } else {
+                    score -= 50
+                }
+                val terms = Engine.commentButton.map(::normalizeUiText)
+                if (fields.any { field -> terms.any(field::contains) }) {
+                    score += 35
+                    reasons += "+35 mô tả bình luận"
+                }
+            }
+            ActionTarget.COMMENT_TRIGGER -> {
+                val terms = Engine.commentButton.map(::normalizeUiText)
+                if (terms.any { it == text || it == description }) {
+                    score += 50
+                    reasons += "+50 Bình luận chính xác"
+                } else if (fields.any { field -> terms.any(field::contains) }) {
+                    score += 30
+                    reasons += "+30 có từ Bình luận"
+                }
+                if (combined.contains("tra loi binh luan") || combined.contains("reply to comment") ||
+                    combined.contains("thich binh luan") || combined.contains("like comment")) {
+                    score -= 140
+                    reasons += "-140 hành động của bình luận"
+                }
+            }
+            ActionTarget.SEND_COMMENT -> {
+                val terms = Engine.sendComment.map(::normalizeUiText)
+                    .filter { it.isNotBlank() && it !in listOf("tiep", "next", "done", "xong") }
+                if (terms.any { it == text || it == description }) {
+                    score += 55
+                    reasons += "+55 Gửi chính xác"
+                    if (!isNodeActionable(node)) {
+                        score += 60
+                        reasons += "+60 Gửi semantic"
+                    }
+                } else if (fields.any { field -> terms.any(field::contains) }) {
+                    score += 28
+                    reasons += "+28 có từ Gửi"
+                }
+                if (listOf("messenger", "tin nhắn", "tin nhan", "ban be", "chia se", "share to").any(combined::contains)) {
+                    score -= 180
+                    reasons += "-180 sai ngữ cảnh"
+                }
+                if (inputBounds != null) {
+                    val verticalDistance = abs(bounds.centerY() - inputBounds.centerY())
+                    if (verticalDistance <= maxOf(90, inputBounds.height())) {
+                        score += 25
+                        reasons += "+25 cùng hàng ô nhập"
+                    } else if (verticalDistance > inputBounds.height() * 2 + 160) {
+                        score -= 45
+                        reasons += "-45 xa ô nhập"
+                    }
+                    if (bounds.centerX() >= inputBounds.centerX()) {
+                        score += 12
+                        reasons += "+12 bên phải ô nhập"
+                    }
+                }
+            }
+            ActionTarget.COMPOSER_DONE -> {
+                val terms = listOf("xong", "done")
+                if (terms.any { it == text || it == description }) {
+                    score += 65
+                    reasons += "+65 Xong chính xác"
+                } else if (fields.any { field -> terms.any(field::contains) }) {
+                    score += 30
+                    reasons += "+30 có từ Xong"
+                }
+                val metrics = resources.displayMetrics
+                if (bounds.centerY() < metrics.heightPixels * 0.45f) {
+                    score += 10
+                    reasons += "+10 vùng trên"
+                }
+                if (bounds.centerX() > metrics.widthPixels * 0.55f) {
+                    score += 8
+                    reasons += "+8 bên phải"
+                }
+            }
+            ActionTarget.PUBLISH_POST -> {
+                val terms = Engine.postButton.map(::normalizeUiText)
+                if (terms.any { it == text || it == description }) {
+                    score += 65
+                    reasons += "+65 Đăng chính xác"
+                } else if (fields.any { field -> terms.any(field::contains) }) {
+                    score += 25
+                    reasons += "+25 có từ Đăng"
+                }
+                if (combined.contains("dang cheo") || combined.contains("crosspost") || combined.contains("cross post")) {
+                    score -= 180
+                    reasons += "-180 Đăng chéo"
+                }
+                if (node.isEditable) {
+                    score -= 120
+                    reasons += "-120 ô nhập"
+                }
+            }
+        }
+        return NodeCandidate(node, score, reasons)
+    }
+
+    private fun findBestCandidate(root: AccessibilityNodeInfo, target: ActionTarget): AccessibilityNodeInfo? {
+        val nodes = findAllNodes(root)
+        val task = currentTask
+        val targetRequested = task != null &&
+            (task.targetPostAnchors.isNotEmpty() || task.targetPostText.isNotBlank() || task.targetPostAuthor.isNotBlank())
+        val region = resolveTargetPostRegion(root, nodes)
+        val inputBounds = if (target == ActionTarget.SEND_COMMENT && currentTask?.isPublishingGroup != true)
+            referenceCommentInputBounds(nodes) else null
+        val ranked = nodes.map { scoreNode(it, target, region, inputBounds, targetRequested) }
+            .sortedByDescending { it.score }
+        val threshold = when (target) {
+            ActionTarget.LIKE -> 60
+            ActionTarget.COMMENT_INPUT -> 65
+            ActionTarget.COMMENT_TRIGGER -> 60
+            ActionTarget.SEND_COMMENT -> 70
+            ActionTarget.COMPOSER_DONE -> 65
+            ActionTarget.PUBLISH_POST -> 70
+        }
+        val best = ranked.firstOrNull()
+        if (isDebugMode || retryCount % 5 == 0) {
+            val summary = ranked.take(3).joinToString(" | ") { candidate ->
+                val label = nodeFields(candidate.node).joinToString(" / ").take(80)
+                "${candidate.score}đ '$label' [${candidate.reasons.joinToString()}]"
+            }
+            debugLog("🎯 SCORE[$target] region=${region?.confidence ?: 0}: $summary")
+        }
+        val runnerUp = ranked.getOrNull(1)
+        val ambiguous = best != null && runnerUp != null && best.score >= threshold &&
+            best.score - runnerUp.score < 8 && run {
+                val firstBounds = nodeBounds(best.node)
+                val secondBounds = nodeBounds(runnerUp.node)
+                abs(firstBounds.centerX() - secondBounds.centerX()) + abs(firstBounds.centerY() - secondBounds.centerY()) > 80
+            }
+        if (ambiguous) debugLog("⚠️ SCORE[$target] có hai ứng viên quá sát điểm; chờ giao diện rõ hơn.")
+        val result = best?.takeIf { it.score >= threshold && !ambiguous }
+            ?.let { AccessibilityNodeInfo.obtain(it.node) }
+        recycleNodes(nodes)
+        return result
+    }
+
+    private fun findLikeButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        return findBestCandidate(root, ActionTarget.LIKE)
     }
 
     private fun isAlreadyLiked(node: AccessibilityNodeInfo): Boolean {
-        val cd = node.contentDescription?.toString()?.lowercase() ?: ""
+        val state = nodeFields(node).joinToString(" ")
         // If it says "Unlike" or "Bỏ thích", it's already liked
-        return cd.contains("unlike") || cd.contains("bỏ thích") || node.isSelected
+        return state.contains("unlike") || state.contains("bo thich") || node.isSelected
     }
 
     private fun findCommentInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val editTexts = findAllNodes(root).filter { it.className?.toString() == "android.widget.EditText" }
-        for (et in editTexts) {
-            val hintText = et.hintText?.toString()?.lowercase() ?: ""
-            val txt = et.text?.toString()?.lowercase() ?: ""
-            val cd = et.contentDescription?.toString()?.lowercase() ?: ""
-            val combined = "$hintText $txt $cd"
-            if (Engine.commentButton.any { combined.contains(it) }) {
-                return AccessibilityNodeInfo.obtain(et)
-            }
-        }
-        return null
+        return findBestCandidate(root, ActionTarget.COMMENT_INPUT)
     }
 
     private fun findCommentPlaceholder(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        for (hint in Engine.commentButton) {
-            val nodes = root.findAccessibilityNodeInfosByText(hint)
-            for (node in nodes) {
-                if (node.isClickable || node.parent?.isClickable == true) {
-                    return node
-                }
-                node.recycle()
-            }
-        }
-        return null
+        return findBestCandidate(root, ActionTarget.COMMENT_TRIGGER)
     }
 
     private fun findGroupComposerPlaceholder(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
@@ -2155,29 +2741,10 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        // Look for send/submit button
-        for (text in Engine.sendComment) {
-            val nodes = root.findAccessibilityNodeInfosByText(text)
-            for (node in nodes) {
-                val cd = node.contentDescription?.toString()?.lowercase() ?: ""
-                val t = node.text?.toString()?.lowercase() ?: ""
-                
-                if (cd.contains("messenger") || cd.contains("tin nhắn") || cd.contains("bạn bè")) {
-                    node.recycle()
-                    continue
-                }
-                
-                if (Engine.sendComment.any { cd.contains(it) } || t.contains(text)) {
-                    if (node.isClickable || node.parent?.isClickable == true) {
-                        return node
-                    }
-                }
-                node.recycle()
-            }
-        }
-
-        // Fallback: look for ImageButton or ImageView with send-like description
-        return findNodeByContentDescription(root, Engine.sendComment)
+        return findBestCandidate(
+            root,
+            if (currentTask?.isPublishingGroup == true) ActionTarget.PUBLISH_POST else ActionTarget.SEND_COMMENT
+        )
     }
 
     /* ================== NODE SEARCH UTILS ================== */
@@ -2462,6 +3029,9 @@ class FbAutoService : AccessibilityService() {
         multiSelectClicked = false
         isMarkingDone = false
         processedNotifications.clear()
+        resetTargetSearch()
+        postUploadStableChecks = 0
+        isRetryCheckerRunning = false
         handler.removeCallbacksAndMessages(null)
         try {
             if (wakeLock?.isHeld == true) {

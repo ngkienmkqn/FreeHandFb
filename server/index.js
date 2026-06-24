@@ -46,6 +46,28 @@ function saveJson(file, data) {
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function hashPw(pw) { return crypto.createHash('sha256').update(pw).digest('hex'); }
 
+function normalizeTargetText(value, maxLength) {
+    return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function buildTargetPost(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const author = normalizeTargetText(value.author, 160);
+    const text = normalizeTargetText(value.text, 4000);
+    const suppliedAnchors = Array.isArray(value.anchors) ? value.anchors : [];
+    const generatedAnchors = text
+        .split(/(?:[.!?]\s+|\n+)/)
+        .map(part => normalizeTargetText(part, 160))
+        .filter(part => part.length >= 12);
+    if (text.length >= 12 && generatedAnchors.length === 0) generatedAnchors.push(text.slice(0, 160));
+    const anchors = [...new Set([...suppliedAnchors, ...generatedAnchors]
+        .map(part => normalizeTargetText(part, 160))
+        .filter(part => part.length >= 8))]
+        .slice(0, 5);
+    if (!author && !text && anchors.length === 0) return null;
+    return { author, text, anchors };
+}
+
 // --- Data stores ---
 let users = loadJson(USERS_FILE, []);
 let tokens = loadJson(TOKENS_FILE, {}); // { token: { userId, username, group, role, createdAt } }
@@ -311,13 +333,18 @@ app.delete('/api/executor/queues/reset', authMiddleware, adminOnly, (req, res) =
 app.post('/api/executor/interaction', authMiddleware, (req, res) => {
     const url = String(req.body.url || '').trim();
     const comment = String(req.body.comment || '').trim();
-    if (!/^https?:\/\//i.test(url) || !comment) {
-        return res.status(400).json({ error: 'URL và comment hoàn chỉnh là bắt buộc.' });
+    const targetPost = buildTargetPost(req.body.targetPost);
+    if (!/^https?:\/\//i.test(url) || !comment || !targetPost || targetPost.anchors.length === 0) {
+        return res.status(400).json({ error: 'URL, nội dung bài mục tiêu và comment hoàn chỉnh là bắt buộc.' });
     }
     const now = Date.now();
     const job = {
         id: `INT-${genId()}`, type: 'interaction', group: req.user.group,
-        payload: { url: normalizeFbUrlForNative(url), comment },
+        payload: {
+            url: normalizeFbUrlForNative(url),
+            comment: comment.slice(0, 4000),
+            ...(targetPost ? { targetPost } : {})
+        },
         status: 'QUEUED', attempts: 0, createdBy: req.user.username,
         createdAt: now, updatedAt: now
     };

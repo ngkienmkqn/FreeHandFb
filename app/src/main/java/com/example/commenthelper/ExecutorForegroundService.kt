@@ -254,13 +254,22 @@ class ExecutorForegroundService : Service() {
                     )), appendNotificationScan = false)
                 }
             } else {
+                val targetPost = job.payload.optJSONObject("targetPost")
+                val targetAnchorsJson = targetPost?.optJSONArray("anchors")
+                val targetAnchors = if (targetAnchorsJson == null) emptyList() else
+                    (0 until targetAnchorsJson.length()).mapNotNull { index ->
+                        targetAnchorsJson.optString(index).trim().takeIf { it.isNotEmpty() }
+                    }
                 withContext(Dispatchers.Main) {
                     accessibility.startProcessing(listOf(FbAutoService.TaskItem(
                         postId = job.id,
                         url = job.payload.getString("url"),
                         comment = job.payload.getString("comment"),
                         executorJobId = job.id,
-                        reportLegacyCompletion = false
+                        reportLegacyCompletion = false,
+                        targetPostAuthor = targetPost?.optString("author").orEmpty(),
+                        targetPostText = targetPost?.optString("text").orEmpty(),
+                        targetPostAnchors = targetAnchors
                     )), appendNotificationScan = false)
                 }
             }
