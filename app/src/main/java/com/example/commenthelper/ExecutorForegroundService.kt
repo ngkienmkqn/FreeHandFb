@@ -256,6 +256,9 @@ class ExecutorForegroundService : Service() {
             } else {
                 val targetPost = job.payload.optJSONObject("targetPost")
                 val targetAnchorsJson = targetPost?.optJSONArray("anchors")
+                val actions = job.payload.optJSONObject("actions")
+                val actionLike = actions?.optBoolean("like", true) ?: true
+                val actionComment = actions?.optBoolean("comment", true) ?: true
                 val targetAnchors = if (targetAnchorsJson == null) emptyList() else
                     (0 until targetAnchorsJson.length()).mapNotNull { index ->
                         targetAnchorsJson.optString(index).trim().takeIf { it.isNotEmpty() }
@@ -269,7 +272,9 @@ class ExecutorForegroundService : Service() {
                         reportLegacyCompletion = false,
                         targetPostAuthor = targetPost?.optString("author").orEmpty(),
                         targetPostText = targetPost?.optString("text").orEmpty(),
-                        targetPostAnchors = targetAnchors
+                        targetPostAnchors = targetAnchors,
+                        actionLike = actionLike,
+                        actionComment = actionComment
                     )), appendNotificationScan = false)
                 }
             }

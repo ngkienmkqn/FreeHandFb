@@ -193,7 +193,9 @@ class FbAutoService : AccessibilityService() {
         val reportLegacyCompletion: Boolean = true,
         val targetPostAuthor: String = "",
         val targetPostText: String = "",
-        val targetPostAnchors: List<String> = emptyList()
+        val targetPostAnchors: List<String> = emptyList(),
+        val actionLike: Boolean = true,
+        val actionComment: Boolean = true
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -1088,6 +1090,10 @@ class FbAutoService : AccessibilityService() {
             (task.targetPostAnchors.isNotEmpty() || task.targetPostText.isNotBlank() || task.targetPostAuthor.isNotBlank())
     }
 
+    private fun firstInteractionStep(task: TaskItem?): Step {
+        return if (task?.actionLike == false && task.actionComment) Step.LOOKING_FOR_COMMENT_FIELD else Step.LOOKING_FOR_LIKE
+    }
+
     private fun resetTargetSearch() {
         targetSearchScrollCount = 0
         targetSearchStartedAt = 0L
@@ -1141,7 +1147,7 @@ class FbAutoService : AccessibilityService() {
 
             if (targetRegion != null) {
                 debugLog("🎯 Đã khóa đúng bài mục tiêu ngay khi mở link (điểm=${targetRegion.confidence}).")
-                currentStep = Step.LOOKING_FOR_LIKE
+                currentStep = firstInteractionStep(currentTask)
                 retryCount = 0
                 setNextStepDelay(STEP_DELAY)
             } else if (pageReady) {
@@ -1178,7 +1184,7 @@ class FbAutoService : AccessibilityService() {
                 dumpScreenToLog("FB_LOADED_OK")
                 likeNode?.recycle()
                 commentArea?.recycle()
-                currentStep = Step.LOOKING_FOR_LIKE
+                currentStep = firstInteractionStep(currentTask)
                 retryCount = 0
                 setNextStepDelay(STEP_DELAY)
             } else if (retryCount >= 10) {
@@ -1276,7 +1282,7 @@ class FbAutoService : AccessibilityService() {
             debugLog("🎯 Đã tìm thấy bài mục tiêu sau $targetSearchScrollCount lần cuộn (điểm=${region.confidence}).")
             recycleNodes(nodes)
             root.recycle()
-            currentStep = Step.LOOKING_FOR_LIKE
+            currentStep = firstInteractionStep(currentTask)
             retryCount = 0
             setNextStepDelay(STEP_DELAY)
             return
@@ -1347,6 +1353,18 @@ class FbAutoService : AccessibilityService() {
     private fun handleLookingForLike() {
         debugLog("Đang tìm nút Like...")
         val root = rootInActiveWindow ?: return
+        val task = currentTask ?: run {
+            root.recycle()
+            return
+        }
+
+        if (!task.actionLike) {
+            currentStep = Step.LOOKING_FOR_COMMENT_FIELD
+            retryCount = 0
+            root.recycle()
+            setNextStepDelay(STEP_DELAY)
+            return
+        }
 
         val likeNode = findLikeButton(root)
         if (likeNode != null) {
@@ -1364,7 +1382,12 @@ class FbAutoService : AccessibilityService() {
                 }
                 likeNode.recycle()
             }
-            // Move to comment step
+            if (!task.actionComment) {
+                debugLog("✅ Job chỉ yêu cầu Like, hoàn thành sau bước Like.")
+                root.recycle()
+                markCurrentDone(success = true)
+                return
+            }
             currentStep = Step.LOOKING_FOR_COMMENT_FIELD
             retryCount = 0
             setNextStepDelay(STEP_DELAY)
@@ -1372,6 +1395,11 @@ class FbAutoService : AccessibilityService() {
             // No like button found — maybe already liked or different layout
             debugLog("⚠️ Không tìm thấy nút Like, chuyển sang tìm Comment. (retry=$retryCount)")
             dumpScreenToLog("LIKE_NOT_FOUND")
+            if (!task.actionComment) {
+                root.recycle()
+                markCurrentDone(success = true)
+                return
+            }
             currentStep = Step.LOOKING_FOR_COMMENT_FIELD
             retryCount = 0
         }
@@ -1381,7 +1409,15 @@ class FbAutoService : AccessibilityService() {
     private fun handleLookingForCommentField() {
         debugLog("Đang tìm ô Bình luận... (retry=$retryCount)")
         val root = rootInActiveWindow ?: return
-        val task = currentTask ?: return
+        val task = currentTask ?: run {
+            root.recycle()
+            return
+        }
+        if (!task.actionComment) {
+            root.recycle()
+            markCurrentDone(success = true)
+            return
+        }
 
         // Trước khi bình luận, quét xem mình đã cmt bài viết này chưa để tránh cmt trùng
         val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)

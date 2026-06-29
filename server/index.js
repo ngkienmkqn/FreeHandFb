@@ -29,6 +29,8 @@ const ARTICLES_FILE = path.join(DATA_DIR, 'articles.json');
 const SUGGESTED_GROUPS_FILE = path.join(DATA_DIR, 'suggested_groups.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const INTERACTION_QUEUE_FILE = path.join(DATA_DIR, 'interaction_queue.json');
+const INTERACTION_TARGETS_FILE = path.join(DATA_DIR, 'interaction_targets.json');
+const GROUP_INTELLIGENCE_FILE = path.join(DATA_DIR, 'group_intelligence.json');
 const PUBLISHING_QUEUE_FILE = path.join(DATA_DIR, 'publishing_queue.json');
 const APK_LOGS_FILE = path.join(DATA_DIR, 'apk_logs.txt');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
@@ -78,6 +80,8 @@ let articles = loadJson(ARTICLES_FILE, []); // [{ id, title, category, content, 
 let suggestedGroups = loadJson(SUGGESTED_GROUPS_FILE, []); // [{ id, name, url, memberCount, status, addedBy, createdAt }]
 let appSettings = loadJson(SETTINGS_FILE, { maxGroupPostsPerDay: 1 });
 let interactionQueue = loadJson(INTERACTION_QUEUE_FILE, []);
+let interactionTargets = loadJson(INTERACTION_TARGETS_FILE, []);
+let groupIntelligence = loadJson(GROUP_INTELLIGENCE_FILE, {});
 let publishingQueue = loadJson(PUBLISHING_QUEUE_FILE, []);
 
 function runLogsCleanup() {
@@ -293,8 +297,308 @@ function emitExecutorUpdate(group) {
     io.to(`group:${group}`).emit('executor_jobs_updated', { group });
 }
 
+function saveInteractionTargets() {
+    saveJson(INTERACTION_TARGETS_FILE, interactionTargets);
+}
+
+function emitInteractionTargetsUpdate(group) {
+    io.to(`group:${group}`).emit('interaction_targets_updated', { group });
+}
+
+function saveGroupIntelligence() {
+    saveJson(GROUP_INTELLIGENCE_FILE, groupIntelligence);
+}
+
+function intelligenceKey(groupId) {
+    return normalizeTargetText(groupId || 'default', 180) || 'default';
+}
+
+function groupIntel(groupId) {
+    const key = intelligenceKey(groupId);
+    if (!groupIntelligence[key]) {
+        groupIntelligence[key] = {
+            groupId: key,
+            joinedAccounts: {},
+            accountActivity: {},
+            recentComments: [],
+            failStreak: 0,
+            pausedUntil: 0,
+            pauseReason: '',
+            updatedAt: Date.now()
+        };
+    }
+    return groupIntelligence[key];
+}
+
+function trimGroupIntel(intel) {
+    const now = Date.now();
+    intel.recentComments = (intel.recentComments || [])
+        .filter(item => now - (item.usedAt || 0) < 7 * 24 * 3600 * 1000)
+        .slice(-300);
+    Object.keys(intel.accountActivity || {}).forEach(username => {
+        const activity = intel.accountActivity[username];
+        if (activity.comments) activity.comments = activity.comments.slice(-100);
+        if (activity.jobs) activity.jobs = activity.jobs.slice(-150);
+    });
+}
+
+function commentRecentlyUsedInGroup(groupId, comment, windowMs = 30 * 60 * 1000) {
+    const normalized = normalizeTargetText(comment, 4000).toLowerCase();
+    if (!normalized) return false;
+    const now = Date.now();
+    return (groupIntel(groupId).recentComments || []).some(item =>
+        normalizeTargetText(item.comment, 4000).toLowerCase() === normalized &&
+        now - (item.usedAt || 0) < windowMs
+    );
+}
+
+function accountJoinedGroup(username, groupId) {
+    if (!username) return false;
+    const intel = groupIntel(groupId);
+    return !!intel.joinedAccounts?.[username];
+}
+
+function markAccountJoinedGroup(username, groupId, source) {
+    if (!username) return;
+    const intel = groupIntel(groupId);
+    intel.joinedAccounts[username] = {
+        username,
+        source: source || 'interaction_success',
+        joinedAt: intel.joinedAccounts[username]?.joinedAt || Date.now(),
+        lastSeenAt: Date.now()
+    };
+    intel.updatedAt = Date.now();
+    trimGroupIntel(intel);
+    saveGroupIntelligence();
+}
+
+function recordGroupInteraction(job, outcome, req) {
+    const targetGroup = job.payload?.groupId || job.group;
+    const intel = groupIntel(targetGroup);
+    const now = Date.now();
+    const username = job.claimedBy || req?.user?.username || '';
+    const targetPostId = job.targetPostId || job.payload?.targetPostId || '';
+    const actions = job.payload?.actions || {};
+    if (username) {
+        if (!intel.accountActivity[username]) intel.accountActivity[username] = { jobs: [], comments: [] };
+        intel.accountActivity[username].jobs.push({ jobId: job.id, targetPostId, outcome, at: now });
+    }
+    if (outcome === 'SUCCEEDED') {
+        intel.failStreak = 0;
+        intel.pauseReason = '';
+        intel.pausedUntil = 0;
+        if (username) markAccountJoinedGroup(username, targetGroup, 'interaction_success');
+        if (actions.comment === true && job.payload?.comment) {
+            const item = { comment: job.payload.comment, username, targetPostId, jobId: job.id, usedAt: now };
+            intel.recentComments.push(item);
+            if (username) intel.accountActivity[username].comments.push(item);
+        }
+    } else if (['FAILED', 'INTERRUPTED'].includes(outcome)) {
+        intel.failStreak = (intel.failStreak || 0) + 1;
+        intel.lastFailureAt = now;
+        intel.lastFailure = job.lastError || outcome;
+        if (intel.failStreak >= (appSettings.maxGroupInteractionFailStreak || 5)) {
+            intel.pausedUntil = now + (appSettings.groupInteractionPauseMinutes || 60) * 60 * 1000;
+            intel.pauseReason = `Fail liên tục ${intel.failStreak} job: ${intel.lastFailure}`;
+            interactionTargets.forEach(target => {
+                if ((target.groupId || target.group) === targetGroup && target.status === 'RUNNING') {
+                    target.status = 'NEEDS_REVIEW';
+                    target.reviewReason = intel.pauseReason;
+                    target.updatedAt = now;
+                }
+            });
+            saveInteractionTargets();
+            emitInteractionTargetsUpdate(job.group);
+        }
+    }
+    intel.updatedAt = now;
+    trimGroupIntel(intel);
+    saveGroupIntelligence();
+}
+
+function groupPausedReason(groupId) {
+    const intel = groupIntel(groupId);
+    if (intel.pausedUntil && intel.pausedUntil > Date.now()) return intel.pauseReason || 'Group đang tạm ngưng do fail liên tục.';
+    return '';
+}
+
+function normalizeQuantity(value) {
+    const n = parseInt(value, 10);
+    return Number.isFinite(n) && n > 0 ? Math.min(n, 500) : 0;
+}
+
+function normalizeCommentPool(value) {
+    const raw = Array.isArray(value) ? value : String(value || '').split(/\r?\n/);
+    return [...new Set(raw.map(item => String(item || '').replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, 500);
+}
+
+function priorityRank(priority) {
+    return { HIGH: 3, NORMAL: 2, LOW: 1 }[priority] || 2;
+}
+
+function normalizePriority(value) {
+    const priority = String(value || 'NORMAL').toUpperCase();
+    return ['HIGH', 'NORMAL', 'LOW'].includes(priority) ? priority : 'NORMAL';
+}
+
+function normalizeSpeed(value) {
+    const speed = String(value || 'NORMAL').toUpperCase();
+    return ['SLOW', 'NORMAL', 'FAST'].includes(speed) ? speed : 'NORMAL';
+}
+
+function targetJobs(targetId) {
+    return interactionQueue.filter(job => job.targetPostId === targetId || job.payload?.targetPostId === targetId);
+}
+
+function summarizeInteractionTarget(target) {
+    const jobs = targetJobs(target.id);
+    const countByStatus = jobs.reduce((acc, job) => {
+        acc[job.status] = (acc[job.status] || 0) + 1;
+        return acc;
+    }, {});
+    const succeeded = jobs.filter(job => job.status === 'SUCCEEDED');
+    const likesDone = succeeded.filter(job => job.payload?.actions?.like !== false).length;
+    const commentsDone = succeeded.filter(job => job.payload?.actions?.comment === true).length;
+    const intel = groupIntel(target.groupId || target.group);
+    return {
+        ...target,
+        progress: {
+            like: { done: likesDone, total: target.requirements?.like?.quantity || 0 },
+            comment: { done: commentsDone, total: target.requirements?.comment?.quantity || 0 }
+        },
+        jobs: {
+            total: jobs.length,
+            queued: countByStatus.QUEUED || 0,
+            running: countByStatus.RUNNING || 0,
+            succeeded: countByStatus.SUCCEEDED || 0,
+            failed: countByStatus.FAILED || 0,
+            interrupted: countByStatus.INTERRUPTED || 0,
+            canceled: countByStatus.CANCELED || 0
+        },
+        groupIntelligence: {
+            joinedAccounts: Object.keys(intel.joinedAccounts || {}).length,
+            recentComments: (intel.recentComments || []).length,
+            failStreak: intel.failStreak || 0,
+            pausedUntil: intel.pausedUntil || 0,
+            pauseReason: intel.pauseReason || ''
+        }
+    };
+}
+
+function refreshInteractionTargetStatus(target) {
+    if (!target || !['RUNNING', 'PAUSED'].includes(target.status)) return false;
+    const summary = summarizeInteractionTarget(target);
+    const likeRequirement = target.requirements?.like?.enabled ? target.requirements.like.quantity : 0;
+    const commentRequirement = target.requirements?.comment?.enabled ? target.requirements.comment.quantity : 0;
+    const enoughLikes = summary.progress.like.done >= likeRequirement;
+    const enoughComments = summary.progress.comment.done >= commentRequirement;
+    if (enoughLikes && enoughComments) {
+        target.status = 'COMPLETED';
+        target.completedAt = Date.now();
+        target.updatedAt = Date.now();
+        return true;
+    }
+    const maxFailedJobs = target.autoClose?.maxFailedJobs || 0;
+    if (maxFailedJobs > 0 && summary.jobs.failed >= maxFailedJobs) {
+        target.status = 'NEEDS_REVIEW';
+        target.reviewReason = 'Fail quá ngưỡng cấu hình.';
+        target.updatedAt = Date.now();
+        return true;
+    }
+    return false;
+}
+
+function refreshAllInteractionTargets() {
+    let changed = false;
+    interactionTargets.forEach(target => {
+        if (refreshInteractionTargetStatus(target)) changed = true;
+    });
+    if (changed) saveInteractionTargets();
+}
+
+function planInteractionTarget(target) {
+    if (!target || target.status !== 'RUNNING') return { created: 0, jobs: [] };
+    const pausedReason = groupPausedReason(target.groupId || target.group);
+    if (pausedReason) {
+        const error = new Error(pausedReason);
+        error.statusCode = 409;
+        throw error;
+    }
+
+    const jobs = targetJobs(target.id);
+    const countedStatuses = new Set(['QUEUED', 'RUNNING', 'SUCCEEDED']);
+    const plannedLikes = jobs.filter(job => countedStatuses.has(job.status) && job.payload?.actions?.like !== false).length;
+    const plannedComments = jobs.filter(job => countedStatuses.has(job.status) && job.payload?.actions?.comment === true).length;
+    const likeGoal = target.requirements?.like?.enabled ? target.requirements.like.quantity : 0;
+    const commentGoal = target.requirements?.comment?.enabled ? target.requirements.comment.quantity : 0;
+    const likesToCreate = Math.max(0, likeGoal - plannedLikes);
+    const commentsToCreate = Math.max(0, commentGoal - plannedComments);
+    const jobCount = Math.max(likesToCreate, commentsToCreate);
+    if (jobCount === 0) return { created: 0, jobs: [] };
+
+    const usedComments = new Set(jobs.map(job => job.payload?.comment).filter(Boolean));
+    const freshComments = (target.commentPool || []).filter(comment =>
+        !usedComments.has(comment) &&
+        !commentRecentlyUsedInGroup(target.groupId || target.group, comment)
+    );
+    const fallbackComments = (target.commentPool || []).filter(comment => !usedComments.has(comment));
+    if (commentsToCreate > 0 && !target.allowRepeatComments && freshComments.length < commentsToCreate) {
+        const error = new Error('Không đủ comment mẫu mới cho group; một số comment vừa được dùng gần đây.');
+        error.statusCode = 400;
+        throw error;
+    }
+    const availableComments = freshComments.length >= commentsToCreate ? freshComments : fallbackComments;
+    if (commentsToCreate > 0 && !target.allowRepeatComments && availableComments.length < commentsToCreate) {
+        const error = new Error('Không đủ comment mẫu để tạo job không lặp.');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const now = Date.now();
+    const createdJobs = [];
+    for (let i = 0; i < jobCount; i++) {
+        const shouldLike = i < likesToCreate;
+        const shouldComment = i < commentsToCreate;
+        const comment = shouldComment
+            ? (availableComments[i] || target.commentPool[(plannedComments + i) % target.commentPool.length])
+            : '';
+        const job = {
+            id: `INT-${genId()}`,
+            type: 'interaction',
+            group: target.group,
+            targetPostId: target.id,
+            priority: target.priority,
+            payload: {
+                type: 'interaction',
+                targetPostId: target.id,
+                groupId: target.groupId || target.group,
+                url: normalizeFbUrlForNative(target.postUrl),
+                postUrl: normalizeFbUrlForNative(target.postUrl),
+                actions: { like: shouldLike, comment: shouldComment },
+                ...(shouldComment ? { comment: comment.slice(0, 4000) } : { comment: '' }),
+                ...(target.targetPost ? { targetPost: target.targetPost } : {})
+            },
+            status: 'QUEUED',
+            attempts: 0,
+            createdBy: target.createdBy,
+            createdAt: now + i,
+            updatedAt: now
+        };
+        interactionQueue.push(job);
+        createdJobs.push(job);
+    }
+    target.lastPlannedAt = now;
+    target.updatedAt = now;
+    saveExecutorQueue('interaction');
+    saveInteractionTargets();
+    emitExecutorUpdate(target.group);
+    emitInteractionTargetsUpdate(target.group);
+    return { created: createdJobs.length, jobs: createdJobs };
+}
+
 app.get('/api/executor/queues', authMiddleware, (req, res) => {
     reclaimExpiredExecutorJobs();
+    refreshAllInteractionTargets();
     const result = {};
     for (const type of ['interaction', 'publishing']) {
         const jobs = getExecutorQueue(type)
@@ -309,6 +613,172 @@ app.get('/api/executor/queues', authMiddleware, (req, res) => {
         };
     }
     res.json(result);
+});
+
+app.get('/api/interaction-targets', authMiddleware, (req, res) => {
+    reclaimExpiredExecutorJobs();
+    refreshAllInteractionTargets();
+    const targets = interactionTargets
+        .filter(target => req.user.role === 'admin' || target.group === req.user.group)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        .map(summarizeInteractionTarget);
+    res.json(targets);
+});
+
+app.get('/api/group-intelligence', authMiddleware, (req, res) => {
+    const entries = Object.values(groupIntelligence)
+        .filter(item => req.user.role === 'admin' || item.groupId === req.user.group)
+        .map(item => ({
+            groupId: item.groupId,
+            joinedAccounts: Object.values(item.joinedAccounts || {}),
+            recentComments: (item.recentComments || []).slice(-30).reverse(),
+            failStreak: item.failStreak || 0,
+            pausedUntil: item.pausedUntil || 0,
+            pauseReason: item.pauseReason || '',
+            updatedAt: item.updatedAt || 0
+        }))
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    res.json(entries);
+});
+
+app.put('/api/group-intelligence/:groupId/accounts/:username', authMiddleware, adminOnly, (req, res) => {
+    const username = normalizeTargetText(req.params.username, 160);
+    const groupId = intelligenceKey(req.params.groupId);
+    if (!username) return res.status(400).json({ error: 'Username không hợp lệ.' });
+    if (req.body.joined === false) {
+        const intel = groupIntel(groupId);
+        delete intel.joinedAccounts[username];
+        intel.updatedAt = Date.now();
+        saveGroupIntelligence();
+        return res.json({ ok: true, joined: false });
+    }
+    markAccountJoinedGroup(username, groupId, req.body.source || 'admin');
+    res.json({ ok: true, joined: true, account: groupIntel(groupId).joinedAccounts[username] });
+});
+
+app.post('/api/group-intelligence/:groupId/resume', authMiddleware, adminOnly, (req, res) => {
+    const intel = groupIntel(req.params.groupId);
+    intel.failStreak = 0;
+    intel.pausedUntil = 0;
+    intel.pauseReason = '';
+    intel.updatedAt = Date.now();
+    saveGroupIntelligence();
+    res.json({ ok: true, group: intel });
+});
+
+app.post('/api/interaction-targets', authMiddleware, (req, res) => {
+    const postUrl = String(req.body.postUrl || req.body.url || '').trim();
+    const targetPost = buildTargetPost(req.body.targetPost);
+    const likeQuantity = normalizeQuantity(req.body.likeQuantity ?? req.body.requirements?.like?.quantity);
+    const commentQuantity = normalizeQuantity(req.body.commentQuantity ?? req.body.requirements?.comment?.quantity);
+    const likeEnabled = req.body.likeEnabled !== false && likeQuantity > 0;
+    const commentEnabled = req.body.commentEnabled !== false && commentQuantity > 0;
+    const commentPool = normalizeCommentPool(req.body.commentPool);
+    const allowRepeatComments = req.body.allowRepeatComments === true;
+    if (!/^https?:\/\//i.test(postUrl)) return res.status(400).json({ error: 'Link bài Facebook không hợp lệ.' });
+    if (!targetPost || targetPost.anchors.length === 0) return res.status(400).json({ error: 'Nội dung bài mục tiêu là bắt buộc để app khóa đúng bài.' });
+    if (!likeEnabled && !commentEnabled) return res.status(400).json({ error: 'Cần ít nhất một mục tiêu like hoặc comment.' });
+    if (commentEnabled && commentPool.length === 0) return res.status(400).json({ error: 'Bật comment thì phải nhập comment pool.' });
+    if (commentEnabled && !allowRepeatComments && commentPool.length < commentQuantity) {
+        return res.status(400).json({ error: `Cần ${commentQuantity} comment nhưng pool chỉ có ${commentPool.length}. Bật cho phép lặp nếu muốn tiếp tục.` });
+    }
+
+    const now = Date.now();
+    const group = req.user.role === 'admin' && req.body.group ? String(req.body.group).trim() : req.user.group;
+    const pausedReason = groupPausedReason(req.body.groupId || group);
+    if (pausedReason) return res.status(409).json({ error: pausedReason });
+    const target = {
+        id: `TGT-${genId()}`,
+        postUrl: normalizeFbUrlForNative(postUrl),
+        group,
+        groupId: String(req.body.groupId || group),
+        status: 'RUNNING',
+        requirements: {
+            like: { enabled: likeEnabled, quantity: likeEnabled ? likeQuantity : 0 },
+            comment: { enabled: commentEnabled, quantity: commentEnabled ? commentQuantity : 0 }
+        },
+        commentPool,
+        allowRepeatComments,
+        targetPost,
+        speed: normalizeSpeed(req.body.speed),
+        priority: normalizePriority(req.body.priority),
+        onlineOnly: req.body.onlineOnly !== false,
+        autoClose: {
+            enabled: req.body.autoClose?.enabled !== false,
+            whenRequirementsMet: req.body.autoClose?.whenRequirementsMet !== false,
+            maxRuntimeHours: normalizeQuantity(req.body.autoClose?.maxRuntimeHours) || 24,
+            maxFailedJobs: normalizeQuantity(req.body.autoClose?.maxFailedJobs) || 5
+        },
+        createdBy: req.user.username,
+        createdAt: now,
+        updatedAt: now
+    };
+    interactionTargets.push(target);
+    try {
+        const planned = planInteractionTarget(target);
+        res.status(201).json({ target: summarizeInteractionTarget(target), planned: planned.created });
+    } catch (e) {
+        interactionTargets = interactionTargets.filter(item => item.id !== target.id);
+        saveInteractionTargets();
+        res.status(e.statusCode || 500).json({ error: e.message || 'Không lập kế hoạch được target.' });
+    }
+});
+
+app.patch('/api/interaction-targets/:id', authMiddleware, (req, res) => {
+    const target = interactionTargets.find(item => item.id === req.params.id);
+    if (!target) return res.status(404).json({ error: 'Target không tồn tại.' });
+    if (req.user.role !== 'admin' && target.group !== req.user.group) return res.status(403).json({ error: 'Forbidden' });
+    if (req.body.priority !== undefined) target.priority = normalizePriority(req.body.priority);
+    if (req.body.status !== undefined) {
+        const status = String(req.body.status).toUpperCase();
+        if (!['RUNNING', 'PAUSED'].includes(status)) return res.status(400).json({ error: 'Chỉ hỗ trợ RUNNING hoặc PAUSED ở endpoint này.' });
+        if (!['CLOSED', 'COMPLETED'].includes(target.status)) target.status = status;
+    }
+    target.updatedAt = Date.now();
+    saveInteractionTargets();
+    if (target.status === 'RUNNING') {
+        try { planInteractionTarget(target); } catch (_) {}
+    }
+    emitInteractionTargetsUpdate(target.group);
+    res.json(summarizeInteractionTarget(target));
+});
+
+app.post('/api/interaction-targets/:id/plan', authMiddleware, (req, res) => {
+    const target = interactionTargets.find(item => item.id === req.params.id);
+    if (!target) return res.status(404).json({ error: 'Target không tồn tại.' });
+    if (req.user.role !== 'admin' && target.group !== req.user.group) return res.status(403).json({ error: 'Forbidden' });
+    try {
+        const planned = planInteractionTarget(target);
+        res.json({ target: summarizeInteractionTarget(target), planned: planned.created });
+    } catch (e) {
+        res.status(e.statusCode || 500).json({ error: e.message || 'Không lập kế hoạch được target.' });
+    }
+});
+
+app.post('/api/interaction-targets/:id/close', authMiddleware, (req, res) => {
+    const target = interactionTargets.find(item => item.id === req.params.id);
+    if (!target) return res.status(404).json({ error: 'Target không tồn tại.' });
+    if (req.user.role !== 'admin' && target.group !== req.user.group) return res.status(403).json({ error: 'Forbidden' });
+    const now = Date.now();
+    target.status = 'CLOSED';
+    target.closedAt = now;
+    target.closedBy = req.user.username;
+    target.closeReason = normalizeTargetText(req.body.reason || 'Đóng thủ công', 240);
+    target.updatedAt = now;
+    let canceled = 0;
+    interactionQueue.forEach(job => {
+        if ((job.targetPostId === target.id || job.payload?.targetPostId === target.id) && job.status === 'QUEUED') {
+            job.status = 'CANCELED';
+            job.lastError = 'Target post đã đóng.';
+            job.updatedAt = now;
+            canceled++;
+        }
+    });
+    saveExecutorQueue('interaction');
+    saveInteractionTargets();
+    emitExecutorUpdate(target.group);
+    emitInteractionTargetsUpdate(target.group);
+    res.json({ target: summarizeInteractionTarget(target), canceled });
 });
 
 app.delete('/api/executor/queues/reset', authMiddleware, adminOnly, (req, res) => {
@@ -392,7 +862,28 @@ app.post('/api/executor/:type/claim', authMiddleware, (req, res) => {
         return res.json({ job: publicExecutorJob(active), leaseToken: active.leaseToken, recovered: true });
     }
 
-    const job = queue.find(item => item.group === req.user.group && item.status === 'QUEUED');
+    const job = queue
+        .filter(item => {
+            if (item.group !== req.user.group || item.status !== 'QUEUED') return false;
+            const targetId = item.targetPostId || item.payload?.targetPostId;
+            if (!targetId) return true;
+            const target = interactionTargets.find(t => t.id === targetId);
+            if (target?.status !== 'RUNNING') return false;
+            const targetGroup = target.groupId || target.group;
+            if (groupPausedReason(targetGroup)) return false;
+            const intel = groupIntel(targetGroup);
+            const knownJoinedAccounts = Object.keys(intel.joinedAccounts || {});
+            if (knownJoinedAccounts.length > 0 && !accountJoinedGroup(req.user.username, targetGroup)) return false;
+            if (item.payload?.actions?.comment !== true) return true;
+            if (commentRecentlyUsedInGroup(targetGroup, item.payload?.comment)) return false;
+            return !targetJobs(targetId).some(job =>
+                job.id !== item.id &&
+                job.payload?.actions?.comment === true &&
+                job.claimedBy === req.user.username &&
+                ['RUNNING', 'SUCCEEDED', 'INTERRUPTED'].includes(job.status)
+            );
+        })
+        .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority) || (a.createdAt || 0) - (b.createdAt || 0))[0];
     if (!job) return res.status(204).end();
     const now = Date.now();
     job.status = 'RUNNING';
@@ -445,6 +936,12 @@ app.post('/api/executor/jobs/:id/complete', authMiddleware, (req, res) => {
     found.job.updatedAt = Date.now();
     found.job.leaseToken = null;
     saveExecutorQueue(found.type);
+    const target = interactionTargets.find(item => item.id === (found.job.targetPostId || found.job.payload?.targetPostId));
+    if (target) recordGroupInteraction(found.job, 'SUCCEEDED', req);
+    if (target && refreshInteractionTargetStatus(target)) {
+        saveInteractionTargets();
+        emitInteractionTargetsUpdate(target.group);
+    }
     emitExecutorUpdate(found.job.group);
     res.json({ ok: true });
 });
@@ -457,6 +954,12 @@ app.post('/api/executor/jobs/:id/fail', authMiddleware, (req, res) => {
     found.job.updatedAt = Date.now();
     found.job.leaseToken = null;
     saveExecutorQueue(found.type);
+    const target = interactionTargets.find(item => item.id === (found.job.targetPostId || found.job.payload?.targetPostId));
+    if (target) recordGroupInteraction(found.job, 'FAILED', req);
+    if (target && refreshInteractionTargetStatus(target)) {
+        saveInteractionTargets();
+        emitInteractionTargetsUpdate(target.group);
+    }
     emitExecutorUpdate(found.job.group);
     res.json({ ok: true });
 });
@@ -471,6 +974,12 @@ app.post('/api/executor/jobs/:id/interrupted', authMiddleware, (req, res) => {
     found.job.deviceId = null;
     found.job.leaseToken = null;
     saveExecutorQueue(found.type);
+    const target = interactionTargets.find(item => item.id === (found.job.targetPostId || found.job.payload?.targetPostId));
+    if (target && found.job.status === 'INTERRUPTED') recordGroupInteraction(found.job, 'INTERRUPTED', req);
+    if (target && refreshInteractionTargetStatus(target)) {
+        saveInteractionTargets();
+        emitInteractionTargetsUpdate(target.group);
+    }
     emitExecutorUpdate(found.job.group);
     res.json({ ok: true, status: found.job.status });
 });

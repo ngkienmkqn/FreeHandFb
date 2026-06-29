@@ -126,6 +126,13 @@
         .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
         .badge.pending { background: rgba(245, 158, 11, 0.15); color: var(--warn); }
         .badge.done { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+        .badge.closed { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+        .target-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .target-check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-muted); }
+        .target-check input { width: auto; }
+        .progress-line { height: 7px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 6px; }
+        .progress-line span { display: block; height: 100%; background: var(--success); }
+        .target-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
         .rank-item { display: flex; align-items: center; gap: 12px; padding: 12px; border-bottom: 1px solid var(--border); }
         .rank-item:last-child { border-bottom: none; }
@@ -182,10 +189,35 @@
                     <input id="interactionUrl" placeholder="Link bài Facebook" />
                     <input id="interactionAuthor" style="margin-top:10px" placeholder="Tên tác giả bài viết (không bắt buộc)" />
                     <textarea id="interactionPostText" rows="4" style="margin-top:10px" placeholder="Nội dung bài viết mục tiêu để nhận diện đúng bài"></textarea>
-                    <textarea id="interactionComment" rows="3" style="margin-top:10px" placeholder="Comment cuối cùng app sẽ gửi"></textarea>
+                    <div class="target-controls">
+                        <select id="interactionArticlePicker">
+                            <option value="">Chọn bài mẫu làm điều kiện tìm kiếm</option>
+                        </select>
+                        <button class="btn-secondary" onclick="useArticleForInteractionTarget()" type="button">Dùng bài mẫu</button>
+                    </div>
+                    <div class="target-controls">
+                        <label class="target-check"><input type="checkbox" id="targetLikeEnabled" checked> Like</label>
+                        <input id="targetLikeQty" type="number" min="0" value="1" placeholder="Số like" />
+                        <label class="target-check"><input type="checkbox" id="targetCommentEnabled" checked> Comment</label>
+                        <input id="targetCommentQty" type="number" min="0" value="1" placeholder="Số comment" />
+                    </div>
+                    <textarea id="interactionCommentPool" rows="4" style="margin-top:10px" placeholder="Comment pool, mỗi dòng một mẫu"></textarea>
+                    <div class="target-controls">
+                        <select id="targetSpeed"><option value="SLOW">Chậm</option><option value="NORMAL" selected>Vừa</option><option value="FAST">Nhanh</option></select>
+                        <select id="targetPriority"><option value="HIGH">Cao</option><option value="NORMAL" selected>Thường</option><option value="LOW">Thấp</option></select>
+                    </div>
+                    <label class="target-check" style="margin-top:10px"><input type="checkbox" id="targetAllowRepeat"> Cho phép lặp comment nếu thiếu mẫu</label>
                     <button class="btn-primary" style="width: 100%; margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px" onclick="createInteractionJob()">
-                        <i class="ph-bold ph-paper-plane-right"></i> Đưa vào queue tương tác
+                        <i class="ph-bold ph-paper-plane-right"></i> Tạo yêu cầu tương tác
                     </button>
+                </div>
+
+                <div class="glass card">
+                    <div class="card-header" style="justify-content: space-between">
+                        <div><i class="ph-fill ph-target"></i> Tiến độ bài tương tác</div>
+                        <button class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px" onclick="fetchInteractionTargets()">Tải lại</button>
+                    </div>
+                    <div id="interactionTargetList"></div>
                 </div>
 
                 <div class="glass card">
@@ -365,7 +397,9 @@ function showMainApp() {
     }
 
     // Default Load
+    fetchInteractionTargets();
     fetchExecutorQueues();
+    fetchArticles({ renderList: false });
 }
 
 async function apiCall(endpoint, opts = {}) {
@@ -436,13 +470,27 @@ async function createInteractionJob() {
     const url = document.getElementById('interactionUrl').value.trim();
     const author = document.getElementById('interactionAuthor').value.trim();
     const postText = document.getElementById('interactionPostText').value.trim();
-    const comment = document.getElementById('interactionComment').value.trim();
-    if (!url || !postText || !comment) return alert('Nhập đủ link, nội dung bài mục tiêu và comment cuối cùng.');
-    const res = await apiCall('/api/executor/interaction', {
+    const likeEnabled = document.getElementById('targetLikeEnabled').checked;
+    const commentEnabled = document.getElementById('targetCommentEnabled').checked;
+    const likeQuantity = parseInt(document.getElementById('targetLikeQty').value, 10) || 0;
+    const commentQuantity = parseInt(document.getElementById('targetCommentQty').value, 10) || 0;
+    const commentPool = document.getElementById('interactionCommentPool').value.split('\n').map(v => v.trim()).filter(Boolean);
+    if (!url || !postText) return alert('Nhập đủ link và nội dung bài mục tiêu.');
+    if ((!likeEnabled || likeQuantity <= 0) && (!commentEnabled || commentQuantity <= 0)) return alert('Cần ít nhất một mục tiêu like hoặc comment.');
+    if (commentEnabled && commentQuantity > 0 && !commentPool.length) return alert('Bật comment thì cần nhập comment pool.');
+    const res = await apiCall('/api/interaction-targets', {
         method: 'POST', body: JSON.stringify({
-            url,
-            comment,
-            targetPost: { author, text: postText }
+            postUrl: url,
+            likeEnabled,
+            commentEnabled,
+            likeQuantity,
+            commentQuantity,
+            commentPool,
+            speed: document.getElementById('targetSpeed').value,
+            priority: document.getElementById('targetPriority').value,
+            allowRepeatComments: document.getElementById('targetAllowRepeat').checked,
+            targetPost: { author, text: postText },
+            autoClose: { enabled: true, whenRequirementsMet: true, maxFailedJobs: 5 }
         })
     });
     const data = await res.json().catch(() => ({}));
@@ -450,7 +498,62 @@ async function createInteractionJob() {
     document.getElementById('interactionUrl').value = '';
     document.getElementById('interactionAuthor').value = '';
     document.getElementById('interactionPostText').value = '';
-    document.getElementById('interactionComment').value = '';
+    document.getElementById('interactionCommentPool').value = '';
+    await fetchInteractionTargets();
+    await fetchExecutorQueues();
+}
+
+async function fetchInteractionTargets() {
+    if (!authToken) return;
+    try {
+        const res = await apiCall('/api/interaction-targets');
+        const targets = await res.json();
+        const statusLabel = { RUNNING:'Đang chạy', PAUSED:'Tạm ngưng', CLOSED:'Đã đóng', COMPLETED:'Hoàn tất', NEEDS_REVIEW:'Cần xem lại' };
+        const statusClass = s => s === 'COMPLETED' ? 'done' : (s === 'CLOSED' || s === 'PAUSED' ? 'closed' : 'pending');
+        const percent = (done, total) => total > 0 ? Math.min(100, Math.round(done * 100 / total)) : 0;
+        document.getElementById('interactionTargetList').innerHTML = targets.slice(0, 20).map(t => {
+            const likePct = percent(t.progress?.like?.done || 0, t.progress?.like?.total || 0);
+            const commentPct = percent(t.progress?.comment?.done || 0, t.progress?.comment?.total || 0);
+            const canRun = t.status === 'PAUSED';
+            const canPause = t.status === 'RUNNING';
+            const canClose = !['CLOSED', 'COMPLETED'].includes(t.status);
+            return `
+                <div class="list-item">
+                    <div class="list-title">${escapeHtml(t.targetPost?.author || t.id)} · ${escapeHtml(t.priority || 'NORMAL')}</div>
+                    <div style="font-size:.8rem;color:var(--text-muted);word-break:break-all">${escapeHtml(t.postUrl)}</div>
+                    <div class="list-meta"><span>${escapeHtml(t.createdBy)}</span><span class="badge ${statusClass(t.status)}">${statusLabel[t.status] || t.status}</span></div>
+                    <div style="margin-top:10px;font-size:.85rem;color:var(--text-muted)">Like: ${t.progress?.like?.done || 0}/${t.progress?.like?.total || 0}</div>
+                    <div class="progress-line"><span style="width:${likePct}%"></span></div>
+                    <div style="margin-top:10px;font-size:.85rem;color:var(--text-muted)">Comment: ${t.progress?.comment?.done || 0}/${t.progress?.comment?.total || 0}</div>
+                    <div class="progress-line"><span style="width:${commentPct}%"></span></div>
+                    <div style="font-size:.78rem;color:var(--text-muted);margin-top:10px">Chờ ${t.jobs?.queued || 0} · Chạy ${t.jobs?.running || 0} · Fail ${t.jobs?.failed || 0}</div>
+                    <div style="font-size:.78rem;color:var(--text-muted);margin-top:6px">Group: ${t.groupIntelligence?.joinedAccounts || 0} acc đã join · ${t.groupIntelligence?.recentComments || 0} comment gần đây · Fail streak ${t.groupIntelligence?.failStreak || 0}</div>
+                    ${t.groupIntelligence?.pauseReason ? `<div style="font-size:.78rem;color:var(--error);margin-top:6px">${escapeHtml(t.groupIntelligence.pauseReason)}</div>` : ''}
+                    <div class="target-actions">
+                        ${canPause ? `<button class="btn-secondary" onclick="updateInteractionTarget('${t.id}','PAUSED')">Tạm ngưng</button>` : ''}
+                        ${canRun ? `<button class="btn-success" onclick="updateInteractionTarget('${t.id}','RUNNING')">Chạy tiếp</button>` : ''}
+                        ${canClose ? `<button class="btn-danger" onclick="closeInteractionTarget('${t.id}')">Đóng bài</button>` : ''}
+                    </div>
+                </div>`;
+        }).join('') || '<div style="text-align:center;color:var(--text-muted);padding:20px">Chưa có target tương tác</div>';
+    } catch (e) {}
+}
+
+async function updateInteractionTarget(id, status) {
+    const res = await apiCall(`/api/interaction-targets/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(data.error || 'Không cập nhật được target.');
+    await fetchInteractionTargets();
+    await fetchExecutorQueues();
+}
+
+async function closeInteractionTarget(id) {
+    if (!confirm('Đóng bài viết này? Các job đang chờ sẽ bị hủy, job đang chạy sẽ dừng theo checkpoint an toàn.')) return;
+    const reason = prompt('Lý do đóng bài', 'Đóng thủ công') || 'Đóng thủ công';
+    const res = await apiCall(`/api/interaction-targets/${id}/close`, { method: 'POST', body: JSON.stringify({ reason }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(data.error || 'Không đóng được target.');
+    await fetchInteractionTargets();
     await fetchExecutorQueues();
 }
 
@@ -585,12 +688,37 @@ async function fetchLeaderboard() {
 let allArticles = [];
 let currentCategory = null;
 
-async function fetchArticles() {
+async function fetchArticles(options = {}) {
     try {
         const res = await apiCall('/api/articles');
         allArticles = await res.json();
-        renderArticles();
+        renderArticlePickers();
+        if (options.renderList !== false) renderArticles();
     } catch(e){}
+}
+
+function renderArticlePickers() {
+    const picker = document.getElementById('interactionArticlePicker');
+    if (!picker) return;
+    const current = picker.value;
+    const options = ['<option value="">Chọn bài mẫu làm điều kiện tìm kiếm</option>'];
+    allArticles.forEach(article => {
+        const label = `[${article.category || 'CHUNG'}] ${article.title || article.content?.slice(0, 40) || article.id}`;
+        options.push(`<option value="${escapeHtml(article.id)}">${escapeHtml(label)}</option>`);
+    });
+    picker.innerHTML = options.join('');
+    if (current && allArticles.some(article => article.id === current)) picker.value = current;
+}
+
+async function useArticleForInteractionTarget() {
+    if (!allArticles.length) await fetchArticles({ renderList: false });
+    const articleId = document.getElementById('interactionArticlePicker').value;
+    const article = allArticles.find(item => item.id === articleId);
+    if (!article) return alert('Chọn một bài mẫu trước.');
+    document.getElementById('interactionPostText').value = article.content || '';
+    if (!document.getElementById('interactionAuthor').value.trim()) {
+        document.getElementById('interactionAuthor').value = article.title || '';
+    }
 }
 
 function renderArticles() {
@@ -797,7 +925,12 @@ async function resetAllExecutorQueues() {
 }
 
 init();
-setInterval(() => { if (authToken) fetchExecutorQueues(); }, 10000);
+setInterval(() => {
+    if (authToken) {
+        fetchExecutorQueues();
+        fetchInteractionTargets();
+    }
+}, 10000);
 </script>
 </body>
 </html>
