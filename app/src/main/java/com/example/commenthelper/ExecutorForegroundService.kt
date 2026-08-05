@@ -57,7 +57,6 @@ class ExecutorForegroundService : Service() {
     @Volatile private var claimedJob: ClaimedJob? = null
     @Volatile private var irreversibleReached = false
     private val prefs by lazy { getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE) }
-    private val serverUrl = "http://192.168.0.104:3030"
 
     private val resultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -65,7 +64,11 @@ class ExecutorForegroundService : Service() {
             val active = claimedJob ?: return
             if (id != active.id) return
             val success = intent.getBooleanExtra("success", false)
-            scope.launch { finishClaimedJob(success) }
+            val reasonCode = intent.getStringExtra("reasonCode") ?: "ACCESSIBILITY_FAILED"
+            val error = intent.getStringExtra("error") ?: "Accessibility không hoàn thành được thao tác."
+            val step = intent.getStringExtra("step") ?: ""
+            val retryable = intent.getBooleanExtra("retryable", true)
+            scope.launch { finishClaimedJob(success, reasonCode, error, step, retryable) }
         }
     }
 
@@ -83,6 +86,13 @@ class ExecutorForegroundService : Service() {
                 val ok = postLifecycle(active, "checkpoint", JSONObject()) in 200..299
                 if (ok) irreversibleReached = true
                 ok
+            }
+        }
+        FbAutoService.onActionProgress = { jobId, action, status ->
+            val active = claimedJob
+            if (active == null || active.id != jobId) false
+            else runBlocking(Dispatchers.IO) {
+                postLifecycle(active, "actions/$action", JSONObject().put("status", status)) in 200..299
             }
         }
     }
@@ -281,11 +291,15 @@ class ExecutorForegroundService : Service() {
         }
     }
 
-    private suspend fun finishClaimedJob(success: Boolean) {
+    private suspend fun finishClaimedJob(success: Boolean, reasonCode: String, error: String, step: String, retryable: Boolean) {
         val active = claimedJob ?: return
         val endpoint = if (success) "complete" else "fail"
         val body = if (success) JSONObject().put("result", JSONObject().put("completedAt", System.currentTimeMillis()))
-        else JSONObject().put("error", "Accessibility không hoàn thành được thao tác.")
+        else JSONObject()
+            .put("reasonCode", reasonCode)
+            .put("error", error)
+            .put("step", step)
+            .put("retryable", retryable && !irreversibleReached)
         val code = postLifecycle(active, endpoint, body)
         if (code !in 200..299) lastError.value = "Không báo được kết quả job ${active.id} (HTTP $code)."
         else if (!success) lastError.value = "Job ${active.id} thất bại."
@@ -324,7 +338,7 @@ class ExecutorForegroundService : Service() {
 
     private suspend fun request(path: String, method: String, body: JSONObject?, token: String): Pair<Int, String?> = withContext(Dispatchers.IO) {
         try {
-            val conn = URL(serverUrl + path).openConnection() as HttpURLConnection
+            val conn = URL(SERVER_URL + path).openConnection() as HttpURLConnection
             conn.requestMethod = method
             conn.connectTimeout = 8_000
             conn.readTimeout = 10_000
@@ -406,6 +420,7 @@ class ExecutorForegroundService : Service() {
     override fun onDestroy() {
         try { unregisterReceiver(resultReceiver) } catch (_: Exception) {}
         FbAutoService.onIrreversibleAction = null
+        FbAutoService.onActionProgress = null
         scope.cancel()
         super.onDestroy()
     }

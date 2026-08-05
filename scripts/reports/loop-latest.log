@@ -1,0 +1,48 @@
+========== 2026-07-07T13:42:30+07:00 LOOP ITERATION ==========
+--- auto-fix ---
+--- test ---
+PASS: Server splash OK
+ISSUE: Không có thiết bị Android (adb)
+PASS: Admin login OK
+ISSUE: Worker login thất bại: Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập.
+PASS: Suggested group approved
+PASS: No stuck RUNNING jobs
+{
+  "timestamp": "2026-07-07T13:42:31.576336",
+  "status": "FAIL",
+  "issue_count": 2,
+  "issues": [
+    "Không có thiết bị Android (adb)",
+    "Worker login thất bại: Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập."
+  ],
+  "fixes_applied": []
+}
+--- retry fix after fail ---
+PASS: Server splash OK
+ISSUE: Không có thiết bị Android (adb)
+PASS: Admin login OK
+ISSUE: Worker login thất bại: Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập.
+PASS: Suggested group approved
+PASS: No stuck RUNNING jobs
+{
+  "timestamp": "2026-07-07T13:42:32.263682",
+  "status": "FAIL",
+  "issue_count": 2,
+  "issues": [
+    "Không có thiết bị Android (adb)",
+    "Worker login thất bại: Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập."
+  ],
+  "fixes_applied": []
+}
+RESULT: FAIL — cần can thiệp thủ công
+REPORT: /Users/tuan/Desktop/FreeHandFb/scripts/reports/report-20260707-134231.json
+{
+  "timestamp": "2026-07-07T13:42:32.263682",
+  "status": "FAIL",
+  "issue_count": 2,
+  "issues": [
+    "Không có thiết bị Android (adb)",
+    "Worker login thất bại: Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập."
+  ],
+  "fixes_applied": []
+}

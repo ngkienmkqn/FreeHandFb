@@ -72,7 +72,6 @@ private const val KEY_USERNAME = "username"
 private const val KEY_GROUP = "user_group"
 private const val KEY_PHONE = "user_phone"
 private const val KEY_ZALO = "user_zalo"
-private const val SERVER_URL = "http://192.168.0.104:3030"
 private const val APP_VERSION = "1.0.0"
 
 /* ================== DATA MODEL ================== */

@@ -1,4 +1,5 @@
 // Comment Helper Server - Hot-Reload Enabled
+require('dotenv').config();
 const express = require('express');
 const app = express();
 const http = require('http').Server(app);
@@ -7,6 +8,8 @@ const path = require('path');
 const cors = require('cors');
 const fs = require('fs');
 const crypto = require('crypto');
+const dbStore = require('./db/store');
+const executorPolicy = require('./lib/executor-policy');
 
 app.use(cors());
 app.use(express.json({ limit: '200mb' }));
@@ -19,31 +22,61 @@ app.use(express.static(path.join(__dirname, 'public')));
 /* ================== DATA PERSISTENCE ================== */
 
 const DATA_DIR = path.join(__dirname, 'data');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-const TOKENS_FILE = path.join(DATA_DIR, 'tokens.json');
-const POSTS_FILE = path.join(DATA_DIR, 'posts.json');
-const TEMPLATES_FILE = path.join(DATA_DIR, 'templates.json');
-const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
-const NOTIFICATIONS_FILE = path.join(DATA_DIR, 'notifications.json');
-const ARTICLES_FILE = path.join(DATA_DIR, 'articles.json');
-const SUGGESTED_GROUPS_FILE = path.join(DATA_DIR, 'suggested_groups.json');
-const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
-const INTERACTION_QUEUE_FILE = path.join(DATA_DIR, 'interaction_queue.json');
-const INTERACTION_TARGETS_FILE = path.join(DATA_DIR, 'interaction_targets.json');
-const GROUP_INTELLIGENCE_FILE = path.join(DATA_DIR, 'group_intelligence.json');
-const PUBLISHING_QUEUE_FILE = path.join(DATA_DIR, 'publishing_queue.json');
+const USERS_STORE = 'users';
+const TOKENS_STORE = 'tokens';
+const POSTS_STORE = 'posts';
+const TEMPLATES_STORE = 'templates';
+const CONFIG_STORE = 'config';
+const NOTIFICATIONS_STORE = 'notifications';
+const ARTICLES_STORE = 'articles';
+const SUGGESTED_GROUPS_STORE = 'suggested_groups';
+const SETTINGS_STORE = 'settings';
+const INTERACTION_QUEUE_STORE = 'interaction_queue';
+const INTERACTION_TARGETS_STORE = 'interaction_targets';
+const GROUP_INTELLIGENCE_STORE = 'group_intelligence';
+const PUBLISHING_QUEUE_STORE = 'publishing_queue';
+const ENGINE_STORE = 'engine';
 const APK_LOGS_FILE = path.join(DATA_DIR, 'apk_logs.txt');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
 
-function loadJson(file, fallback) {
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-    catch { return fallback; }
+let postgresStorageReady = false;
+const pendingPostgresSaves = new Map();
+
+function dataDocumentName(file) {
+    return file;
 }
-function saveJson(file, data) {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+
+function persistToPostgres(file, data) {
+    const key = dataDocumentName(file);
+    pendingPostgresSaves.set(key, { file, data });
+    if (!postgresStorageReady) return;
+    const item = pendingPostgresSaves.get(key);
+    pendingPostgresSaves.delete(key);
+    const write = async () => {
+        if (file === USERS_STORE) return dbStore.replaceUsers(item.data || []);
+        if (file === TOKENS_STORE) return dbStore.replaceTokens(item.data || {});
+        if (file === INTERACTION_QUEUE_STORE) return dbStore.replaceJobs('interaction', item.data || []);
+        if (file === PUBLISHING_QUEUE_STORE) return dbStore.replaceJobs('publishing', item.data || []);
+        if (file === INTERACTION_TARGETS_STORE) return dbStore.replaceInteractionTargets(item.data || []);
+        if (file === POSTS_STORE) return dbStore.replacePosts(item.data || []);
+        if (file === TEMPLATES_STORE) return dbStore.replaceTemplates(item.data || {});
+        if (file === NOTIFICATIONS_STORE) return dbStore.replaceNotifications(item.data || []);
+        if (file === ARTICLES_STORE) return dbStore.replaceArticles(item.data || []);
+        if (file === SUGGESTED_GROUPS_STORE) return dbStore.replaceSuggestedGroups(item.data || []);
+        if (file === SETTINGS_STORE) return dbStore.saveSettings(item.data || {});
+        if (file === CONFIG_STORE) return dbStore.saveConfig(item.data || {});
+        if (file === GROUP_INTELLIGENCE_STORE) return dbStore.replaceGroupIntelligence(item.data || {});
+        if (file === ENGINE_STORE) return dbStore.saveEngine(item.data || {});
+        throw new Error(`Unknown PostgreSQL store: ${key}`);
+    };
+    write().catch(error => console.error(`[DB] Failed to persist ${key}:`, error.message));
+}
+
+function saveState(file, data) {
+    persistToPostgres(file, data);
 }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function hashPw(pw) { return crypto.createHash('sha256').update(pw).digest('hex'); }
@@ -71,18 +104,18 @@ function buildTargetPost(value) {
 }
 
 // --- Data stores ---
-let users = loadJson(USERS_FILE, []);
-let tokens = loadJson(TOKENS_FILE, {}); // { token: { userId, username, group, role, createdAt } }
-let posts = loadJson(POSTS_FILE, []);
-let templates = loadJson(TEMPLATES_FILE, {}); // { "group-name": ["tpl1", ...] }
-let notifications = loadJson(NOTIFICATIONS_FILE, []); // [{ id, userId, message, read, createdAt }]
-let articles = loadJson(ARTICLES_FILE, []); // [{ id, title, category, content, images }]
-let suggestedGroups = loadJson(SUGGESTED_GROUPS_FILE, []); // [{ id, name, url, memberCount, status, addedBy, createdAt }]
-let appSettings = loadJson(SETTINGS_FILE, { maxGroupPostsPerDay: 1 });
-let interactionQueue = loadJson(INTERACTION_QUEUE_FILE, []);
-let interactionTargets = loadJson(INTERACTION_TARGETS_FILE, []);
-let groupIntelligence = loadJson(GROUP_INTELLIGENCE_FILE, {});
-let publishingQueue = loadJson(PUBLISHING_QUEUE_FILE, []);
+let users = [];
+let tokens = {};
+let posts = [];
+let templates = {};
+let notifications = [];
+let articles = [];
+let suggestedGroups = [];
+let appSettings = { maxGroupPostsPerDay: 1 };
+let interactionQueue = [];
+let interactionTargets = [];
+let groupIntelligence = {};
+let publishingQueue = [];
 
 function runLogsCleanup() {
     try {
@@ -111,68 +144,34 @@ function runLogsCleanup() {
         }
         
         appSettings.lastLogsCleanup = now;
-        saveJson(SETTINGS_FILE, appSettings);
+        saveState(SETTINGS_STORE, appSettings);
     } catch (e) {
         console.error('[LOGS] Error during weekly garbage collection:', e);
     }
 }
 
-// Check on startup and schedule daily check
-const lastCleanup = appSettings.lastLogsCleanup || 0;
-if (Date.now() - lastCleanup > 7 * 24 * 3600 * 1000) {
-    runLogsCleanup();
-}
-setInterval(() => {
-    const last = appSettings.lastLogsCleanup || 0;
-    if (Date.now() - last > 7 * 24 * 3600 * 1000) {
+function scheduleLogsCleanup() {
+    const lastCleanup = appSettings.lastLogsCleanup || 0;
+    if (Date.now() - lastCleanup > 7 * 24 * 3600 * 1000) {
         runLogsCleanup();
     }
-}, 24 * 3600 * 1000); // Check once a day
-let config = loadJson(CONFIG_FILE, {
+    setInterval(() => {
+        const last = appSettings.lastLogsCleanup || 0;
+        if (Date.now() - last > 7 * 24 * 3600 * 1000) {
+            runLogsCleanup();
+        }
+    }, 24 * 3600 * 1000); // Check once a day
+}
+let config = {
     appVersion: '1.0.0',
     apkUrl: '',
     changelog: '',
     defaultComments: []
-});
-
-// Migrate users to have points
-let usersMigrated = false;
-users.forEach(u => {
-    if (typeof u.points !== 'number') { u.points = 20; usersMigrated = true; }
-});
-if (usersMigrated) saveJson(USERS_FILE, users);
+};
 
 // Ensure system admin always exists
 const SYSTEM_ADMIN = 'admin@xommuaban.com';
-const existingAdmin = users.find(u => u.username === SYSTEM_ADMIN);
-if (!existingAdmin) {
-    users.push({
-        id: genId(),
-        username: SYSTEM_ADMIN,
-        password: hashPw('16691'),
-        group: 'default',
-        role: 'admin'
-    });
-    saveJson(USERS_FILE, users);
-    console.log(`[INIT] Created system admin: ${SYSTEM_ADMIN}`);
-} else {
-    // Always reset password to latest
-    existingAdmin.password = hashPw('16691');
-    existingAdmin.role = 'admin';
-    saveJson(USERS_FILE, users);
-}
-
-// Migrate old templates format (array → object)
-if (Array.isArray(templates)) {
-    const old = templates;
-    templates = { 'default': old };
-    saveJson(TEMPLATES_FILE, templates);
-}
-
-// Migrate old posts (add group field if missing)
-let postsMigrated = false;
-posts.forEach(p => { if (!p.group) { p.group = 'default'; postsMigrated = true; } });
-if (postsMigrated) saveJson(POSTS_FILE, posts);
+// PostgreSQL bootstrap is responsible for seeding/resetting system admin.
 
 /* ================== AUTH ================== */
 
@@ -188,7 +187,7 @@ app.post('/api/login', (req, res) => {
     if (user.role !== 'admin' && !isWeb) {
         if (!user.deviceId) {
             user.deviceId = deviceId;
-            saveJson(USERS_FILE, users);
+            saveState(USERS_STORE, users);
         } else if (user.deviceId !== deviceId) {
             return res.status(403).json({ error: 'Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập.' });
         }
@@ -202,7 +201,7 @@ app.post('/api/login', (req, res) => {
         role: user.role,
         createdAt: Date.now()
     };
-    saveJson(TOKENS_FILE, tokens);
+    saveState(TOKENS_STORE, tokens);
 
     res.json({
         token,
@@ -215,7 +214,7 @@ app.post('/api/logout', (req, res) => {
     const token = extractToken(req);
     if (token && tokens[token]) {
         delete tokens[token];
-        saveJson(TOKENS_FILE, tokens);
+        saveState(TOKENS_STORE, tokens);
     }
     res.json({ ok: true });
 });
@@ -249,8 +248,8 @@ const executorQueues = {
 };
 
 function saveExecutorQueue(type) {
-    if (type === 'interaction') saveJson(INTERACTION_QUEUE_FILE, interactionQueue);
-    if (type === 'publishing') saveJson(PUBLISHING_QUEUE_FILE, publishingQueue);
+    if (type === 'interaction') saveState(INTERACTION_QUEUE_STORE, interactionQueue);
+    if (type === 'publishing') saveState(PUBLISHING_QUEUE_STORE, publishingQueue);
 }
 
 function getExecutorQueue(type) {
@@ -261,6 +260,96 @@ function publicExecutorJob(job) {
     const copy = { ...job };
     delete copy.leaseToken;
     return copy;
+}
+
+function parseScheduledAt(value) {
+    if (value === undefined || value === null || value === '') return 0;
+    const ts = typeof value === 'number' ? value : Date.parse(String(value));
+    return Number.isFinite(ts) && ts > 0 ? ts : NaN;
+}
+
+function isExecutorJobDue(job, now = Date.now()) {
+    return !job.scheduledAt || job.scheduledAt <= now;
+}
+
+function canClaimExecutorJob(item, type, user, now = Date.now(), deviceId = '') {
+    if (item.group !== user.group || item.status !== 'QUEUED') return false;
+    if (!isExecutorJobDue(item, now)) return false;
+
+    // A retry must not immediately return to the account/device that just failed it.
+    // Keeping the exclusions in payload makes the rule survive server restarts.
+    if (!executorPolicy.canExecutorRetry(item.payload?.retry || {}, user.username, deviceId)) return false;
+
+    if (type === 'publishing') {
+        return item.createdBy === user.username;
+    }
+
+    const targetId = item.targetPostId || item.payload?.targetPostId;
+    if (!targetId) return true;
+    const target = interactionTargets.find(t => t.id === targetId);
+    if (target?.status !== 'RUNNING') return false;
+    const targetGroup = target.groupId || target.group;
+    if (groupPausedReason(targetGroup)) return false;
+    const intel = groupIntel(targetGroup);
+    const membership = intel.accountMembership?.[user.username];
+    if (membership && ['NOT_JOINED', 'PENDING', 'BLOCKED', 'LEFT'].includes(membership.status)) return false;
+    if (membership?.cooldownUntil > now) return false;
+    if (item.payload?.actions?.comment !== true) return true;
+    if (commentRecentlyUsedInGroup(targetGroup, item.payload?.comment)) return false;
+    return !targetJobs(targetId).some(job =>
+        job.id !== item.id &&
+        job.payload?.actions?.comment === true &&
+        job.claimedBy === user.username &&
+        ['RUNNING', 'SUCCEEDED', 'INTERRUPTED'].includes(job.status)
+    );
+}
+
+function createReplacementJob(failedJob, failedBy, failedDeviceId, failure) {
+    const targetId = failedJob.targetPostId || failedJob.payload?.targetPostId;
+    const target = targetId && interactionTargets.find(item => item.id === targetId);
+    if (failedJob.type !== 'interaction' || !target || target.status !== 'RUNNING') return null;
+    if (failure.retryable === false || failedJob.irreversibleAt) return null;
+
+    const previousRetry = failedJob.payload?.retry || {};
+    const retryNumber = Number(previousRetry.retryNumber || 0) + 1;
+    const maxRetries = Math.max(1, Number(target.autoClose?.maxFailedJobs || 5));
+    if (retryNumber > maxRetries) return null;
+
+    const excludedAccounts = [...new Set([...(previousRetry.excludedAccounts || []), failedBy].filter(Boolean))];
+    const excludedDevices = [...new Set([...(previousRetry.excludedDevices || []), failedDeviceId].filter(Boolean))];
+    const now = Date.now();
+    const remaining = executorPolicy.remainingActions(failedJob.payload?.actionStates || failedJob.payload?.actions);
+    if (!remaining.like && !remaining.comment) return null;
+    const replacement = {
+        id: `INT-${genId()}`,
+        type: failedJob.type,
+        group: failedJob.group,
+        targetPostId: targetId,
+        priority: failedJob.priority,
+        payload: {
+            ...failedJob.payload,
+            actions: remaining,
+            actionStates: executorPolicy.normalizeActions({
+                like: { required: remaining.like, status: remaining.like ? 'PENDING' : 'SKIPPED' },
+                comment: { required: remaining.comment, status: remaining.comment ? 'PENDING' : 'SKIPPED' }
+            }),
+            retry: {
+                retryNumber,
+                retryOf: previousRetry.retryOf || failedJob.id,
+                previousJobId: failedJob.id,
+                excludedAccounts,
+                excludedDevices,
+                lastFailure: failure
+            }
+        },
+        status: 'QUEUED',
+        attempts: 0,
+        createdBy: failedJob.createdBy,
+        createdAt: now,
+        updatedAt: now
+    };
+    interactionQueue.push(replacement);
+    return replacement;
 }
 
 function reclaimExpiredExecutorJobs() {
@@ -298,7 +387,7 @@ function emitExecutorUpdate(group) {
 }
 
 function saveInteractionTargets() {
-    saveJson(INTERACTION_TARGETS_FILE, interactionTargets);
+    saveState(INTERACTION_TARGETS_STORE, interactionTargets);
 }
 
 function emitInteractionTargetsUpdate(group) {
@@ -306,7 +395,7 @@ function emitInteractionTargetsUpdate(group) {
 }
 
 function saveGroupIntelligence() {
-    saveJson(GROUP_INTELLIGENCE_FILE, groupIntelligence);
+    saveState(GROUP_INTELLIGENCE_STORE, groupIntelligence);
 }
 
 function intelligenceKey(groupId) {
@@ -319,6 +408,7 @@ function groupIntel(groupId) {
         groupIntelligence[key] = {
             groupId: key,
             joinedAccounts: {},
+            accountMembership: {},
             accountActivity: {},
             recentComments: [],
             failStreak: 0,
@@ -367,6 +457,11 @@ function markAccountJoinedGroup(username, groupId, source) {
         joinedAt: intel.joinedAccounts[username]?.joinedAt || Date.now(),
         lastSeenAt: Date.now()
     };
+    intel.accountMembership ||= {};
+    intel.accountMembership[username] = {
+        username, status: 'JOINED', source: source || 'interaction_success',
+        lastVerifiedAt: Date.now(), cooldownUntil: 0
+    };
     intel.updatedAt = Date.now();
     trimGroupIntel(intel);
     saveGroupIntelligence();
@@ -394,6 +489,25 @@ function recordGroupInteraction(job, outcome, req) {
             if (username) intel.accountActivity[username].comments.push(item);
         }
     } else if (['FAILED', 'INTERRUPTED'].includes(outcome)) {
+        const failure = job.result?.failure || {};
+        intel.accountMembership ||= {};
+        if (username && failure.code === 'GROUP_MEMBERSHIP_REQUIRED') {
+            delete intel.joinedAccounts[username];
+            intel.accountMembership[username] = { username, status: 'NOT_JOINED', lastVerifiedAt: now, lastError: failure.message };
+        } else if (username && failure.code === 'FACEBOOK_ACTION_BLOCK') {
+            delete intel.joinedAccounts[username];
+            intel.accountMembership[username] = {
+                username, status: 'BLOCKED', lastVerifiedAt: now, lastError: failure.message,
+                cooldownUntil: now + 24 * 60 * 60 * 1000
+            };
+        }
+        // Account/device/infrastructure failures must not poison every target in the Facebook group.
+        if (!['GROUP', 'TARGET'].includes(failure.category)) {
+            intel.updatedAt = now;
+            trimGroupIntel(intel);
+            saveGroupIntelligence();
+            return;
+        }
         intel.failStreak = (intel.failStreak || 0) + 1;
         intel.lastFailureAt = now;
         intel.lastFailure = job.lastError || outcome;
@@ -575,6 +689,7 @@ function planInteractionTarget(target) {
                 url: normalizeFbUrlForNative(target.postUrl),
                 postUrl: normalizeFbUrlForNative(target.postUrl),
                 actions: { like: shouldLike, comment: shouldComment },
+                actionStates: executorPolicy.normalizeActions({ like: shouldLike, comment: shouldComment }),
                 ...(shouldComment ? { comment: comment.slice(0, 4000) } : { comment: '' }),
                 ...(target.targetPost ? { targetPost: target.targetPost } : {})
             },
@@ -827,18 +942,23 @@ app.post('/api/executor/interaction', authMiddleware, (req, res) => {
 app.post('/api/executor/publishing', authMiddleware, (req, res) => {
     const groupUrl = String(req.body.groupUrl || '').trim();
     const content = String(req.body.content || '').trim();
+    const scheduledAt = parseScheduledAt(req.body.scheduledAt);
     const images = Array.isArray(req.body.images)
         ? req.body.images.map(value => String(value).trim()).filter(Boolean)
         : [];
     if (!/^https?:\/\//i.test(groupUrl) || !content || images.some(url => !/^https?:\/\//i.test(url) && !url.startsWith('data:image'))) {
         return res.status(400).json({ error: 'Link group, nội dung hoàn chỉnh và link ảnh hợp lệ là bắt buộc.' });
     }
+    if (Number.isNaN(scheduledAt)) {
+        return res.status(400).json({ error: 'Thời gian hẹn đăng không hợp lệ.' });
+    }
     const now = Date.now();
     const job = {
         id: `PUB-${genId()}`, type: 'publishing', group: req.user.group,
         payload: { groupUrl: normalizeFbUrlForNative(groupUrl), content, images },
         status: 'QUEUED', attempts: 0, createdBy: req.user.username,
-        createdAt: now, updatedAt: now
+        createdAt: now, updatedAt: now,
+        ...(scheduledAt > now ? { scheduledAt } : {})
     };
     publishingQueue.push(job);
     saveExecutorQueue('publishing');
@@ -862,30 +982,11 @@ app.post('/api/executor/:type/claim', authMiddleware, (req, res) => {
         return res.json({ job: publicExecutorJob(active), leaseToken: active.leaseToken, recovered: true });
     }
 
+    const now = Date.now();
     const job = queue
-        .filter(item => {
-            if (item.group !== req.user.group || item.status !== 'QUEUED') return false;
-            const targetId = item.targetPostId || item.payload?.targetPostId;
-            if (!targetId) return true;
-            const target = interactionTargets.find(t => t.id === targetId);
-            if (target?.status !== 'RUNNING') return false;
-            const targetGroup = target.groupId || target.group;
-            if (groupPausedReason(targetGroup)) return false;
-            const intel = groupIntel(targetGroup);
-            const knownJoinedAccounts = Object.keys(intel.joinedAccounts || {});
-            if (knownJoinedAccounts.length > 0 && !accountJoinedGroup(req.user.username, targetGroup)) return false;
-            if (item.payload?.actions?.comment !== true) return true;
-            if (commentRecentlyUsedInGroup(targetGroup, item.payload?.comment)) return false;
-            return !targetJobs(targetId).some(job =>
-                job.id !== item.id &&
-                job.payload?.actions?.comment === true &&
-                job.claimedBy === req.user.username &&
-                ['RUNNING', 'SUCCEEDED', 'INTERRUPTED'].includes(job.status)
-            );
-        })
+        .filter(item => canClaimExecutorJob(item, type, req.user, now, deviceId))
         .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority) || (a.createdAt || 0) - (b.createdAt || 0))[0];
     if (!job) return res.status(204).end();
-    const now = Date.now();
     job.status = 'RUNNING';
     job.claimedBy = req.user.username;
     job.deviceId = deviceId;
@@ -928,6 +1029,22 @@ app.post('/api/executor/jobs/:id/checkpoint', authMiddleware, (req, res) => {
     res.json({ ok: true });
 });
 
+app.post('/api/executor/jobs/:id/actions/:action', authMiddleware, (req, res) => {
+    const found = ownedExecutorJob(req, res); if (!found) return;
+    const action = String(req.params.action || '').toLowerCase();
+    const status = String(req.body.status || '').toUpperCase();
+    if (!['like', 'comment'].includes(action)) return res.status(400).json({ error: 'Action không hợp lệ.' });
+    if (!['IN_PROGRESS', 'CONFIRMED', 'ALREADY_DONE', 'FAILED', 'UNCERTAIN', 'SKIPPED'].includes(status)) {
+        return res.status(400).json({ error: 'Action status không hợp lệ.' });
+    }
+    const states = executorPolicy.normalizeActions(found.job.payload.actionStates || found.job.payload.actions);
+    states[action] = { ...states[action], status, updatedAt: Date.now() };
+    found.job.payload.actionStates = states;
+    found.job.updatedAt = Date.now();
+    saveExecutorQueue(found.type);
+    res.json({ ok: true, action, status });
+});
+
 app.post('/api/executor/jobs/:id/complete', authMiddleware, (req, res) => {
     const found = ownedExecutorJob(req, res); if (!found) return;
     found.job.status = 'SUCCEEDED';
@@ -948,11 +1065,24 @@ app.post('/api/executor/jobs/:id/complete', authMiddleware, (req, res) => {
 
 app.post('/api/executor/jobs/:id/fail', authMiddleware, (req, res) => {
     const found = ownedExecutorJob(req, res); if (!found) return;
+    const failedBy = found.job.claimedBy || req.user.username;
+    const failedDeviceId = found.job.deviceId || '';
+    const failure = executorPolicy.classifyFailure({
+        code: normalizeTargetText(req.body.reasonCode || 'ACCESSIBILITY_FAILED', 80).toUpperCase(),
+        message: normalizeTargetText(req.body.error || 'Executor báo thất bại.', 500),
+        step: normalizeTargetText(req.body.step || '', 100),
+        retryable: req.body.retryable !== false,
+        failedBy,
+        failedDeviceId,
+        failedAt: Date.now()
+    });
     found.job.status = 'FAILED';
-    found.job.lastError = String(req.body.error || 'Executor báo thất bại.');
+    found.job.lastError = `${failure.code}: ${failure.message}`;
+    found.job.result = { ...(found.job.result || {}), failure };
     found.job.finishedAt = Date.now();
     found.job.updatedAt = Date.now();
     found.job.leaseToken = null;
+    const replacement = createReplacementJob(found.job, failedBy, failedDeviceId, failure);
     saveExecutorQueue(found.type);
     const target = interactionTargets.find(item => item.id === (found.job.targetPostId || found.job.payload?.targetPostId));
     if (target) recordGroupInteraction(found.job, 'FAILED', req);
@@ -961,7 +1091,7 @@ app.post('/api/executor/jobs/:id/fail', authMiddleware, (req, res) => {
         emitInteractionTargetsUpdate(target.group);
     }
     emitExecutorUpdate(found.job.group);
-    res.json({ ok: true });
+    res.json({ ok: true, replacementJobId: replacement?.id || null, reassigned: !!replacement });
 });
 
 app.post('/api/executor/jobs/:id/interrupted', authMiddleware, (req, res) => {
@@ -1000,7 +1130,7 @@ app.post('/api/settings', authMiddleware, adminOnly, (req, res) => {
     const { maxGroupPostsPerDay } = req.body;
     if (typeof maxGroupPostsPerDay === 'number' && maxGroupPostsPerDay >= 1) {
         appSettings.maxGroupPostsPerDay = maxGroupPostsPerDay;
-        saveJson(SETTINGS_FILE, appSettings);
+        saveState(SETTINGS_STORE, appSettings);
     }
     res.json(appSettings);
 });
@@ -1033,7 +1163,7 @@ app.post('/api/splash', authMiddleware, adminOnly, (req, res) => {
     }
     
     appSettings.splash = splash;
-    saveJson(SETTINGS_FILE, appSettings);
+    saveState(SETTINGS_STORE, appSettings);
     res.json({ success: true, splash });
 });
 
@@ -1050,7 +1180,7 @@ app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
 
     const user = { id: genId(), username, password: hashPw(password), group, role: role || 'user', phone: phone || '', zaloLink: zaloLink || '', facebookName: facebookName || '', isLocked: false, maxGroupPostsPerDay: req.body.maxGroupPostsPerDay !== undefined ? req.body.maxGroupPostsPerDay : 1 };
     users.push(user);
-    saveJson(USERS_FILE, users);
+    saveState(USERS_STORE, users);
     res.json({ id: user.id, username: user.username, group: user.group, role: user.role, phone: user.phone, zaloLink: user.zaloLink, facebookName: user.facebookName, isLocked: false, maxGroupPostsPerDay: user.maxGroupPostsPerDay });
 });
 
@@ -1081,14 +1211,14 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
         user.username = username;
         // Update tokens with new username
         Object.values(tokens).forEach(t => { if (t.userId === user.id) t.username = username; });
-        saveJson(TOKENS_FILE, tokens);
+        saveState(TOKENS_STORE, tokens);
         
         // Cascade update addedBy in posts
         let postsChanged = false;
         posts.forEach(p => {
             if (p.addedBy === oldUsername) { p.addedBy = username; postsChanged = true; }
         });
-        if (postsChanged) saveJson(POSTS_FILE, posts);
+        if (postsChanged) saveState(POSTS_STORE, posts);
     }
     if (password) user.password = hashPw(password);
 
@@ -1110,7 +1240,7 @@ app.put('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
         if (user.history.length > 10) user.history.pop();
     }
 
-    saveJson(USERS_FILE, users);
+    saveState(USERS_STORE, users);
     res.json({ id: user.id, username: user.username, group: user.group, role: user.role, points: user.points, phone: user.phone, zaloLink: user.zaloLink, facebookName: user.facebookName || '', isLocked: !!user.isLocked, isDebug: !!user.isDebug, settings: user.settings || {}, history: user.history });
 });
 
@@ -1121,8 +1251,8 @@ app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
     const user = users[idx];
     Object.keys(tokens).forEach(t => { if (tokens[t].userId === user.id) delete tokens[t]; });
     users.splice(idx, 1);
-    saveJson(USERS_FILE, users);
-    saveJson(TOKENS_FILE, tokens);
+    saveState(USERS_STORE, users);
+    saveState(TOKENS_STORE, tokens);
     res.json({ ok: true });
 });
 
@@ -1150,7 +1280,7 @@ app.post('/api/suggested-groups', authMiddleware, (req, res) => {
     const status = req.user.role === 'admin' ? 'approved' : 'pending';
     const g = { id: genId(), name, url, memberCount: memberCount || '', status, addedBy: req.user.username, createdAt: Date.now() };
     suggestedGroups.push(g);
-    saveJson(SUGGESTED_GROUPS_FILE, suggestedGroups);
+    saveState(SUGGESTED_GROUPS_STORE, suggestedGroups);
     res.json(g);
 });
 
@@ -1162,7 +1292,7 @@ app.put('/api/suggested-groups/:id', authMiddleware, adminOnly, (req, res) => {
     if (url) g.url = url;
     if (memberCount !== undefined) g.memberCount = memberCount;
     if (status && ['approved', 'pending'].includes(status)) g.status = status;
-    saveJson(SUGGESTED_GROUPS_FILE, suggestedGroups);
+    saveState(SUGGESTED_GROUPS_STORE, suggestedGroups);
     res.json(g);
 });
 
@@ -1170,7 +1300,7 @@ app.delete('/api/suggested-groups/:id', authMiddleware, adminOnly, (req, res) =>
     const idx = suggestedGroups.findIndex(x => x.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: 'Not found' });
     suggestedGroups.splice(idx, 1);
-    saveJson(SUGGESTED_GROUPS_FILE, suggestedGroups);
+    saveState(SUGGESTED_GROUPS_STORE, suggestedGroups);
     res.json({ ok: true });
 });
 
@@ -1265,7 +1395,7 @@ app.post('/api/posts', authMiddleware, (req, res) => {
         isPublishingGroup: !!req.body.isPublishingGroup
     };
     posts.push(post);
-    saveJson(POSTS_FILE, posts);
+    saveState(POSTS_STORE, posts);
 
     // Realtime broadcast to all group members
     io.to(`group:${req.user.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === req.user.group) });
@@ -1308,7 +1438,7 @@ app.post('/api/posts/bulk', authMiddleware, (req, res) => {
             }
         }
     });
-    saveJson(POSTS_FILE, posts);
+    saveState(POSTS_STORE, posts);
     
     const groupPosts = posts.filter(p => p.group === req.user.group);
     // Realtime broadcast to all group members
@@ -1330,7 +1460,7 @@ app.post('/api/posts/:id/verify_request', authMiddleware, (req, res) => {
         requestedAt: Date.now()
     });
     
-    saveJson(POSTS_FILE, posts);
+    saveState(POSTS_STORE, posts);
 
     // Realtime broadcast: post was interacted
     io.to(`group:${req.user.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === req.user.group) });
@@ -1345,7 +1475,7 @@ app.post('/api/posts/:id/done', authMiddleware, (req, res) => {
     post.status = 'DONE';
     post.interactedAt = Date.now();
     
-    saveJson(POSTS_FILE, posts);
+    saveState(POSTS_STORE, posts);
     
     // Realtime broadcast: post marked done
     io.to(`group:${post.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === post.group) });
@@ -1423,9 +1553,9 @@ app.post('/api/verify/submit', authMiddleware, adminOnly, (req, res) => {
         }
     });
 
-    saveJson(USERS_FILE, users);
-    saveJson(NOTIFICATIONS_FILE, notifications);
-    saveJson(POSTS_FILE, posts);
+    saveState(USERS_STORE, users);
+    saveState(NOTIFICATIONS_STORE, notifications);
+    saveState(POSTS_STORE, posts);
     
     io.to(`group:${post.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === post.group) });
     
@@ -1439,7 +1569,7 @@ app.delete('/api/posts/:id', authMiddleware, (req, res) => {
     if (idx === -1) return res.status(404).json({ error: 'Post not found' });
     const deletedPost = posts[idx];
     posts.splice(idx, 1);
-    saveJson(POSTS_FILE, posts);
+    saveState(POSTS_STORE, posts);
 
     // Realtime broadcast: post deleted
     io.to(`group:${deletedPost.group}`).emit('posts_updated', { posts: posts.filter(p => p.group === deletedPost.group) });
@@ -1456,7 +1586,7 @@ app.delete('/api/posts/done/clear', authMiddleware, (req, res) => {
     } else {
         posts = posts.filter(p => !(p.group === req.user.group && p.status === 'DONE'));
     }
-    saveJson(POSTS_FILE, posts);
+    saveState(POSTS_STORE, posts);
 
     // Realtime broadcast: done posts cleared
     if (req.user.role === 'admin') {
@@ -1487,7 +1617,7 @@ app.post('/api/templates', authMiddleware, (req, res) => {
     if (!templates[g]) templates[g] = [];
     const t = text.trim();
     if (!templates[g].includes(t)) templates[g].push(t);
-    saveJson(TEMPLATES_FILE, templates);
+    saveState(TEMPLATES_STORE, templates);
     res.json(templates[g]);
 });
 
@@ -1495,7 +1625,7 @@ app.delete('/api/templates', authMiddleware, (req, res) => {
     const { text } = req.body;
     const g = req.user.group;
     if (templates[g]) templates[g] = templates[g].filter(t => t !== text);
-    saveJson(TEMPLATES_FILE, templates);
+    saveState(TEMPLATES_STORE, templates);
     res.json(templates[g] || []);
 });
 
@@ -1532,7 +1662,7 @@ app.put('/api/me', authMiddleware, (req, res) => {
         if (!user.history) user.history = [];
         user.history.unshift({ timestamp: Date.now(), by: req.user.username + " (Tự sửa)", desc: changes.join(' | ') });
         if (user.history.length > 10) user.history.pop();
-        saveJson(USERS_FILE, users);
+        saveState(USERS_STORE, users);
     }
     
     res.json({
@@ -1551,7 +1681,7 @@ app.post('/api/notifications/read', authMiddleware, (req, res) => {
     notifications.forEach(n => {
         if (n.username === req.user.username) n.read = true;
     });
-    saveJson(NOTIFICATIONS_FILE, notifications);
+    saveState(NOTIFICATIONS_STORE, notifications);
     res.json({ ok: true });
 });
 
@@ -1564,7 +1694,7 @@ app.get('/api/config/comments', authMiddleware, adminOnly, (req, res) => {
 
 app.put('/api/config/comments', authMiddleware, adminOnly, (req, res) => {
     config.defaultComments = req.body || [];
-    saveJson(CONFIG_FILE, config);
+    saveState(CONFIG_STORE, config);
     res.json(config.defaultComments);
 });
 
@@ -1593,7 +1723,7 @@ app.post('/api/articles', authMiddleware, (req, res) => {
         createdAt: Date.now(), addedBy: req.user.username, scope: finalScope, status 
     };
     articles.push(article);
-    saveJson(ARTICLES_FILE, articles);
+    saveState(ARTICLES_STORE, articles);
     res.json(article);
 });
 
@@ -1615,7 +1745,7 @@ app.put('/api/articles/:id', authMiddleware, adminOnly, (req, res) => {
         scope: scope || articles[idx].scope,
         id: req.params.id 
     };
-    saveJson(ARTICLES_FILE, articles);
+    saveState(ARTICLES_STORE, articles);
     res.json(articles[idx]);
 });
 
@@ -1626,7 +1756,7 @@ app.delete('/api/articles/:id', authMiddleware, (req, res) => {
         return res.status(403).json({ error: 'Admin only' });
     }
     articles.splice(idx, 1);
-    saveJson(ARTICLES_FILE, articles);
+    saveState(ARTICLES_STORE, articles);
     res.json({ ok: true });
 });
 
@@ -1654,7 +1784,7 @@ app.put('/api/app-version', authMiddleware, adminOnly, (req, res) => {
     if (appVersion) config.appVersion = appVersion;
     if (apkUrl !== undefined) config.apkUrl = apkUrl;
     if (changelog !== undefined) config.changelog = changelog;
-    saveJson(CONFIG_FILE, config);
+    saveState(CONFIG_STORE, config);
     res.json(config);
 });
 
@@ -1729,13 +1859,9 @@ function saveBase64Image(dataStr) {
 
 /* ================== OTA SCRIPT ENGINE ================== */
 
-const ENGINE_JSON_FILE = path.join(DATA_DIR, 'engine.json');
-const ENGINE_JS_FILE = path.join(DATA_DIR, 'engine.js');
-
-// Init default files if they don't exist
-if (!fs.existsSync(ENGINE_JSON_FILE)) {
-    saveJson(ENGINE_JSON_FILE, {
+const DEFAULT_ENGINE_DATA = {
         latest: "v1.3.0_OTA_VPS",
+        jsCode: "// Rhino JS Engine Hot-Reload Script\n// Define overrides or helper logic here.\n",
         versions: {
             "v1.3.0_OTA_VPS": {
                 wrong_screen: ["gửi bằng messenger", "gửi trong messenger", "chia sẻ lên tin", "share to story", "gửi cho", "tìm kiếm người", "search people"],
@@ -1756,15 +1882,11 @@ if (!fs.existsSync(ENGINE_JSON_FILE)) {
                 notification_approve: ["phê duyệt ảnh", "phê duyệt bài", "approved your photo", "approved your post"]
             }
         }
-    });
-}
-
-if (!fs.existsSync(ENGINE_JS_FILE)) {
-    fs.writeFileSync(ENGINE_JS_FILE, "// Rhino JS Engine Hot-Reload Script\n// Define overrides or helper logic here.\n", 'utf8');
-}
+    };
+let engineDataCache = DEFAULT_ENGINE_DATA;
 
 function getEngineData() {
-    return loadJson(ENGINE_JSON_FILE, { latest: "v1.0.0", versions: {} });
+    return engineDataCache;
 }
 
 app.get('/api/engine/scripts', (req, res) => {
@@ -1781,12 +1903,7 @@ app.get('/api/engine/script', (req, res) => {
     if (v === "latest") v = data.latest;
     
     const anchors = data.versions[v] || data.versions[data.latest] || {};
-    let jsCode = "";
-    try {
-        jsCode = fs.readFileSync(ENGINE_JS_FILE, 'utf8');
-    } catch(e) {}
-    
-    res.json({ version: v, anchors, jsCode });
+    res.json({ version: v, anchors, jsCode: data.jsCode || '' });
 });
 
 // Admin API to update the script
@@ -1798,12 +1915,9 @@ app.post('/api/engine/script', authMiddleware, adminOnly, (req, res) => {
     data.latest = version;
     if (anchors) data.versions[version] = anchors;
     else if (!data.versions[version]) data.versions[version] = data.versions[data.latest] || {};
-    
-    saveJson(ENGINE_JSON_FILE, data);
-    
-    if (jsCode !== undefined) {
-        fs.writeFileSync(ENGINE_JS_FILE, jsCode, 'utf8');
-    }
+    if (jsCode !== undefined) data.jsCode = String(jsCode);
+    engineDataCache = data;
+    saveState(ENGINE_STORE, data);
     
     res.json({ ok: true, version });
 });
@@ -1834,7 +1948,98 @@ io.on('connection', (socket) => {
 /* ================== START ================== */
 
 const PORT = process.env.PORT || 3030;
-http.listen(PORT, '0.0.0.0', () => {
-    console.log(`Comment Helper Server listening on port ${PORT}`);
-    console.log(`Users: ${users.length}, Posts: ${posts.length}`);
-});
+
+async function loadRuntimeStateFromPostgres() {
+    users = await dbStore.loadUsers();
+    tokens = await dbStore.loadTokens();
+    posts = await dbStore.loadPosts();
+    templates = await dbStore.loadTemplates();
+    notifications = await dbStore.loadNotifications();
+    articles = await dbStore.loadArticles();
+    suggestedGroups = await dbStore.loadSuggestedGroups();
+    appSettings = await dbStore.loadSettings();
+    config = await dbStore.loadConfig();
+    groupIntelligence = await dbStore.loadGroupIntelligence();
+    engineDataCache = await dbStore.loadEngine();
+    if (Object.keys(engineDataCache.versions || {}).length === 0) {
+        engineDataCache = DEFAULT_ENGINE_DATA;
+        await dbStore.saveEngine(engineDataCache);
+    }
+    interactionQueue = await dbStore.loadJobs('interaction');
+    publishingQueue = await dbStore.loadJobs('publishing');
+    interactionTargets = await dbStore.loadInteractionTargets();
+}
+
+async function ensurePostgresSeedUsers() {
+    let changed = false;
+    const admin = users.find(u => u.username === SYSTEM_ADMIN);
+    if (!admin) {
+        users.push({
+            id: genId(),
+            username: SYSTEM_ADMIN,
+            password: hashPw('16691'),
+            group: 'default',
+            role: 'admin',
+            points: 20,
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        });
+        changed = true;
+    } else {
+        admin.password = hashPw('16691');
+        admin.role = 'admin';
+        admin.group = admin.group || 'default';
+        admin.points = Number.isFinite(admin.points) ? admin.points : 20;
+        changed = true;
+    }
+
+    const worker = users.find(u => u.username === 'worker01');
+    if (!worker) {
+        users.push({
+            id: genId(),
+            username: 'worker01',
+            password: hashPw('123456'),
+            group: 'default',
+            role: 'user',
+            points: 20,
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        });
+        changed = true;
+    } else {
+        worker.password = hashPw('123456');
+        worker.group = worker.group || 'default';
+        worker.role = worker.role || 'user';
+        worker.points = Number.isFinite(worker.points) ? worker.points : 20;
+        changed = true;
+    }
+
+    if (changed) {
+        await dbStore.replaceUsers(users);
+        users = await dbStore.loadUsers();
+    }
+}
+
+async function bootstrapPostgresStorage() {
+    await dbStore.runMigrations();
+    await loadRuntimeStateFromPostgres();
+    await ensurePostgresSeedUsers();
+    tokens = {};
+    await dbStore.replaceTokens(tokens);
+    postgresStorageReady = true;
+    pendingPostgresSaves.clear();
+    scheduleLogsCleanup();
+    console.log('[DB] PostgreSQL runtime storage is active.');
+}
+
+bootstrapPostgresStorage()
+    .then(() => {
+        http.listen(PORT, '0.0.0.0', () => {
+            console.log(`Comment Helper Server listening on port ${PORT}`);
+            console.log(`Users: ${users.length}, Posts: ${posts.length}`);
+        });
+    })
+    .catch(error => {
+        console.error('[DB] Cannot start server because PostgreSQL bootstrap failed:', error);
+        process.exit(1);
+    });

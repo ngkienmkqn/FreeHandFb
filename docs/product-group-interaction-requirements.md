@@ -56,30 +56,44 @@ Mỗi bài viết target nên có trạng thái và mục tiêu riêng.
 
 Ví dụ:
 
-```json
-{
-  "targetPostId": "post_001",
-  "postUrl": "https://facebook.com/...",
-  "groupId": "group_001",
-  "status": "RUNNING",
-  "requirements": {
-    "like": {
-      "enabled": true,
-      "quantity": 20
-    },
-    "comment": {
-      "enabled": true,
-      "quantity": 8
-    }
-  },
-  "commentPool": [
-    "Quan tâm ạ",
-    "Mình xin thông tin nhé",
-    "Inbox mình với",
-    "Bài viết hữu ích quá"
-  ]
-}
+```text
+target_posts
+- id: post_001
+- post_url: https://facebook.com/...
+- group_id: group_001
+- status: RUNNING
+- like_enabled: true
+- like_quantity: 20
+- comment_enabled: true
+- comment_quantity: 8
+
+comment_pool_items
+- target_post_id: post_001
+- content: Quan tâm ạ
+- content: Mình xin thông tin nhé
+- content: Inbox mình với
+- content: Bài viết hữu ích quá
 ```
+
+## 3.1. Quyết định storage
+
+Sản phẩm sẽ dùng PostgreSQL làm nguồn dữ liệu chính.
+
+Không dùng JSON file làm runtime storage cho các dữ liệu nghiệp vụ:
+
+- users;
+- devices/workers;
+- groups;
+- accounts;
+- target posts;
+- campaigns;
+- interaction queue;
+- publishing queue;
+- comment pools;
+- settings nghiệp vụ;
+- job history.
+
+JSON cũ, nếu còn tồn tại trong source hiện tại, chỉ được xem là dữ liệu/dev legacy để bỏ hoặc import một lần. Khi triển khai hướng mới, server phải đọc/ghi từ PostgreSQL, không ghi tiếp vào JSON file.
 
 ## 4. Số lượng tương tác cần có
 
@@ -161,20 +175,17 @@ Job 3: account03/device03 chỉ like
 
 Payload xuống app phải là payload cuối cùng, không để app tự quyết định:
 
-```json
-{
-  "type": "interaction",
-  "targetPostId": "post_001",
-  "groupId": "group_001",
-  "postUrl": "https://facebook.com/...",
-  "actions": {
-    "like": true,
-    "comment": true
-  },
-  "comment": "Mình xin giá nhé",
-  "assignedAccountId": "acc_02",
-  "assignedDeviceId": "device_02"
-}
+```text
+executor job payload
+- type: interaction
+- target_post_id: post_001
+- group_id: group_001
+- post_url: https://facebook.com/...
+- action_like: true
+- action_comment: true
+- comment: Mình xin giá nhé
+- assigned_account_id: acc_02
+- assigned_device_id: device_02
 ```
 
 ## 7. Mapping theo group
@@ -242,14 +253,13 @@ Job đang chạy sẽ dừng tại checkpoint an toàn hoặc hoàn tất nếu 
 
 Thông tin lưu lại:
 
-```json
-{
-  "targetPostId": "post_001",
-  "status": "CLOSED",
-  "closedAt": 1780000000000,
-  "closedBy": "admin_001",
-  "closeReason": "Đã đủ tương tác"
-}
+```text
+target_posts
+- id: post_001
+- status: CLOSED
+- closed_at: thời điểm đóng
+- closed_by: admin_001
+- close_reason: Đã đủ tương tác
 ```
 
 Lý do đóng đề xuất:
@@ -401,11 +411,10 @@ Server sẽ chuyển tốc độ này thành kế hoạch phân bổ job:
 
 Ví dụ dữ liệu:
 
-```json
-{
-  "speed": "NORMAL",
-  "estimatedDurationMinutes": 240
-}
+```text
+target_posts
+- speed: NORMAL
+- estimated_duration_minutes: 240
 ```
 
 ## 15. Ưu tiên bài viết
@@ -429,10 +438,9 @@ Rule đề xuất:
 
 Ví dụ:
 
-```json
-{
-  "priority": "HIGH"
-}
+```text
+target_posts
+- priority: HIGH
 ```
 
 ## 16. Ngưỡng tự đóng bài viết
@@ -465,15 +473,12 @@ NEEDS_REVIEW:
 
 Ví dụ dữ liệu:
 
-```json
-{
-  "autoClose": {
-    "enabled": true,
-    "whenRequirementsMet": true,
-    "maxRuntimeHours": 24,
-    "maxFailedJobs": 5
-  }
-}
+```text
+target_posts
+- auto_close_enabled: true
+- auto_close_when_requirements_met: true
+- max_runtime_hours: 24
+- max_failed_jobs: 5
 ```
 
 ## 17. Chế độ chỉ dùng thiết bị online hiện tại
@@ -557,13 +562,12 @@ Khi ở trạng thái `NEEDS_REVIEW`:
 
 Ví dụ:
 
-```json
-{
-  "status": "NEEDS_REVIEW",
-  "reviewReason": "TARGET_POST_NOT_FOUND",
-  "failedCount": 6,
-  "lastError": "Không tìm thấy bài mục tiêu sau 15 lần cuộn"
-}
+```text
+target_posts
+- status: NEEDS_REVIEW
+- review_reason: TARGET_POST_NOT_FOUND
+- failed_count: 6
+- last_error: Không tìm thấy bài mục tiêu sau 15 lần cuộn
 ```
 
 ## 20. Tiêu chí đạt
@@ -591,5 +595,7 @@ Ví dụ:
 - Server lập kế hoạch và chia job.
 - Android chỉ thực thi.
 - Không đưa logic chọn comment, chọn quota, chọn group xuống app.
+- PostgreSQL là storage chính cho dữ liệu nghiệp vụ.
+- Không dùng JSON file làm runtime storage cho queue, task, group, campaign hoặc user.
 - Không xóa dữ liệu lịch sử khi đóng bài.
 - Không để bài đã đóng tự phát sinh job mới.

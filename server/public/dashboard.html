@@ -225,6 +225,7 @@
                     <input id="publishingGroupUrl" placeholder="Link group Facebook" />
                     <textarea id="publishingContent" rows="4" style="margin-top:10px" placeholder="Nội dung cuối cùng app sẽ đăng"></textarea>
                     <textarea id="publishingImages" rows="3" style="margin-top:10px" placeholder="Link ảnh, mỗi dòng một link (không bắt buộc)"></textarea>
+                    <input id="publishingScheduledAt" type="datetime-local" style="margin-top:10px" title="Để trống nếu muốn đăng ngay" />
                     <button class="btn-success" style="width:100%; margin-top:12px" onclick="createPublishingJob()">
                         <i class="ph-bold ph-paper-plane-right"></i> Đưa vào queue đăng bài
                     </button>
@@ -561,16 +562,26 @@ async function createPublishingJob() {
     const groupUrl = document.getElementById('publishingGroupUrl').value.trim();
     const content = document.getElementById('publishingContent').value.trim();
     const images = document.getElementById('publishingImages').value.split('\n').map(v => v.trim()).filter(Boolean);
+    const scheduledValue = document.getElementById('publishingScheduledAt').value;
+    const scheduledAt = scheduledValue ? new Date(scheduledValue).getTime() : 0;
     if (!groupUrl || !content) return alert('Nhập đủ link group và nội dung cuối cùng.');
+    if (scheduledValue && !Number.isFinite(scheduledAt)) return alert('Thời gian hẹn đăng không hợp lệ.');
     const res = await apiCall('/api/executor/publishing', {
-        method: 'POST', body: JSON.stringify({ groupUrl, content, images })
+        method: 'POST', body: JSON.stringify({ groupUrl, content, images, scheduledAt })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return alert(data.error || 'Không tạo được yêu cầu đăng bài.');
     document.getElementById('publishingGroupUrl').value = '';
     document.getElementById('publishingContent').value = '';
     document.getElementById('publishingImages').value = '';
+    document.getElementById('publishingScheduledAt').value = '';
     await fetchExecutorQueues();
+}
+
+function formatScheduleTime(ts) {
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleString(); }
+    catch (_) { return ''; }
 }
 
 async function fetchExecutorQueues() {
@@ -588,6 +599,7 @@ async function fetchExecutorQueues() {
                 <div class="list-title">${escapeHtml(job.id)} · ${job.type === 'interaction' ? 'Tương tác' : 'Đăng bài'}</div>
                 <div style="font-size:.8rem;color:var(--text-muted);word-break:break-all">${escapeHtml(job.payload?.url || job.payload?.groupUrl || '')}</div>
                 <div class="list-meta"><span>${escapeHtml(job.createdBy)}</span><span class="badge ${job.status === 'SUCCEEDED' ? 'done' : 'pending'}">${labels[job.status] || job.status}</span></div>
+                ${job.scheduledAt ? `<div style="font-size:.78rem;color:var(--warn);margin-top:6px">Hẹn đăng: ${escapeHtml(formatScheduleTime(job.scheduledAt))}</div>` : ''}
                 ${job.lastError ? `<div style="font-size:.78rem;color:var(--error);margin-top:6px">${escapeHtml(job.lastError)}</div>` : ''}
             </div>`).join('') || '<div style="text-align:center;color:var(--text-muted);padding:20px">Queue đang trống</div>';
     } catch (e) {}

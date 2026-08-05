@@ -70,6 +70,7 @@ class FbAutoService : AccessibilityService() {
         var onPostDead: ((String) -> Unit)? = null
         /** Executor callback immediately before the irreversible Send/Post click. */
         var onIrreversibleAction: ((String) -> Boolean)? = null
+        var onActionProgress: ((String, String, String) -> Boolean)? = null
 
         fun isServiceEnabled(context: Context): Boolean {
             val enabledServices = android.provider.Settings.Secure.getString(
@@ -567,7 +568,7 @@ class FbAutoService : AccessibilityService() {
                 val prefs = getSharedPreferences("comment_helper_prefs", Context.MODE_PRIVATE)
                 val token = prefs.getString("auth_token", "") ?: ""
                 
-                val urlScripts = "http://192.168.0.104:3030/api/engine/scripts"
+                val urlScripts = "$SERVER_URL/api/engine/scripts"
                 val conn = java.net.URL(urlScripts).openConnection() as java.net.HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.setRequestProperty("Authorization", "Bearer $token")
@@ -577,7 +578,7 @@ class FbAutoService : AccessibilityService() {
                     val latestVer = org.json.JSONObject(resp).optString("latest", "")
                     if (latestVer.isNotBlank() && latestVer != Engine.lastVersion) {
                         Log.d(TAG, "OTA: New version detected ($latestVer). Downloading...")
-                        val urlScript = "http://192.168.0.104:3030/api/engine/script?version=$latestVer"
+                        val urlScript = "$SERVER_URL/api/engine/script?version=$latestVer"
                         val conn2 = java.net.URL(urlScript).openConnection() as java.net.HttpURLConnection
                         conn2.requestMethod = "GET"
                         conn2.setRequestProperty("Authorization", "Bearer $token")
@@ -706,7 +707,7 @@ class FbAutoService : AccessibilityService() {
                 if (!currentPostId.isNullOrEmpty()) {
                     onPostDead?.invoke(currentPostId)
                 }
-                markCurrentDone(success = false)
+                markCurrentDone(false, "OPEN_FACEBOOK_FAILED", "Không thể mở liên kết bằng Facebook Katana/Lite.")
             }
         }
     }
@@ -786,7 +787,7 @@ class FbAutoService : AccessibilityService() {
                         return
                     }
                     isRetryCheckerRunning = false
-                    markCurrentDone(success = false)
+                    markCurrentDone(false, "STEP_TIMEOUT", "Quá thời gian xử lý ở bước ${currentStep.name}.")
                     return
                 }
                 // Actively try to find elements
@@ -978,7 +979,7 @@ class FbAutoService : AccessibilityService() {
                 okBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: okBtn.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
             
-            markCurrentDone(success = false)
+            markCurrentDone(false, "FACEBOOK_ACTION_BLOCK", "Facebook chặn thao tác; tài khoản cần cooldown.")
             stopProcessing()
             return true
         }
@@ -1063,7 +1064,7 @@ class FbAutoService : AccessibilityService() {
             if (hasJoinButton) {
                 debugLog("⚠️ Nội dung không hiển thị vì chưa tham gia nhóm. Bài vẫn sống, bỏ qua (KHÔNG xóa).")
                 dumpScreenToLog("DEAD_LINK_BUT_NOT_JOINED")
-                markCurrentDone(success = false)
+                markCurrentDone(false, "GROUP_MEMBERSHIP_REQUIRED", "Tài khoản chưa tham gia group nên không xem được bài.")
                 return true
             }
 
@@ -1075,7 +1076,7 @@ class FbAutoService : AccessibilityService() {
                 onPostDead?.invoke(currentPostId)
             }
             // Mark as done locally to clear from queue
-            markCurrentDone(success = false)
+            markCurrentDone(false, "TARGET_POST_UNAVAILABLE", "Bài đã bị xóa, group bị khóa hoặc nội dung không còn khả dụng.", retryable = false)
             return true
         }
         return false
@@ -1372,6 +1373,7 @@ class FbAutoService : AccessibilityService() {
             // Check if already liked
             if (isAlreadyLiked(likeNode)) {
                 debugLog("ℹ️ Bài đã Like rồi, bỏ qua.")
+                task.executorJobId?.let { onActionProgress?.invoke(it, "like", "ALREADY_DONE") }
                 likeNode.recycle()
             } else {
                 debugLog("✅ Tìm thấy nút Like! Đang bấm...")
@@ -1380,6 +1382,7 @@ class FbAutoService : AccessibilityService() {
                 if (!likeNode.isClickable) {
                     likeNode.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 }
+                task.executorJobId?.let { onActionProgress?.invoke(it, "like", "CONFIRMED") }
                 likeNode.recycle()
             }
             if (!task.actionComment) {
@@ -1526,6 +1529,7 @@ class FbAutoService : AccessibilityService() {
 
         if (!task.isPublishingGroup && isExpectedCommentSubmitted(root, task.comment)) {
             debugLog("✅ Nội dung bình luận đã xuất hiện ngoài ô nhập; xác nhận Facebook đã gửi thành công.")
+            task.executorJobId?.let { onActionProgress?.invoke(it, "comment", "CONFIRMED") }
             root.recycle()
             markCurrentDone(success = true)
             return
@@ -1540,7 +1544,7 @@ class FbAutoService : AccessibilityService() {
                 debugLog("❌ Không xác nhận được checkpoint với server; không bấm Gửi/Đăng.")
                 sendButton.recycle()
                 root.recycle()
-                markCurrentDone(success = false)
+                markCurrentDone(false, "CHECKPOINT_REJECTED", "Server không xác nhận checkpoint nên app không bấm Gửi/Đăng.")
                 return
             }
             val clicked = performClick(sendButton) || dispatchTap(sendButton)
@@ -1562,6 +1566,7 @@ class FbAutoService : AccessibilityService() {
             } else {
                 setNextStepDelay(3000)
                 handler.postDelayed({
+                    task.executorJobId?.let { onActionProgress?.invoke(it, "comment", "CONFIRMED") }
                     markCurrentDone(success = true)
                 }, 3000)
             }
@@ -1749,7 +1754,7 @@ class FbAutoService : AccessibilityService() {
                 try {
                     val prefs = getSharedPreferences("comment_helper_prefs", android.content.Context.MODE_PRIVATE)
                     val user = prefs.getString("username", "unknown") ?: "unknown"
-                    val conn = java.net.URL("http://192.168.0.104:3030/api/logs/apk").openConnection() as java.net.HttpURLConnection
+                    val conn = java.net.URL("$SERVER_URL/api/logs/apk").openConnection() as java.net.HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.doOutput = true
@@ -2319,7 +2324,7 @@ class FbAutoService : AccessibilityService() {
                         if (!token.isNullOrBlank()) {
                             Thread {
                                 try {
-                                    val urlObj = java.net.URL("http://192.168.0.104:3030/api/posts/bulk")
+                                    val urlObj = java.net.URL("$SERVER_URL/api/posts/bulk")
                                     val conn = urlObj.openConnection() as java.net.HttpURLConnection
                                     conn.requestMethod = "POST"
                                     conn.setRequestProperty("Authorization", "Bearer $token")
@@ -2332,7 +2337,7 @@ class FbAutoService : AccessibilityService() {
                                     Log.d(TAG, "Bulk submit seeded back: $rc")
                                     if ((rc == 200 || rc == 201) && !task.postId.isNullOrBlank() && task.postId != "APPROVED_POST") {
                                         try {
-                                            val delUrl = java.net.URL("http://192.168.0.104:3030/api/posts/${task.postId}")
+                                            val delUrl = java.net.URL("$SERVER_URL/api/posts/${task.postId}")
                                             val delConn = delUrl.openConnection() as java.net.HttpURLConnection
                                             delConn.requestMethod = "DELETE"
                                             delConn.setRequestProperty("Authorization", "Bearer $token")
@@ -2922,7 +2927,12 @@ class FbAutoService : AccessibilityService() {
 
     private var isMarkingDone = false
 
-    private fun markCurrentDone(success: Boolean) {
+    private fun markCurrentDone(
+        success: Boolean,
+        reasonCode: String = "",
+        error: String = "",
+        retryable: Boolean = true
+    ) {
         if (isMarkingDone) {
             debugLog("⚠️ Bỏ qua markCurrentDone vì đang trong quá trình chuyển bài.")
             return
@@ -2981,7 +2991,7 @@ class FbAutoService : AccessibilityService() {
                 if (!token.isNullOrBlank()) {
                     Thread {
                         try {
-                            val conn = java.net.URL("http://192.168.0.104:3030/api/posts/${task.postId}/done").openConnection() as java.net.HttpURLConnection
+                            val conn = java.net.URL("$SERVER_URL/api/posts/${task.postId}/done").openConnection() as java.net.HttpURLConnection
                             conn.requestMethod = "POST"
                             conn.setRequestProperty("Authorization", "Bearer $token")
                             conn.setRequestProperty("Content-Type", "application/json")
@@ -3002,6 +3012,24 @@ class FbAutoService : AccessibilityService() {
         val intent = Intent("com.example.commenthelper.POST_DONE").apply {
             putExtra("postId", task.postId)
             putExtra("success", success)
+            if (!success) {
+                val inferredCode = reasonCode.ifBlank {
+                    when (currentStep) {
+                        Step.SEEKING_TARGET_POST -> "TARGET_POST_NOT_FOUND"
+                        Step.LOOKING_FOR_LIKE -> "LIKE_BUTTON_NOT_FOUND"
+                        Step.LOOKING_FOR_COMMENT_FIELD -> "COMMENT_FIELD_NOT_FOUND"
+                        Step.WAITING_FOR_COMMENT_SENT -> "COMMENT_NOT_CONFIRMED"
+                        Step.LOOKING_FOR_COMPOSER, Step.WAITING_FOR_COMPOSER_INPUT -> "COMPOSER_NOT_FOUND"
+                        Step.SELECTING_PHOTOS, Step.LOOKING_FOR_PHOTO_BUTTON -> "PHOTO_SELECTION_FAILED"
+                        Step.WAITING_FOR_POST_TO_UPLOAD -> "POST_UPLOAD_NOT_CONFIRMED"
+                        else -> "ACCESSIBILITY_FAILED"
+                    }
+                }
+                putExtra("reasonCode", inferredCode)
+                putExtra("error", error.ifBlank { "Không hoàn thành được thao tác ở bước ${currentStep.name}." })
+                putExtra("step", currentStep.name)
+                putExtra("retryable", retryable)
+            }
             setPackage(packageName)
         }
         sendBroadcast(intent)

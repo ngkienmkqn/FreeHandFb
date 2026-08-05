@@ -22,7 +22,7 @@
 │  │  ├── REST: /api/login, /api/me, /api/posts, /api/articles│  │
 │  │  ├── OTA:  GET /api/engine/script?version=xxx            │  │
 │  │  │         POST /api/engine/script (Admin push)          │  │
-│  │  ├── Data: server/data/*.json (users, posts, engine.js)  │  │
+│  │  ├── Data: PostgreSQL (users, posts, jobs, engine)       │  │
 │  │  └── Web:  server/public/admin.html (Admin Dashboard)    │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │         ▲ HTTP REST (Bearer Token Auth)    ▲                    │
@@ -45,10 +45,10 @@
   - **Over-The-Air (OTA) Multi-Version Scripting (Tier 4)**: 
     - Khác với cơ chế tĩnh cũ, OTA Server cung cấp cả JSON Anchors lẫn **Mã nguồn Javascript**.
     - `GET /api/engine/scripts` → Trả về version mới nhất hiện tại trên server.
-    - `GET /api/engine/script?version=xxx` → Trả nội dung JSON (chứa `anchors` và `jsCode` nguyên bản) đọc từ `server/data/engine.js`.
+    - `GET /api/engine/script?version=xxx` → Trả `anchors` và `jsCode` được đọc từ PostgreSQL.
     - `POST /api/engine/script` (Admin API) → Push code JS và cấu hình mới thẳng lên bộ nhớ máy chủ và ghi đè file `data/engine.js`.
     - **Khi Facebook đổi giao diện**: Chỉ cần gọi `POST` API (hoặc sửa thẳng file `data/engine.js`) để viết lại hàm xử lý (VD: `interceptWrongScreen`). Toàn bộ máy Android sẽ tự nhận version mới và chạy code JS mới trong phiên cày tiếp theo. KHÔNG cần `pm2 restart` server.
-  - **Data Persistence**: Lưu trữ dữ liệu bằng file JSON phẳng (`users.json`, `posts.json`, `articles.json`) tại thư mục `server/data/`. Không dùng database.
+  - **Data Persistence**: Toàn bộ dữ liệu runtime được lưu trong PostgreSQL; `server/data/` chỉ dành cho log và file asset.
   - **Universal Cloud Synchronization**: Cấu hình của app điện thoại (`SharedPreferences` như SĐT, Zalo, Lịch hẹn giờ, Bài viết Spintax đã chọn) được đồng bộ hóa toàn diện vào `user.settings` trên VPS qua `PUT /api/me`. Khi cài lại thiết bị, chế độ **Zero-Touch Recovery** tự động pull `GET /api/me` lấy lại cấu hình.
   - **User-Isolated Logging System**: API `/api/logs/apk` tự động ghi log được phân mảnh theo tên người dùng (`data/logs/<username>_logs.txt`). Admin có thể truy vấn trực tiếp 500 dòng log gần nhất của một user bất kỳ qua `/api/logs/user-<username>`.
   - **Weekly Logs GC (Dọn rác tự động)**: Hệ thống `runLogsCleanup` chạy hằng ngày (an toàn qua restarts nhờ lưu trạng thái `lastLogsCleanup` trong `settings.json`) sẽ tự động xóa các log của người dùng cũ hơn 7 ngày và dọn trống file monolithic `apk_logs.txt`.
@@ -84,7 +84,7 @@
 
 ## 3. OTA Engine — Tham Số Cấu Hình & Hot-Patching (Tier 4)
 
-Từ Tier 4, cấu trúc OTA đã được nâng cấp lên Server-Driven Logic, được lưu thành file `server/data/engine.json` và `server/data/engine.js`. **Sửa trên server → App tự động nhận cấu hình mới trước khi cày bài post tiếp theo, KHÔNG cần build APK.**
+Từ Tier 4, cấu trúc OTA đã được nâng cấp lên Server-Driven Logic và lưu trong PostgreSQL. **Sửa trên server → App tự động nhận cấu hình mới trước khi cày bài post tiếp theo, KHÔNG cần build APK.**
 
 ### Anchors (Text Detection)
 
@@ -143,7 +143,7 @@ FreeHandFb/
 ├── server/                                 # VPS Backend (Node.js)
 │   ├── index.js                            # ★ Monolith API (Express + OTA Engine)
 │   ├── package.json                        # Node dependencies
-│   ├── data/                               # Persistent JSON storage (auto-created)
+│   ├── data/                               # Log và file asset runtime
 │   │   ├── engine.json                     # OTA Script Metadata (Version, Anchors)
 │   │   ├── engine.js                       # OTA Script Raw Javascript logic
 │   │   ├── users.json
@@ -242,7 +242,7 @@ MaE6rmXCba/blqUgI+c5AAAADHZwcy1jMi1hZG1pbgE=
 ## 8. Sổ tay Quy trình (Developer Workflows)
 
 ### Workflow 1: Facebook đổi tên nút bấm hoặc thay luồng → OTA (KHÔNG BUILD APK)
-1. Có thể sử dụng API `POST /api/engine/script` hoặc cập nhật thẳng 2 file `server/data/engine.json` và `server/data/engine.js`.
+1. Sử dụng API `POST /api/engine/script`; version, anchors và JavaScript OTA được lưu trong PostgreSQL.
 2. Thay đổi giá trị Anchor hoặc viết lại hàm JS (VD: `interceptWrongScreen`).
 3. Tăng trường `version` lên (VD: `v2.0.0`). Server tự động hot-reload cấu hình.
 4. App Android sẽ lấy version mới ngay lập tức trước khi tương tác với post tiếp theo và tự động nạp đoạn JS vào RhinoContext. Không cần khởi động lại máy!
@@ -298,4 +298,3 @@ git push origin main
 - `AutoPublishWorker` hỗ trợ `FORCE_RUN` input data flag — khi `true`, bypass khung giờ hoạt động và block timeout.
 - Hệ thống **Self-Healing** phải có điều kiện fallback (`GLOBAL_ACTION_BACK`) ở nhánh màn hình `UNKNOWN` để đảm bảo luôn có thể xử lý các popup quảng cáo bất ngờ ngoài dự kiến.
 - Hệ thống đồng bộ thời gian thực hiện dùng **Socket.io**. Phải bảo toàn `socket.join("group:X")` và `io.to("group:X")` để đảm bảo scope tin nhắn Push chuẩn xác, tránh rò rỉ dữ liệu chéo nhóm.
-

@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-07-07T10:14:20.023385",
+  "status": "FAIL",
+  "issue_count": 1,
+  "issues": [
+    "Worker login thất bại: Thiết bị máy cày không hợp lệ. Vui lòng liên hệ Admin để đổi thiết bị đăng nhập."
+  ],
+  "fixes_applied": []
+}

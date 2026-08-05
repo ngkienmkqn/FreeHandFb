@@ -279,7 +279,7 @@ private fun StatusRow(label: String, value: String) {
 
 private suspend fun executorRequest(path: String, token: String): Pair<Int, String?> = withContext(Dispatchers.IO) {
     try {
-        val conn = URL("http://192.168.0.104:3030$path").openConnection() as HttpURLConnection
+        val conn = URL("$SERVER_URL$path").openConnection() as HttpURLConnection
         conn.requestMethod = "GET"
         conn.connectTimeout = 8_000
         conn.readTimeout = 10_000
