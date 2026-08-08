@@ -3,149 +3,314 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#09090b">
+    <meta name="theme-color" content="#141412">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>FreeHand App</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <style>
         :root {
-            --bg: #09090b;
-            --surface: rgba(24, 24, 27, 0.4);
-            --surface-hover: rgba(24, 24, 27, 0.8);
-            --border: rgba(255, 255, 255, 0.08);
-            --primary: #8b5cf6;
-            --primary-glow: rgba(139, 92, 246, 0.3);
-            --success: #10b981;
-            --error: #ef4444;
-            --warn: #f59e0b;
-            --text: #f8fafc;
-            --text-muted: #94a3b8;
+            --bg: #141412;
+            --bg-elevated: #1c1c19;
+            --surface: #22221e;
+            --surface-2: #2a2a25;
+            --border: #34342e;
+            --primary: #0f766e;
+            --primary-hover: #0d9488;
+            --primary-soft: rgba(15, 118, 110, 0.16);
+            --success: #059669;
+            --error: #dc2626;
+            --warn: #d97706;
+            --text: #f4f1ea;
+            --text-muted: #a39e93;
+            --radius: 10px;
+            --space: 8px;
+            --text-xs: 0.75rem;
+            --text-sm: 0.8125rem;
+            --text-md: 0.9375rem;
+            --text-lg: 1.0625rem;
+            --text-xl: 1.25rem;
+            --text-2xl: 1.5rem;
+            --line: 1.45;
         }
 
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        
+
         body {
             margin: 0; padding: 0;
-            font-family: 'Inter', sans-serif;
-            background: var(--bg);
-            background-image: 
-                radial-gradient(circle at 15% 0%, rgba(139, 92, 246, 0.15) 0%, transparent 40%),
-                radial-gradient(circle at 85% 100%, rgba(16, 185, 129, 0.1) 0%, transparent 40%);
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: var(--text-md);
+            line-height: var(--line);
+            background:
+                linear-gradient(180deg, rgba(15, 118, 110, 0.07) 0%, transparent 28%),
+                var(--bg);
             color: var(--text);
             height: 100vh; height: 100dvh;
             display: flex; flex-direction: column;
             overflow: hidden;
+            -webkit-font-smoothing: antialiased;
         }
 
-        /* Utilities */
         .glass {
             background: var(--surface);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border);
-            border-radius: 16px;
+            border-radius: var(--radius);
         }
-        
-        button { cursor: pointer; border: none; font-family: inherit; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-        button:active { transform: scale(0.97); }
-        
+
+        button { cursor: pointer; border: none; font-family: inherit; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        button:active { transform: scale(0.98); }
+
         input, textarea, select {
-            width: 100%; padding: 14px 16px;
-            background: rgba(0, 0, 0, 0.3);
+            width: 100%; padding: 12px 14px;
+            background: var(--bg-elevated);
             border: 1px solid var(--border);
-            border-radius: 12px; color: var(--text);
-            font-family: inherit; font-size: 1rem;
-            transition: all 0.2s;
+            border-radius: var(--radius);
+            color: var(--text);
+            font-family: inherit;
+            font-size: var(--text-md);
         }
         input:focus, textarea:focus, select:focus {
-            outline: none; border-color: var(--primary);
-            box-shadow: 0 0 0 3px var(--primary-glow);
+            outline: none;
+            border-color: var(--primary-hover);
+            box-shadow: 0 0 0 3px var(--primary-soft);
         }
-        input::placeholder, textarea::placeholder { color: #475569; }
+        input::placeholder, textarea::placeholder { color: #6f6a60; }
 
-        .btn-primary { background: linear-gradient(135deg, var(--primary), #6d28d9); color: white; padding: 14px; border-radius: 12px; font-weight: 600; font-size: 1rem; box-shadow: 0 4px 14px var(--primary-glow); }
-        .btn-success { background: var(--success); color: white; border-radius: 10px; padding: 10px 16px; font-weight: 600; }
-        .btn-danger { background: rgba(239, 68, 68, 0.15); color: var(--error); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 8px 14px; font-weight: 500; }
-        .btn-secondary { background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border); padding: 8px 14px; border-radius: 10px; }
+        .btn-primary {
+            background: var(--primary); color: #fff;
+            padding: 13px 16px; border-radius: var(--radius);
+            font-weight: 600; font-size: var(--text-md);
+        }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-success { background: var(--success); color: #fff; border-radius: var(--radius); padding: 10px 14px; font-weight: 600; font-size: var(--text-sm); }
+        .btn-danger { background: rgba(220, 38, 38, 0.12); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.35); border-radius: var(--radius); padding: 8px 12px; font-weight: 500; font-size: var(--text-sm); }
+        .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); padding: 8px 12px; border-radius: var(--radius); font-size: var(--text-sm); }
 
-        /* App Layout */
         #app-container { display: none; flex-direction: column; height: 100%; }
         #app-container.visible { display: flex; }
-        
-        header { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); background: rgba(9, 9, 11, 0.8); backdrop-filter: blur(12px); z-index: 10; }
-        .brand { font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-        .brand i { color: var(--primary); font-size: 1.4rem; }
-        .header-points { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--success); padding: 4px 10px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 4px;}
 
-        main { flex: 1; overflow-y: auto; padding: 20px; padding-bottom: 90px; }
-        
-        .tab-content { display: none; animation: fadeIn 0.3s ease; }
+        header {
+            padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border); background: var(--bg-elevated); z-index: 10;
+        }
+        .brand { font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; }
+        .brand i { color: var(--primary-hover); font-size: 1.35rem; }
+        .header-points {
+            background: rgba(5, 150, 105, 0.14); border: 1px solid rgba(5, 150, 105, 0.35);
+            color: #34d399; padding: 5px 10px; border-radius: 8px;
+            font-size: var(--text-sm); font-weight: 600; display: flex; align-items: center; gap: 4px;
+        }
+
+        main { flex: 1; overflow-y: auto; padding: 16px; padding-bottom: 96px; }
+
+        .tab-content { display: none; }
         .tab-content.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Bottom Nav */
         nav {
             position: fixed; bottom: 0; left: 0; right: 0;
-            background: rgba(24, 24, 27, 0.8);
-            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            background: var(--bg-elevated);
             border-top: 1px solid var(--border);
             display: flex; justify-content: space-around;
-            padding: 12px 10px calc(12px + env(safe-area-inset-bottom));
+            padding: 10px 8px calc(10px + env(safe-area-inset-bottom));
             z-index: 50;
         }
         .nav-item {
-            display: flex; flex-direction: column; align-items: center; gap: 4px;
-            color: var(--text-muted); font-size: 0.7rem; font-weight: 500;
+            display: flex; flex-direction: column; align-items: center; gap: 3px;
+            color: var(--text-muted); font-size: var(--text-xs); font-weight: 500;
             background: transparent; flex: 1;
         }
-        .nav-item i { font-size: 1.5rem; transition: 0.2s; }
-        .nav-item.active { color: var(--primary); }
-        .nav-item.active i { transform: translateY(-2px); }
+        .nav-item i { font-size: 1.4rem; }
+        .nav-item.active { color: var(--primary-hover); }
 
-        /* Auth Screen */
-        #auth-screen { display: flex; flex-direction: column; justify-content: center; padding: 30px; height: 100%; max-width: 450px; margin: 0 auto; }
-        .auth-logo { text-align: center; margin-bottom: 40px; }
-        .auth-logo i { font-size: 4rem; color: var(--primary); filter: drop-shadow(0 0 20px var(--primary-glow)); }
-        .auth-logo h1 { font-size: 1.8rem; margin: 16px 0 0; font-weight: 700; letter-spacing: -0.5px; }
+        #auth-screen { display: flex; flex-direction: column; justify-content: center; padding: 28px; height: 100%; max-width: 420px; margin: 0 auto; }
+        .auth-logo { text-align: center; margin-bottom: 32px; }
+        .auth-logo i { font-size: 3.25rem; color: var(--primary-hover); }
+        .auth-logo h1 { font-size: var(--text-2xl); margin: 12px 0 0; font-weight: 700; letter-spacing: -0.03em; }
 
-        /* Cards & UI Elements */
-        .card { padding: 20px; margin-bottom: 16px; }
-        .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; font-size: 1.1rem; font-weight: 600; color: white; }
-        .card-header i { color: var(--primary); font-size: 1.3rem; }
-        
-        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-        .stat-box { background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 16px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; }
-        .stat-val { font-size: 2rem; font-weight: 700; margin-bottom: 4px; }
-        .stat-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .card { padding: 18px; margin-bottom: 12px; }
+        .card-header {
+            display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+            font-size: var(--text-lg); font-weight: 600; color: var(--text); letter-spacing: -0.01em;
+        }
+        .card-header i { color: var(--primary-hover); font-size: 1.2rem; }
 
-        .list-item { background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 14px; border-radius: 12px; margin-bottom: 12px; }
-        .list-title { font-weight: 500; font-size: 0.95rem; margin-bottom: 4px; word-break: break-word; color: #e2e8f0; }
-        .list-meta { font-size: 0.8rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-top: 8px;}
-        .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
-        .badge.pending { background: rgba(245, 158, 11, 0.15); color: var(--warn); }
-        .badge.done { background: rgba(16, 185, 129, 0.15); color: var(--success); }
-        .badge.closed { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        .stat-box { background: var(--bg-elevated); border: 1px solid var(--border); padding: 14px; border-radius: var(--radius); display: flex; flex-direction: column; align-items: center; }
+        .stat-val { font-size: var(--text-2xl); font-weight: 700; margin-bottom: 2px; letter-spacing: -0.02em; }
+        .stat-label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+        .list-item { background: var(--bg-elevated); border: 1px solid var(--border); padding: 12px; border-radius: var(--radius); margin-bottom: 10px; }
+        .list-title { font-weight: 600; font-size: var(--text-md); margin-bottom: 4px; word-break: break-word; color: var(--text); }
+        .list-meta { font-size: var(--text-sm); color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+        .badge { padding: 3px 8px; border-radius: 6px; font-size: var(--text-xs); font-weight: 600; }
+        .badge.pending { background: rgba(217, 119, 6, 0.16); color: #fbbf24; }
+        .badge.done { background: rgba(5, 150, 105, 0.16); color: #34d399; }
+        .badge.closed { background: rgba(163, 158, 147, 0.16); color: var(--text-muted); }
         .target-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-        .target-check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-muted); }
+        .target-check { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-muted); }
         .target-check input { width: auto; }
-        .progress-line { height: 7px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 6px; }
+        .progress-line { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
         .progress-line span { display: block; height: 100%; background: var(--success); }
         .target-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .ops-bar {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            flex-wrap: wrap; margin-bottom: 12px; font-size: var(--text-sm); color: var(--text-muted);
+        }
+        .ops-bar select {
+            max-width: 180px; padding: 6px 10px; font-size: var(--text-sm);
+            background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+        .ops-bar strong { color: var(--warn); }
 
-        .rank-item { display: flex; align-items: center; gap: 12px; padding: 12px; border-bottom: 1px solid var(--border); }
+        .rank-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
         .rank-item:last-child { border-bottom: none; }
-        .rank-num { font-size: 1.2rem; font-weight: 700; color: var(--text-muted); width: 24px; text-align: center; }
-        .rank-num.top-1 { color: #fbbf24; }
-        .rank-num.top-2 { color: #94a3b8; }
+        .rank-num { font-size: var(--text-lg); font-weight: 700; color: var(--text-muted); width: 24px; text-align: center; }
+        .rank-num.top-1 { color: #eab308; }
+        .rank-num.top-2 { color: #a39e93; }
         .rank-num.top-3 { color: #b45309; }
-        .rank-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), #4338ca); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.1rem; }
+        .rank-avatar {
+            width: 40px; height: 40px; border-radius: 10px;
+            background: var(--primary); color: #fff;
+            display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-lg);
+        }
         .rank-info { flex: 1; }
-        .rank-score { font-weight: 700; color: var(--success); font-size: 1.1rem; }
+        .rank-score { font-weight: 700; color: #34d399; font-size: var(--text-lg); }
 
-        .admin-form-group { margin-bottom: 12px; }
-        .admin-form-group label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px; }
+        .field-label { display: block; font-size: var(--text-sm); font-weight: 500; color: var(--text-muted); margin: 12px 0 6px; }
+        .field-label:first-child { margin-top: 0; }
+        .section-hint { font-size: var(--text-sm); color: var(--text-muted); margin: -4px 0 14px; line-height: 1.4; }
+        .queue-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        .queue-chip { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; text-align: center; }
+        .queue-chip .val { font-size: var(--text-xl); font-weight: 700; color: var(--warn); letter-spacing: -0.02em; }
+        .queue-chip .lbl { font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .adv-toggle {
+            width: 100%; margin-top: 12px; padding: 10px 12px; border-radius: var(--radius);
+            background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted);
+            display: flex; align-items: center; justify-content: space-between; font-size: var(--text-sm); font-weight: 500;
+        }
+        .adv-toggle i { transition: transform 0.2s; }
+        .adv-toggle.open i { transform: rotate(180deg); }
+        .adv-panel { display: none; margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--border); }
+        .adv-panel.open { display: block; }
+        .profile-meta { color: var(--text-muted); font-size: var(--text-sm); margin-top: 2px; }
+
+        .ai-assist {
+            display: none;
+            margin: 10px 0 0;
+            padding: 12px;
+            border-radius: var(--radius);
+            border: 1px solid rgba(13, 148, 136, 0.35);
+            background: linear-gradient(180deg, rgba(15, 118, 110, 0.14), rgba(15, 118, 110, 0.05));
+        }
+        .ai-assist.visible { display: block; }
+        .ai-assist-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;
+        }
+        .ai-assist-title {
+            display: flex; align-items: center; gap: 6px;
+            font-size: var(--text-sm); font-weight: 600; color: #5eead4;
+        }
+        .ai-assist-title i { font-size: 1.05rem; }
+        .ai-assist-hint { font-size: var(--text-xs); color: var(--text-muted); margin: 0 0 8px; line-height: 1.35; }
+        .ai-assist-row { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
+        .ai-assist-row input[type="number"] { max-width: 88px; flex: 0 0 88px; }
+        .ai-assist-row .btn-ai {
+            flex: 1; background: var(--primary); color: #fff; border: none;
+            border-radius: var(--radius); padding: 10px 12px; font-weight: 600; font-size: var(--text-sm);
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        }
+        .ai-assist-row .btn-ai:disabled { opacity: 0.65; cursor: wait; }
+        .ai-assist-row .btn-ai:hover:not(:disabled) { background: var(--primary-hover); }
+        .ai-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .ai-chip {
+            border: 1px solid rgba(13, 148, 136, 0.4); background: rgba(0,0,0,0.18);
+            color: #99f6e4; border-radius: 999px; padding: 5px 10px;
+            font-size: var(--text-xs); font-weight: 500;
+        }
+        .ai-chip:hover { background: rgba(13, 148, 136, 0.22); }
+        .pool-label-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 6px;
+        }
+        .pool-label-row .field-label { margin: 0; }
+        .pool-label-row .ai-mini {
+            display: none; align-items: center; gap: 4px;
+            font-size: var(--text-xs); color: #5eead4; font-weight: 600;
+        }
+        .pool-label-row .ai-mini.visible { display: inline-flex; }
+
+        .sheet-backdrop {
+            position: fixed; inset: 0; z-index: 80;
+            background: rgba(0, 0, 0, 0.55);
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+        .sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+        .sheet {
+            position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+            height: min(96dvh, 100%);
+            max-height: 96dvh;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-bottom: none;
+            border-radius: 16px 16px 0 0;
+            display: flex; flex-direction: column;
+            transform: translateY(105%);
+            transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+            box-shadow: 0 -12px 40px rgba(0,0,0,0.45);
+        }
+        .sheet.open { transform: translateY(0); }
+        .sheet-handle {
+            width: 40px; height: 4px; border-radius: 999px;
+            background: var(--border); margin: 10px auto 0;
+            flex: 0 0 auto;
+        }
+        .sheet-header {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 12px 16px 10px; border-bottom: 1px solid var(--border);
+            flex: 0 0 auto;
+        }
+        .sheet-header h2 {
+            margin: 0; font-size: var(--text-lg); font-weight: 700;
+            letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px;
+        }
+        .sheet-header h2 i { color: var(--primary-hover); }
+        .sheet-close {
+            width: 36px; height: 36px; border-radius: 10px;
+            background: var(--surface-2); border: 1px solid var(--border);
+            color: var(--text); display: inline-flex; align-items: center; justify-content: center;
+            font-size: 1.2rem;
+        }
+        .sheet-body {
+            flex: 1; overflow-y: auto; padding: 12px 16px 20px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .sheet-footer {
+            flex: 0 0 auto;
+            padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+            border-top: 1px solid var(--border);
+            background: var(--bg-elevated);
+        }
+        .cta-card {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 16px; margin-bottom: 12px;
+            background: linear-gradient(135deg, rgba(15, 118, 110, 0.2), rgba(15, 118, 110, 0.06));
+            border: 1px solid rgba(13, 148, 136, 0.35);
+            border-radius: var(--radius);
+            cursor: pointer; text-align: left; width: 100%; color: inherit;
+        }
+        .cta-card:hover { border-color: rgba(13, 148, 136, 0.55); }
+        .cta-card .cta-icon {
+            width: 42px; height: 42px; border-radius: 12px;
+            background: var(--primary); color: #fff;
+            display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex: 0 0 auto;
+        }
+        .cta-card .cta-text { flex: 1; min-width: 0; }
+        .cta-card .cta-title { font-weight: 700; font-size: var(--text-md); letter-spacing: -0.01em; }
+        .cta-card .cta-sub { font-size: var(--text-sm); color: var(--text-muted); margin-top: 2px; }
+        .cta-card .cta-chevron { color: var(--text-muted); font-size: 1.2rem; }
+        body.sheet-open { overflow: hidden; }
     </style>
 </head>
 <body>
@@ -182,63 +347,119 @@
         </header>
 
         <main>
-            <!-- TAB: HOME -->
-            <div class="tab-content active" id="tab-home">
-                <div class="glass card">
-                    <div class="card-header"><i class="ph-fill ph-heart"></i> Tạo yêu cầu tương tác</div>
-                    <input id="interactionUrl" placeholder="Link bài Facebook" />
-                    <input id="interactionAuthor" style="margin-top:10px" placeholder="Tên tác giả bài viết (không bắt buộc)" />
-                    <textarea id="interactionPostText" rows="4" style="margin-top:10px" placeholder="Nội dung bài viết mục tiêu để nhận diện đúng bài"></textarea>
-                    <div class="target-controls">
-                        <select id="interactionArticlePicker">
-                            <option value="">Chọn bài mẫu làm điều kiện tìm kiếm</option>
-                        </select>
-                        <button class="btn-secondary" onclick="useArticleForInteractionTarget()" type="button">Dùng bài mẫu</button>
-                    </div>
-                    <div class="target-controls">
-                        <label class="target-check"><input type="checkbox" id="targetLikeEnabled" checked> Like</label>
-                        <input id="targetLikeQty" type="number" min="0" value="1" placeholder="Số like" />
-                        <label class="target-check"><input type="checkbox" id="targetCommentEnabled" checked> Comment</label>
-                        <input id="targetCommentQty" type="number" min="0" value="1" placeholder="Số comment" />
-                    </div>
-                    <textarea id="interactionCommentPool" rows="4" style="margin-top:10px" placeholder="Comment pool, mỗi dòng một mẫu"></textarea>
-                    <div class="target-controls">
-                        <select id="targetSpeed"><option value="SLOW">Chậm</option><option value="NORMAL" selected>Vừa</option><option value="FAST">Nhanh</option></select>
-                        <select id="targetPriority"><option value="HIGH">Cao</option><option value="NORMAL" selected>Thường</option><option value="LOW">Thấp</option></select>
-                    </div>
-                    <label class="target-check" style="margin-top:10px"><input type="checkbox" id="targetAllowRepeat"> Cho phép lặp comment nếu thiếu mẫu</label>
-                    <button class="btn-primary" style="width: 100%; margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px" onclick="createInteractionJob()">
-                        <i class="ph-bold ph-paper-plane-right"></i> Tạo yêu cầu tương tác
-                    </button>
+            <!-- TAB: INTERACT -->
+            <div class="tab-content active" id="tab-interact">
+                <div class="queue-strip">
+                    <div class="queue-chip"><div class="val" id="interactionQueued">0</div><div class="lbl">Tương tác chờ</div></div>
+                    <div class="queue-chip"><div class="val" id="publishingQueuedHeader" style="color:var(--text-muted)">0</div><div class="lbl">Đăng bài chờ</div></div>
                 </div>
 
                 <div class="glass card">
                     <div class="card-header" style="justify-content: space-between">
-                        <div><i class="ph-fill ph-target"></i> Tiến độ bài tương tác</div>
-                        <button class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px" onclick="fetchInteractionTargets()">Tải lại</button>
+                        <div><i class="ph-fill ph-target"></i> Tiến độ tương tác</div>
+                        <button class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px" onclick="fetchInteractionTargets(); fetchExecutorQueues()">Tải lại</button>
                     </div>
                     <div id="interactionTargetList"></div>
                 </div>
 
+                <button type="button" class="cta-card" onclick="openCreateInteractionSheet()">
+                    <div class="cta-icon"><i class="ph-bold ph-plus"></i></div>
+                    <div class="cta-text">
+                        <div class="cta-title">Tạo yêu cầu tương tác</div>
+                        <div class="cta-sub">Link bài · like/comment · pool AI</div>
+                    </div>
+                    <i class="ph-bold ph-caret-right cta-chevron"></i>
+                </button>
+
+                <div class="glass card">
+                    <div class="card-header" style="justify-content: space-between">
+                        <div><i class="ph-fill ph-list-dashes"></i> Job gần đây</div>
+                        <button class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px" onclick="fetchExecutorQueues()">Tải lại</button>
+                    </div>
+                    <div class="ops-bar">
+                        <span>Cần xử lý: <strong id="opsNeedsCount">0</strong></span>
+                        <select id="jobStatusFilter" class="job-status-filter" onchange="onJobStatusFilterChange(this)">
+                            <option value="ALL">Tất cả</option>
+                            <option value="INTERRUPTED">Cần kiểm tra</option>
+                            <option value="QUEUED">Đang chờ</option>
+                            <option value="RUNNING">Đang chạy</option>
+                            <option value="SUCCEEDED">Hoàn tất</option>
+                            <option value="FAILED">Thất bại</option>
+                        </select>
+                    </div>
+                    <div id="executorJobListInteract"></div>
+                </div>
+            </div>
+
+            <!-- TAB: PUBLISH -->
+            <div class="tab-content" id="tab-publish">
+                <div class="queue-strip">
+                    <div class="queue-chip"><div class="val" id="interactionQueuedPublish" style="color:var(--text-muted)">0</div><div class="lbl">Tương tác chờ</div></div>
+                    <div class="queue-chip"><div class="val" id="publishingQueued" style="color:var(--warn)">0</div><div class="lbl">Đăng bài chờ</div></div>
+                </div>
+
                 <div class="glass card">
                     <div class="card-header"><i class="ph-fill ph-upload-simple"></i> Tạo yêu cầu đăng bài</div>
-                    <input id="publishingGroupUrl" placeholder="Link group Facebook" />
-                    <textarea id="publishingContent" rows="4" style="margin-top:10px" placeholder="Nội dung cuối cùng app sẽ đăng"></textarea>
-                    <textarea id="publishingImages" rows="3" style="margin-top:10px" placeholder="Link ảnh, mỗi dòng một link (không bắt buộc)"></textarea>
-                    <input id="publishingScheduledAt" type="datetime-local" style="margin-top:10px" title="Để trống nếu muốn đăng ngay" />
-                    <button class="btn-success" style="width:100%; margin-top:12px" onclick="createPublishingJob()">
+                    <p class="section-hint">Nhập group + nội dung. Ảnh, lịch, AI nằm trong tuỳ chọn.</p>
+
+                    <label class="field-label" for="publishingGroupUrl">Link group Facebook</label>
+                    <input id="publishingGroupUrl" placeholder="https://facebook.com/groups/..." />
+
+                    <label class="field-label" for="publishingContent">Nội dung đăng</label>
+                    <textarea id="publishingContent" rows="4" placeholder="Draft / nội dung cuối cùng app sẽ đăng"></textarea>
+
+                    <div class="ai-assist llm-only" id="publishAiAssist">
+                        <div class="ai-assist-head">
+                            <div class="ai-assist-title"><i class="ph-fill ph-sparkle"></i> Viết lại bằng AI</div>
+                        </div>
+                        <p class="ai-assist-hint">Dùng nội dung phía trên làm draft, hiện dần khi sinh.</p>
+                        <textarea id="llmPostPrompt" rows="2" placeholder="Hướng dẫn thêm (tuỳ chọn): giọng nhẹ, nhấn mạnh Q7, không nói giá..."></textarea>
+                        <div class="ai-chips" id="publishAiChips">
+                            <button type="button" class="ai-chip" data-prompt="Giọng bán hàng nhẹ nhàng">Bán nhẹ</button>
+                            <button type="button" class="ai-chip" data-prompt="Ngắn gọn, dễ đọc trên mobile">Ngắn gọn</button>
+                            <button type="button" class="ai-chip" data-prompt="Nhấn mạnh vị trí và tiện ích">Vị trí</button>
+                        </div>
+                        <div class="ai-assist-row">
+                            <button class="btn-ai" type="button" id="btnGeneratePost" onclick="generatePublishingContent()">
+                                <i class="ph-bold ph-magic-wand"></i> Sinh nội dung
+                            </button>
+                            <select id="publishingVariantPicker" style="display:none;flex:1;max-width:50%">
+                                <option value="">Biến thể</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button type="button" class="adv-toggle" id="publishAdvToggle" onclick="toggleAdvPanel('publishAdvPanel', this)">
+                        <span>Tuỳ chọn nâng cao</span>
+                        <i class="ph-bold ph-caret-down"></i>
+                    </button>
+                    <div class="adv-panel" id="publishAdvPanel">
+                        <label class="field-label" for="publishingImages">Link ảnh (mỗi dòng 1 link)</label>
+                        <textarea id="publishingImages" rows="3" placeholder="Không bắt buộc"></textarea>
+                        <label class="field-label" for="publishingScheduledAt">Lên lịch (để trống = đăng ngay)</label>
+                        <input id="publishingScheduledAt" type="datetime-local" />
+                    </div>
+
+                    <button class="btn-success" style="width:100%; margin-top:14px" onclick="createPublishingJob()">
                         <i class="ph-bold ph-paper-plane-right"></i> Đưa vào queue đăng bài
                     </button>
                 </div>
 
                 <div class="glass card">
                     <div class="card-header" style="justify-content: space-between">
-                        <div><i class="ph-fill ph-list-dashes"></i> Trạng thái executor</div>
+                        <div><i class="ph-fill ph-list-dashes"></i> Job đăng bài</div>
                         <button class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px" onclick="fetchExecutorQueues()">Tải lại</button>
                     </div>
-                    <div class="stat-grid">
-                        <div class="stat-box"><div class="stat-val" id="interactionQueued" style="color:var(--warn)">0</div><div class="stat-label">Tương tác chờ</div></div>
-                        <div class="stat-box"><div class="stat-val" id="publishingQueued" style="color:var(--warn)">0</div><div class="stat-label">Đăng bài chờ</div></div>
+                    <div class="ops-bar">
+                        <span>Cần xử lý: <strong class="ops-needs-count">0</strong></span>
+                        <select class="job-status-filter" onchange="onJobStatusFilterChange(this)">
+                            <option value="ALL">Tất cả</option>
+                            <option value="INTERRUPTED">Cần kiểm tra</option>
+                            <option value="QUEUED">Đang chờ</option>
+                            <option value="RUNNING">Đang chạy</option>
+                            <option value="SUCCEEDED">Hoàn tất</option>
+                            <option value="FAILED">Thất bại</option>
+                        </select>
                     </div>
                     <div id="executorJobList"></div>
                 </div>
@@ -257,102 +478,154 @@
                 </div>
             </div>
 
-            <!-- TAB: LEADERBOARD -->
-            <div class="tab-content" id="tab-leaderboard">
-                <div class="glass card" style="padding: 0; overflow: hidden">
-                    <div style="padding: 20px; background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--border); display:flex; align-items:center; gap:10px">
-                        <i class="ph-fill ph-trophy" style="color: #fbbf24; font-size: 1.5rem"></i>
-                        <span style="font-weight: 600; font-size: 1.1rem">Top Thành Viên</span>
-                        <span id="groupNameLabel" style="margin-left:auto; font-size:0.8rem; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:12px">Nhóm</span>
-                    </div>
-                    <div id="rankList">
-                        <!-- Ranks injected via JS -->
-                        <div style="text-align:center; color:var(--text-muted); padding:30px 0; font-size:0.9rem">Chưa có dữ liệu</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: SETTINGS & ADMIN -->
+            <!-- TAB: PROFILE -->
             <div class="tab-content" id="tab-profile">
                 <div class="glass card" style="display: flex; align-items: center; gap: 16px;">
                     <div class="rank-avatar" style="width: 50px; height: 50px; font-size: 1.3rem" id="profAvatar">U</div>
                     <div style="flex: 1">
                         <div style="font-size: 1.2rem; font-weight: 700" id="profUsername">Username</div>
-                        <div style="color: var(--text-muted); font-size: 0.85rem">Tham gia bằng WebApp</div>
+                        <div class="profile-meta">Nhóm: <span id="profGroup">—</span> · Điểm: <span id="profPoints">0</span></div>
                     </div>
-                    <button class="btn-danger" onclick="logout()"><i class="ph-bold ph-sign-out"></i></button>
+                    <button class="btn-danger" onclick="logout()" title="Đăng xuất"><i class="ph-bold ph-sign-out"></i></button>
                 </div>
-            </div>
 
-            <!-- TAB: ADMIN -->
-            <div class="tab-content" id="tab-admin">
-                <!-- Admin Only Section -->
-                <div id="adminPanel">
-                    <h3 style="color: var(--error); margin: 24px 0 12px; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px">Khu vực Admin</h3>
+                <div class="glass card" style="padding: 0; overflow: hidden">
+                    <div style="padding: 16px 20px; background: rgba(0,0,0,0.2); border-bottom: 1px solid var(--border); display:flex; align-items:center; gap:10px">
+                        <i class="ph-fill ph-trophy" style="color: #fbbf24; font-size: 1.3rem"></i>
+                        <span style="font-weight: 600">Top Thành Viên</span>
+                        <span id="groupNameLabel" style="margin-left:auto; font-size:0.8rem; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:12px">Nhóm</span>
+                    </div>
+                    <div id="rankList">
+                        <div style="text-align:center; color:var(--text-muted); padding:30px 0; font-size:0.9rem">Mở tab để tải xếp hạng</div>
+                    </div>
+                </div>
 
+                <div id="adminPanel" style="display:none">
                     <div class="glass card" style="display: flex; flex-direction:column; gap:12px">
-                        <div class="card-header"><i class="ph-fill ph-hard-drives"></i> Quản Trị Hệ Thống Toàn Diện</div>
-                        <div style="font-size:0.85rem; color:var(--text-muted)">Cấu hình APK, quản lý tất cả Bài Viết Mẫu (Articles), thêm/xóa ảnh, cấu hình Comment hệ thống, xuất Logs...</div>
-                        <button class="btn-primary" style="margin-top: 8px; justify-content:center; display:flex" onclick="window.location.href='/admin.html'">Truy Cập Desktop Admin</button>
+                        <div class="card-header"><i class="ph-fill ph-hard-drives"></i> Desktop Admin</div>
+                        <div style="font-size:0.85rem; color:var(--text-muted)">Quản lý users, bài mẫu, APK, logs trên màn hình lớn.</div>
+                        <button class="btn-primary" style="justify-content:center; display:flex" onclick="window.location.href='/admin.html'">Mở Admin</button>
                     </div>
 
                     <div class="glass card" style="border-color:rgba(239,68,68,.45)">
-                        <div class="card-header" style="color:var(--error)"><i class="ph-fill ph-warning"></i> Reset Queue Executor</div>
-                        <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:12px">Xoá vĩnh viễn toàn bộ task Tương tác và Đăng bài, kể cả task đang chạy. Không xoá tài khoản, cấu hình hoặc bài mẫu.</div>
+                        <div class="card-header" style="color:var(--error)"><i class="ph-fill ph-warning"></i> Vùng nguy hiểm</div>
+                        <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:10px">Xoá toàn bộ task Tương tác và Đăng bài. Gõ <strong>RESET</strong> để xác nhận.</div>
+                        <input id="resetConfirmInput" placeholder="Gõ RESET" style="margin-bottom:10px" autocomplete="off" />
                         <button class="btn-danger" style="width:100%;padding:12px" onclick="resetAllExecutorQueues()">
-                            <i class="ph-bold ph-trash"></i> RESET TẤT CẢ TASK
+                            <i class="ph-bold ph-trash"></i> Reset tất cả task
                         </button>
                     </div>
-                    
-                    <div class="glass card">
-                        <div class="card-header"><i class="ph-fill ph-users"></i> Quản lý User Mới</div>
-                        <div class="admin-form-group">
-                            <input type="text" id="newUserName" placeholder="Tên đăng nhập">
-                        </div>
-                        <div class="admin-form-group">
-                            <input type="password" id="newUserPass" placeholder="Mật khẩu">
-                        </div>
-                        <div class="admin-form-group">
-                            <input type="text" id="newUserGroup" placeholder="Nhóm (vd: Nhom1)">
-                        </div>
-                        <button class="btn-success" style="width: 100%; margin-top: 8px" onclick="adminAddUser()">Tạo Tài Khoản</button>
-                    </div>
-
-                    <div class="glass card">
-                        <div class="card-header" style="justify-content:space-between">
-                            <div><i class="ph-fill ph-list"></i> Users Hiện Tại</div>
-                            <button class="btn-secondary" style="padding:4px 10px;font-size:0.8rem" onclick="fetchUsers()">Tải lại</button>
-                        </div>
-                        <div id="adminUserList" style="max-height: 400px; overflow-y: auto"></div>
-                    </div>
                 </div>
-
             </div>
         </main>
 
         <nav>
-            <button class="nav-item active" onclick="switchTab('home', this); fetchExecutorQueues()">
-                <i class="ph-fill ph-queue"></i>
-                <span>Yêu Cầu</span>
+            <button class="nav-item active" onclick="switchTab('interact', this); fetchInteractionTargets(); fetchExecutorQueues()">
+                <i class="ph-fill ph-heart"></i>
+                <span>Tương tác</span>
+            </button>
+            <button class="nav-item" onclick="switchTab('publish', this); fetchExecutorQueues()">
+                <i class="ph-fill ph-upload-simple"></i>
+                <span>Đăng bài</span>
             </button>
             <button class="nav-item" onclick="switchTab('articles', this); fetchArticles()">
                 <i class="ph-fill ph-article"></i>
-                <span>Bài Mẫu</span>
+                <span>Bài mẫu</span>
             </button>
-
-            <button class="nav-item" onclick="switchTab('leaderboard', this); fetchLeaderboard()">
-                <i class="ph-fill ph-chart-bar"></i>
-                <span>Xếp Hạng</span>
-            </button>
-            <button class="nav-item" onclick="switchTab('profile', this)">
+            <button class="nav-item" onclick="switchTab('profile', this); fetchLeaderboard()">
                 <i class="ph-fill ph-user-circle"></i>
-                <span>Cá Nhân</span>
-            </button>
-            <button class="nav-item" id="navAdminBtn" style="display: none" onclick="switchTab('admin', this); fetchUsers()">
-                <i class="ph-fill ph-shield-star"></i>
-                <span>Admin</span>
+                <span>Tôi</span>
             </button>
         </nav>
+
+        <div class="sheet-backdrop" id="createInteractBackdrop" onclick="closeCreateInteractionSheet()"></div>
+        <div class="sheet" id="createInteractSheet" role="dialog" aria-modal="true" aria-labelledby="createInteractTitle">
+            <div class="sheet-handle" aria-hidden="true"></div>
+            <div class="sheet-header">
+                <h2 id="createInteractTitle"><i class="ph-fill ph-heart"></i> Tạo tương tác</h2>
+                <button type="button" class="sheet-close" onclick="closeCreateInteractionSheet()" aria-label="Đóng">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <div class="sheet-body">
+                <p class="section-hint">Link + nội dung bài + số like/comment. Comment pool gõ tay hoặc sinh AI.</p>
+
+                <label class="field-label" for="interactionUrl">Link bài Facebook</label>
+                <input id="interactionUrl" placeholder="https://facebook.com/..." />
+
+                <label class="field-label" for="interactionPostText">Nội dung bài mục tiêu</label>
+                <textarea id="interactionPostText" rows="4" placeholder="Dán đoạn text để app nhận đúng bài"></textarea>
+
+                <div class="target-controls" style="margin-top:12px">
+                    <label class="target-check"><input type="checkbox" id="targetLikeEnabled" checked> Like</label>
+                    <input id="targetLikeQty" type="number" min="0" value="1" placeholder="Số like" />
+                    <label class="target-check"><input type="checkbox" id="targetCommentEnabled" checked> Comment</label>
+                    <input id="targetCommentQty" type="number" min="0" value="1" placeholder="Số comment" />
+                </div>
+
+                <div class="pool-label-row">
+                    <label class="field-label" for="interactionCommentPool">Comment pool</label>
+                    <span class="ai-mini" id="interactAiBadge"><i class="ph-fill ph-sparkle"></i> AI sẵn sàng</span>
+                </div>
+                <textarea id="interactionCommentPool" rows="5" placeholder="Mỗi dòng một câu comment — gõ tay hoặc sinh bằng AI bên dưới"></textarea>
+
+                <div class="ai-assist llm-only" id="interactAiAssist">
+                    <div class="ai-assist-head">
+                        <div class="ai-assist-title"><i class="ph-fill ph-sparkle"></i> Sinh comment bằng AI</div>
+                    </div>
+                    <p class="ai-assist-hint">Dựa trên <strong style="color:var(--text);font-weight:600">nội dung bài</strong> phía trên. Có thể thêm hướng dẫn ngắn.</p>
+                    <textarea id="llmCommentPrompt" rows="2" placeholder="Hướng dẫn thêm (tuỳ chọn): giọng thân thiện, hỏi giá, quan tâm mua..."></textarea>
+                    <div class="ai-chips" id="interactAiChips">
+                        <button type="button" class="ai-chip" data-prompt="Giọng đời thường như chat bạn bè, không khách sáo, không CSKH">Đời thường</button>
+                        <button type="button" class="ai-chip" data-prompt="Hỏi ngắn kiểu tò mò: còn không, chỗ nào, sao vậy">Hỏi ngắn</button>
+                        <button type="button" class="ai-chip" data-prompt="Khen / phản ứng cảm xúc ngắn, không bán hàng">Phản ứng</button>
+                        <button type="button" class="ai-chip" data-prompt="Siêu ngắn 3–8 từ, như người lướt FB gõ vội">Gõ vội</button>
+                    </div>
+                    <div class="ai-assist-row">
+                        <input id="llmCommentCount" type="number" min="1" max="30" value="5" title="Số câu AI sinh" aria-label="Số câu AI" />
+                        <button class="btn-ai" type="button" id="btnGenerateComments" onclick="generateInteractionComments()">
+                            <i class="ph-bold ph-magic-wand"></i> Sinh comment
+                        </button>
+                    </div>
+                </div>
+
+                <button type="button" class="adv-toggle" id="interactAdvToggle" onclick="toggleAdvPanel('interactAdvPanel', this)">
+                    <span>Tuỳ chọn nâng cao</span>
+                    <i class="ph-bold ph-caret-down"></i>
+                </button>
+                <div class="adv-panel" id="interactAdvPanel">
+                    <label class="field-label" for="interactionAuthor">Tên tác giả (tuỳ chọn)</label>
+                    <input id="interactionAuthor" placeholder="Không bắt buộc" />
+
+                    <label class="field-label">Dùng bài mẫu làm điều kiện</label>
+                    <div class="target-controls">
+                        <select id="interactionArticlePicker">
+                            <option value="">Chọn bài mẫu</option>
+                        </select>
+                        <button class="btn-secondary" onclick="useArticleForInteractionTarget()" type="button">Áp dụng</button>
+                    </div>
+
+                    <label class="field-label">Tốc độ / Ưu tiên</label>
+                    <div class="target-controls">
+                        <select id="targetSpeed"><option value="SLOW">Chậm</option><option value="NORMAL" selected>Vừa</option><option value="FAST">Nhanh</option></select>
+                        <select id="targetPriority"><option value="HIGH">Cao</option><option value="NORMAL" selected>Thường</option><option value="LOW">Thấp</option></select>
+                    </div>
+                    <label class="field-label" style="margin-top:10px">Khung giờ chạy (tuỳ chọn, giờ VN)</label>
+                    <div class="target-controls">
+                        <input id="activeStart" type="time" title="Bắt đầu" aria-label="Giờ bắt đầu" />
+                        <input id="activeEnd" type="time" title="Kết thúc" aria-label="Giờ kết thúc" />
+                    </div>
+                    <label class="field-label" for="maxRuntimeHours" style="margin-top:10px">Tối đa số giờ chạy</label>
+                    <input id="maxRuntimeHours" type="number" min="1" value="24" placeholder="24" />
+                    <label class="target-check" style="margin-top:10px"><input type="checkbox" id="targetAllowRepeat"> Cho phép lặp comment nếu thiếu mẫu</label>
+                </div>
+            </div>
+            <div class="sheet-footer">
+                <button id="btnCreateInteraction" class="btn-primary" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px" onclick="createInteractionJob()">
+                    <i class="ph-bold ph-paper-plane-right"></i> Tạo yêu cầu tương tác
+                </button>
+            </div>
+        </div>
     </div>
 
 <script>
@@ -367,6 +640,9 @@ const webDeviceId = localStorage.getItem(UUID_KEY);
 const SERVER_URL = ''; // Same origin
 let authToken = localStorage.getItem('ch_token') || '';
 let currentUser = JSON.parse(localStorage.getItem('ch_user') || 'null');
+let llmEnabled = false;
+let publishingVariants = [];
+let opsRefreshTimer = null;
 
 // ==== ROUTING / AUTH ====
 function init() {
@@ -390,17 +666,233 @@ function showMainApp() {
     document.getElementById('topPoints').textContent = currentUser.points || 0;
     document.getElementById('profUsername').textContent = currentUser.username;
     document.getElementById('profAvatar').textContent = currentUser.username.charAt(0).toUpperCase();
-    document.getElementById('groupNameLabel').textContent = currentUser.group;
+    document.getElementById('groupNameLabel').textContent = currentUser.group || 'Nhóm';
+    document.getElementById('profGroup').textContent = currentUser.group || '—';
+    document.getElementById('profPoints').textContent = currentUser.points || 0;
 
-    // Admin privileges
-    if (currentUser.role === 'admin') {
-        document.getElementById('navAdminBtn').style.display = 'flex';
-    }
+    const adminPanel = document.getElementById('adminPanel');
+    if (adminPanel) adminPanel.style.display = currentUser.role === 'admin' ? 'block' : 'none';
 
     // Default Load
     fetchInteractionTargets();
     fetchExecutorQueues();
     fetchArticles({ renderList: false });
+    refreshLlmUi();
+    startOpsRefresh();
+}
+
+function startOpsRefresh() {
+    if (opsRefreshTimer) clearInterval(opsRefreshTimer);
+    opsRefreshTimer = setInterval(() => {
+        if (!authToken) return;
+        fetchInteractionTargets();
+        fetchExecutorQueues();
+    }, 15000);
+}
+
+function stopOpsRefresh() {
+    if (opsRefreshTimer) {
+        clearInterval(opsRefreshTimer);
+        opsRefreshTimer = null;
+    }
+}
+
+function toggleAdvPanel(panelId, btn) {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    const open = panel.classList.toggle('open');
+    btn.classList.toggle('open', open);
+}
+
+function openCreateInteractionSheet() {
+    document.getElementById('createInteractBackdrop')?.classList.add('open');
+    document.getElementById('createInteractSheet')?.classList.add('open');
+    document.body.classList.add('sheet-open');
+    refreshLlmUi();
+    syncLlmCommentCountFromQty();
+    setTimeout(() => document.getElementById('interactionUrl')?.focus(), 280);
+}
+
+function closeCreateInteractionSheet() {
+    document.getElementById('createInteractBackdrop')?.classList.remove('open');
+    document.getElementById('createInteractSheet')?.classList.remove('open');
+    document.body.classList.remove('sheet-open');
+    const adv = document.getElementById('interactAdvPanel');
+    const tog = document.getElementById('interactAdvToggle');
+    if (adv) adv.classList.remove('open');
+    if (tog) tog.classList.remove('open');
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('createInteractSheet')?.classList.contains('open')) {
+        closeCreateInteractionSheet();
+    }
+});
+
+function bindAiChips() {
+    document.querySelectorAll('.ai-chips').forEach(group => {
+        if (group.dataset.bound === '1') return;
+        group.dataset.bound = '1';
+        const promptId = group.id === 'publishAiChips' ? 'llmPostPrompt' : 'llmCommentPrompt';
+        group.querySelectorAll('.ai-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const box = document.getElementById(promptId);
+                if (!box) return;
+                const tip = chip.getAttribute('data-prompt') || chip.textContent.trim();
+                const cur = box.value.trim();
+                box.value = cur && !cur.includes(tip) ? `${cur}; ${tip}` : tip;
+                box.focus();
+            });
+        });
+    });
+}
+
+function syncLlmCommentCountFromQty() {
+    const qty = document.getElementById('targetCommentQty');
+    const countInput = document.getElementById('llmCommentCount');
+    if (!qty || !countInput) return;
+    const n = Math.max(1, parseInt(qty.value, 10) || 1);
+    countInput.value = Math.min(30, n);
+}
+
+async function refreshLlmUi() {
+    try {
+        const res = await apiCall('/api/settings');
+        if (!res.ok) return;
+        const data = await res.json();
+        llmEnabled = !!data.llmEnabled;
+        document.querySelectorAll('.ai-assist.llm-only').forEach(el => {
+            el.classList.toggle('visible', llmEnabled);
+        });
+        document.querySelectorAll('.ai-mini').forEach(el => {
+            el.classList.toggle('visible', llmEnabled);
+        });
+        // Hide any leftover generic llm-only blocks that are not ai-assist
+        document.querySelectorAll('.llm-only:not(.ai-assist)').forEach(el => {
+            el.style.display = llmEnabled ? '' : 'none';
+        });
+        syncLlmCommentCountFromQty();
+        const qty = document.getElementById('targetCommentQty');
+        if (qty && !qty.dataset.aiSyncBound) {
+            qty.dataset.aiSyncBound = '1';
+            qty.addEventListener('change', syncLlmCommentCountFromQty);
+        }
+        bindAiChips();
+    } catch (_) {}
+}
+
+async function consumeLlmSse(endpoint, body, { onDelta, onDone } = {}) {
+    const res = await apiCall(endpoint, { method: 'POST', body: JSON.stringify(body) });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `LLM lỗi HTTP ${res.status}`);
+    }
+    if (!res.body || typeof res.body.getReader !== 'function') {
+        throw new Error('Trình duyệt không hỗ trợ stream.');
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let donePayload = null;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n');
+        buffer = parts.pop() || '';
+        for (const line of parts) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const payload = trimmed.slice(5).trim();
+            if (!payload) continue;
+            let event;
+            try { event = JSON.parse(payload); } catch { continue; }
+            if (event.type === 'delta' && event.text) onDelta?.(event.text);
+            else if (event.type === 'done') donePayload = event;
+            else if (event.type === 'error') throw new Error(event.error || 'LLM stream lỗi.');
+        }
+    }
+    return donePayload;
+}
+
+function setPublishingVariants(variants) {
+    publishingVariants = (Array.isArray(variants) ? variants : [])
+        .map(v => typeof v === 'string' ? v.trim() : '')
+        .filter(v => v && v !== '[object Object]');
+    const picker = document.getElementById('publishingVariantPicker');
+    if (publishingVariants.length) {
+        picker.style.display = 'block';
+        picker.innerHTML = '<option value="">Chọn biến thể AI</option>' +
+            publishingVariants.map((v, i) => `<option value="${i}">${escapeHtml(v.slice(0, 80))}</option>`).join('');
+        picker.onchange = () => {
+            const idx = parseInt(picker.value, 10);
+            if (Number.isFinite(idx) && publishingVariants[idx]) {
+                document.getElementById('publishingContent').value = publishingVariants[idx];
+            }
+        };
+    } else {
+        picker.style.display = 'none';
+        picker.innerHTML = '<option value="">Chọn biến thể AI</option>';
+    }
+}
+
+async function generateInteractionComments() {
+    const postText = document.getElementById('interactionPostText').value.trim();
+    if (!postText) return alert('Nhập nội dung bài viết trước khi sinh comment AI.');
+    const userPrompt = document.getElementById('llmCommentPrompt').value.trim();
+    const count = parseInt(document.getElementById('llmCommentCount').value, 10)
+        || parseInt(document.getElementById('targetCommentQty').value, 10)
+        || 5;
+    const btn = document.getElementById('btnGenerateComments');
+    const box = document.getElementById('interactionCommentPool');
+    const old = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Đang sinh...';
+    box.value = '';
+    try {
+        const done = await consumeLlmSse('/api/llm/generate-comments/stream', { postText, count, userPrompt }, {
+            onDelta: (text) => { box.value += text; box.scrollTop = box.scrollHeight; }
+        });
+        const comments = Array.isArray(done?.comments) ? done.comments : [];
+        if (!comments.length) return alert('LLM không trả về comment.');
+        box.value = comments.join('\n');
+    } catch (e) {
+        alert(e.message || 'Không gọi được LLM.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = old;
+    }
+}
+
+async function generatePublishingContent() {
+    const draft = document.getElementById('publishingContent').value.trim();
+    if (!draft) return alert('Nhập draft nội dung trước khi sinh AI.');
+    const userPrompt = document.getElementById('llmPostPrompt').value.trim();
+    const btn = document.getElementById('btnGeneratePost');
+    const box = document.getElementById('publishingContent');
+    const old = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Đang sinh...';
+    const keptDraft = draft;
+    box.value = '';
+    try {
+        const done = await consumeLlmSse('/api/llm/generate-post/stream', { draft: keptDraft, userPrompt }, {
+            onDelta: (text) => { box.value += text; box.scrollTop = box.scrollHeight; }
+        });
+        const main = typeof done?.content === 'string' ? done.content.trim() : box.value.trim();
+        if (!main || main === '[object Object]') {
+            box.value = keptDraft;
+            return alert('LLM không trả về nội dung.');
+        }
+        box.value = main;
+        setPublishingVariants(done?.variants || []);
+    } catch (e) {
+        if (!box.value.trim()) box.value = keptDraft;
+        alert(e.message || 'Không gọi được LLM.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = old;
+    }
 }
 
 async function apiCall(endpoint, opts = {}) {
@@ -451,6 +943,7 @@ function logout() {
     apiCall('/api/logout', { method: 'POST' }).catch(()=>{});
     authToken = ''; currentUser = null;
     localStorage.removeItem('ch_token'); localStorage.removeItem('ch_user');
+    stopOpsRefresh();
     showAuth();
 }
 
@@ -476,6 +969,9 @@ async function createInteractionJob() {
     const likeQuantity = parseInt(document.getElementById('targetLikeQty').value, 10) || 0;
     const commentQuantity = parseInt(document.getElementById('targetCommentQty').value, 10) || 0;
     const commentPool = document.getElementById('interactionCommentPool').value.split('\n').map(v => v.trim()).filter(Boolean);
+    const activeStart = (document.getElementById('activeStart')?.value || '').trim();
+    const activeEnd = (document.getElementById('activeEnd')?.value || '').trim();
+    const maxRuntimeHours = parseInt(document.getElementById('maxRuntimeHours')?.value, 10) || 24;
     if (!url || !postText) return alert('Nhập đủ link và nội dung bài mục tiêu.');
     if ((!likeEnabled || likeQuantity <= 0) && (!commentEnabled || commentQuantity <= 0)) return alert('Cần ít nhất một mục tiêu like hoặc comment.');
     if (commentEnabled && commentQuantity > 0 && !commentPool.length) return alert('Bật comment thì cần nhập comment pool.');
@@ -491,7 +987,8 @@ async function createInteractionJob() {
             priority: document.getElementById('targetPriority').value,
             allowRepeatComments: document.getElementById('targetAllowRepeat').checked,
             targetPost: { author, text: postText },
-            autoClose: { enabled: true, whenRequirementsMet: true, maxFailedJobs: 5 }
+            activeHours: (activeStart && activeEnd) ? { start: activeStart, end: activeEnd } : undefined,
+            autoClose: { enabled: true, whenRequirementsMet: true, maxRuntimeHours, maxFailedJobs: 5 }
         })
     });
     const data = await res.json().catch(() => ({}));
@@ -500,6 +997,9 @@ async function createInteractionJob() {
     document.getElementById('interactionAuthor').value = '';
     document.getElementById('interactionPostText').value = '';
     document.getElementById('interactionCommentPool').value = '';
+    const promptBox = document.getElementById('llmCommentPrompt');
+    if (promptBox) promptBox.value = '';
+    closeCreateInteractionSheet();
     await fetchInteractionTargets();
     await fetchExecutorQueues();
 }
@@ -512,17 +1012,19 @@ async function fetchInteractionTargets() {
         const statusLabel = { RUNNING:'Đang chạy', PAUSED:'Tạm ngưng', CLOSED:'Đã đóng', COMPLETED:'Hoàn tất', NEEDS_REVIEW:'Cần xem lại' };
         const statusClass = s => s === 'COMPLETED' ? 'done' : (s === 'CLOSED' || s === 'PAUSED' ? 'closed' : 'pending');
         const percent = (done, total) => total > 0 ? Math.min(100, Math.round(done * 100 / total)) : 0;
+        window.__needsReviewCount = targets.filter(t => t.status === 'NEEDS_REVIEW').length;
+        updateOpsNeedsCount();
         document.getElementById('interactionTargetList').innerHTML = targets.slice(0, 20).map(t => {
             const likePct = percent(t.progress?.like?.done || 0, t.progress?.like?.total || 0);
             const commentPct = percent(t.progress?.comment?.done || 0, t.progress?.comment?.total || 0);
-            const canRun = t.status === 'PAUSED';
+            const canRun = t.status === 'PAUSED' || t.status === 'NEEDS_REVIEW';
             const canPause = t.status === 'RUNNING';
             const canClose = !['CLOSED', 'COMPLETED'].includes(t.status);
             return `
                 <div class="list-item">
                     <div class="list-title">${escapeHtml(t.targetPost?.author || t.id)} · ${escapeHtml(t.priority || 'NORMAL')}</div>
                     <div style="font-size:.8rem;color:var(--text-muted);word-break:break-all">${escapeHtml(t.postUrl)}</div>
-                    <div class="list-meta"><span>${escapeHtml(t.createdBy)}</span><span class="badge ${statusClass(t.status)}">${statusLabel[t.status] || t.status}</span></div>
+                    <div class="list-meta"><span>${escapeHtml(t.createdBy)}</span><span class="badge ${statusClass(t.status)}">${escapeHtml(statusLabel[t.status] || t.status || '')}</span></div>
                     <div style="margin-top:10px;font-size:.85rem;color:var(--text-muted)">Like: ${t.progress?.like?.done || 0}/${t.progress?.like?.total || 0}</div>
                     <div class="progress-line"><span style="width:${likePct}%"></span></div>
                     <div style="margin-top:10px;font-size:.85rem;color:var(--text-muted)">Comment: ${t.progress?.comment?.done || 0}/${t.progress?.comment?.total || 0}</div>
@@ -530,6 +1032,7 @@ async function fetchInteractionTargets() {
                     <div style="font-size:.78rem;color:var(--text-muted);margin-top:10px">Chờ ${t.jobs?.queued || 0} · Chạy ${t.jobs?.running || 0} · Fail ${t.jobs?.failed || 0}</div>
                     <div style="font-size:.78rem;color:var(--text-muted);margin-top:6px">Group: ${t.groupIntelligence?.joinedAccounts || 0} acc đã join · ${t.groupIntelligence?.recentComments || 0} comment gần đây · Fail streak ${t.groupIntelligence?.failStreak || 0}</div>
                     ${t.groupIntelligence?.pauseReason ? `<div style="font-size:.78rem;color:var(--error);margin-top:6px">${escapeHtml(t.groupIntelligence.pauseReason)}</div>` : ''}
+                    ${t.reviewReason ? `<div style="font-size:.78rem;color:var(--error);margin-top:6px">${escapeHtml(t.reviewReason)}</div>` : ''}
                     <div class="target-actions">
                         ${canPause ? `<button class="btn-secondary" onclick="updateInteractionTarget('${t.id}','PAUSED')">Tạm ngưng</button>` : ''}
                         ${canRun ? `<button class="btn-success" onclick="updateInteractionTarget('${t.id}','RUNNING')">Chạy tiếp</button>` : ''}
@@ -584,24 +1087,77 @@ function formatScheduleTime(ts) {
     catch (_) { return ''; }
 }
 
+function onJobStatusFilterChange(el) {
+    const value = el?.value || 'ALL';
+    document.querySelectorAll('.job-status-filter').forEach(s => { s.value = value; });
+    const primary = document.getElementById('jobStatusFilter');
+    if (primary) primary.value = value;
+    fetchExecutorQueues();
+}
+
+function updateOpsNeedsCount(interruptedCount) {
+    if (typeof interruptedCount === 'number') window.__interruptedJobCount = interruptedCount;
+    const total = (window.__interruptedJobCount || 0) + (window.__needsReviewCount || 0);
+    const primary = document.getElementById('opsNeedsCount');
+    if (primary) primary.textContent = total;
+    document.querySelectorAll('.ops-needs-count').forEach(el => { el.textContent = total; });
+}
+
+async function resolveExecutorJob(id, action) {
+    const labels = { mark_succeeded: 'đánh OK', requeue: 'chạy lại', fail: 'đánh fail' };
+    if (!confirm(`Xác nhận ${labels[action]} job ${id}?`)) return;
+    const note = action === 'fail' ? (prompt('Lý do fail', 'Ops đánh fail') || 'Ops đánh fail') : '';
+    const res = await apiCall(`/api/executor/jobs/${id}/resolve`, {
+        method: 'POST', body: JSON.stringify({ action, note })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(data.error || 'Resolve thất bại');
+    await fetchExecutorQueues();
+    await fetchInteractionTargets();
+}
+
+function renderJobList(jobs, emptyText) {
+    const filter = document.getElementById('jobStatusFilter')?.value || 'ALL';
+    const filtered = filter === 'ALL' ? jobs : jobs.filter(j => j.status === filter);
+    const labels = { QUEUED:'Đang chờ', RUNNING:'Đang chạy', SUCCEEDED:'Hoàn tất', FAILED:'Thất bại', INTERRUPTED:'Cần kiểm tra', CANCELED:'Đã hủy' };
+    if (!filtered.length) return `<div style="text-align:center;color:var(--text-muted);padding:20px">${emptyText}</div>`;
+    return filtered.map(job => `
+        <div class="list-item">
+            <div class="list-title">${escapeHtml(job.id)} · ${job.type === 'interaction' ? 'Tương tác' : 'Đăng bài'}</div>
+            <div style="font-size:.8rem;color:var(--text-muted);word-break:break-all">${escapeHtml(job.payload?.url || job.payload?.groupUrl || '')}</div>
+            <div class="list-meta"><span>${escapeHtml(job.createdBy)}</span><span class="badge ${job.status === 'SUCCEEDED' ? 'done' : 'pending'}" style="${job.status === 'INTERRUPTED' ? 'background:rgba(239,68,68,.2);color:#fca5a5' : ''}">${escapeHtml(labels[job.status] || job.status || '')}</span></div>
+            ${job.scheduledAt ? `<div style="font-size:.78rem;color:var(--warn);margin-top:6px">Hẹn: ${escapeHtml(formatScheduleTime(job.scheduledAt))}</div>` : ''}
+            ${job.lastError ? `<div style="font-size:.78rem;color:var(--error);margin-top:6px">${escapeHtml(job.lastError)}</div>` : ''}
+            ${job.status === 'INTERRUPTED' ? `<div class="target-actions">
+                <button class="btn-success" onclick="resolveExecutorJob('${job.id}','mark_succeeded')">OK</button>
+                <button class="btn-secondary" onclick="resolveExecutorJob('${job.id}','requeue')">Chạy lại</button>
+                <button class="btn-danger" onclick="resolveExecutorJob('${job.id}','fail')">Fail</button>
+            </div>` : ''}
+        </div>`).join('');
+}
+
 async function fetchExecutorQueues() {
     if (!authToken) return;
     try {
         const res = await apiCall('/api/executor/queues');
         const data = await res.json();
-        document.getElementById('interactionQueued').textContent = data.interaction?.counts?.QUEUED || 0;
-        document.getElementById('publishingQueued').textContent = data.publishing?.counts?.QUEUED || 0;
-        const jobs = [...(data.interaction?.jobs || []), ...(data.publishing?.jobs || [])]
-            .sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
-        const labels = { QUEUED:'Đang chờ', RUNNING:'Đang chạy', SUCCEEDED:'Hoàn tất', FAILED:'Thất bại', INTERRUPTED:'Cần kiểm tra' };
-        document.getElementById('executorJobList').innerHTML = jobs.map(job => `
-            <div class="list-item">
-                <div class="list-title">${escapeHtml(job.id)} · ${job.type === 'interaction' ? 'Tương tác' : 'Đăng bài'}</div>
-                <div style="font-size:.8rem;color:var(--text-muted);word-break:break-all">${escapeHtml(job.payload?.url || job.payload?.groupUrl || '')}</div>
-                <div class="list-meta"><span>${escapeHtml(job.createdBy)}</span><span class="badge ${job.status === 'SUCCEEDED' ? 'done' : 'pending'}">${labels[job.status] || job.status}</span></div>
-                ${job.scheduledAt ? `<div style="font-size:.78rem;color:var(--warn);margin-top:6px">Hẹn đăng: ${escapeHtml(formatScheduleTime(job.scheduledAt))}</div>` : ''}
-                ${job.lastError ? `<div style="font-size:.78rem;color:var(--error);margin-top:6px">${escapeHtml(job.lastError)}</div>` : ''}
-            </div>`).join('') || '<div style="text-align:center;color:var(--text-muted);padding:20px">Queue đang trống</div>';
+        const iQueued = data.interaction?.counts?.QUEUED || 0;
+        const pQueued = data.publishing?.counts?.QUEUED || 0;
+        const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        setText('interactionQueued', iQueued);
+        setText('interactionQueuedPublish', iQueued);
+        setText('publishingQueued', pQueued);
+        setText('publishingQueuedHeader', pQueued);
+
+        const interrupted = (data.interaction?.counts?.INTERRUPTED || 0) + (data.publishing?.counts?.INTERRUPTED || 0);
+        updateOpsNeedsCount(interrupted);
+
+        const iJobs = (data.interaction?.jobs || []).sort((a, b) => b.createdAt - a.createdAt).slice(0, 15);
+        const pJobs = (data.publishing?.jobs || []).sort((a, b) => b.createdAt - a.createdAt).slice(0, 15);
+        const interactList = document.getElementById('executorJobListInteract');
+        const publishList = document.getElementById('executorJobList');
+        if (interactList) interactList.innerHTML = renderJobList(iJobs, 'Chưa có job tương tác');
+        if (publishList) publishList.innerHTML = renderJobList(pJobs, 'Chưa có job đăng bài');
     } catch (e) {}
 }
 
@@ -654,7 +1210,8 @@ async function submitUrls() {
     const urls = raw.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
     if (!urls.length) return alert('Không tìm thấy link hợp lệ');
 
-    const btn = document.querySelector('#tab-home .btn-primary');
+    const btn = document.getElementById('btnCreateInteraction') || document.querySelector('.btn-primary');
+    if (!btn) return;
     const oldHtml = btn.innerHTML;
     btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Đang tải...';
     btn.disabled = true;
@@ -740,9 +1297,9 @@ function renderArticles() {
     // Category chips
     if (categories.length > 0) {
         html += `<div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--border)">`;
-        html += `<button class="btn-secondary" style="white-space:nowrap; ${currentCategory === null ? 'background:var(--primary); color:#000;' : ''}" onclick="filterCategory(null)">Tất cả</button>`;
+        html += `<button class="btn-secondary" style="white-space:nowrap; ${currentCategory === null ? 'background:var(--primary); color:#fff; border-color:var(--primary);' : ''}" onclick="filterCategory(null)">Tất cả</button>`;
         categories.forEach(cat => {
-            html += `<button class="btn-secondary" style="white-space:nowrap; ${currentCategory === cat ? 'background:var(--primary); color:#000;' : ''}" onclick="filterCategory('${cat}')">${cat}</button>`;
+            html += `<button class="btn-secondary" style="white-space:nowrap; ${currentCategory === cat ? 'background:var(--primary); color:#fff; border-color:var(--primary);' : ''}" onclick="filterCategory('${cat}')">${cat}</button>`;
         });
         html += `</div>`;
     }
@@ -867,68 +1424,16 @@ async function deleteImage(articleId, imageIndex) {
     }
 }
 
-// ==== ADMIN FUNCTIONS ====
-async function fetchUsers() {
-    try {
-        const res = await apiCall('/api/users');
-        const users = await res.json();
-        
-        let html = '';
-        users.forEach(u => {
-            html += `
-            <div class="list-item" style="padding:12px">
-                <div style="font-weight:600">${u.username} ${u.role==='admin'?'👑':''}</div>
-                <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px">Group: ${u.group} · Points: ${u.points}</div>
-                <div style="display:flex; gap:6px">
-                    <button class="btn-secondary" style="flex:1" onclick="resetWebDevice('${u.id}')">Rs Browser</button>
-                    <button class="btn-secondary" style="flex:1" onclick="resetApkDevice('${u.id}')">Rs APK</button>
-                </div>
-            </div>`;
-        });
-        document.getElementById('adminUserList').innerHTML = html;
-    } catch(e){}
-}
-
-async function adminAddUser() {
-    const username = document.getElementById('newUserName').value.trim();
-    const password = document.getElementById('newUserPass').value;
-    const group = document.getElementById('newUserGroup').value.trim();
-    if(!username || !password || !group) return alert('Điền đủ form!');
-
-    try {
-        const res = await apiCall('/api/users', {
-            method: 'POST',
-            body: JSON.stringify({ username, password, group, role: 'user' })
-        });
-        if(res.ok) {
-            document.getElementById('newUserName').value = '';
-            document.getElementById('newUserPass').value = '';
-            alert('Tạo OK!');
-            fetchUsers();
-        } else {
-            const e = await res.json(); alert(e.error);
-        }
-    } catch(e){}
-}
-
-async function resetWebDevice(id) {
-    if(!confirm('Xoá liên kết Trình Duyệt của user này?')) return;
-    await apiCall(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify({ webDeviceId: null }) });
-    alert('Thành công!');
-}
-async function resetApkDevice(id) {
-    if(!confirm('Xoá liên kết Máy Cày (APK) của user này?')) return;
-    await apiCall(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify({ deviceId: null }) });
-    alert('Thành công!');
-}
-
+// ==== ADMIN (danger zone on profile; user CRUD lives in /admin.html) ====
 async function resetAllExecutorQueues() {
-    if (!confirm('CẢNH BÁO: Xoá vĩnh viễn tất cả task trong cả hai queue?')) return;
-    if (!confirm('Xác nhận lần cuối: task đang chạy cũng sẽ bị xoá và không thể khôi phục.')) return;
+    const typed = (document.getElementById('resetConfirmInput')?.value || '').trim();
+    if (typed !== 'RESET') return alert('Gõ RESET vào ô xác nhận trước khi xoá.');
+    if (!confirm('Xoá vĩnh viễn tất cả task (kể cả đang chạy)?')) return;
     try {
         const res = await apiCall('/api/executor/queues/reset', { method: 'DELETE' });
         const data = await res.json();
         if (!res.ok) return alert(data.error || 'Reset queue thất bại.');
+        document.getElementById('resetConfirmInput').value = '';
         alert(`Đã xoá ${data.totalDeleted} task (Tương tác: ${data.deleted.interaction}, Đăng bài: ${data.deleted.publishing}).`);
         await fetchExecutorQueues();
     } catch (e) {
@@ -937,12 +1442,6 @@ async function resetAllExecutorQueues() {
 }
 
 init();
-setInterval(() => {
-    if (authToken) {
-        fetchExecutorQueues();
-        fetchInteractionTargets();
-    }
-}, 10000);
 </script>
 </body>
 </html>

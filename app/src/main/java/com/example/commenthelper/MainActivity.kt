@@ -359,9 +359,11 @@ class MainActivity : ComponentActivity() {
                 try {
                     val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     val user = prefs.getString(KEY_USERNAME, "unknown") ?: "unknown"
+                    val token = prefs.getString(KEY_AUTH_TOKEN, "") ?: ""
                     val conn = URL("$SERVER_URL/api/logs/apk").openConnection() as HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
+                    if (token.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $token")
                     conn.doOutput = true
                     java.io.OutputStreamWriter(conn.outputStream).use { 
                         it.write(JSONObject().put("log", "[CRASH] $log").put("username", user).toString()) 

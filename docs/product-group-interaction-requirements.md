@@ -1,7 +1,29 @@
 # Yêu cầu sản phẩm: Tương tác bài viết trong Group
 
 > Trạng thái: tài liệu yêu cầu sản phẩm / phương án thiết kế.
-> Chưa triển khai code. Chỉ code khi có yêu cầu riêng.
+> Cập nhật 2026-08-08 — sau Four-Wave Product Hardening (MVP mỏng, Wave 4).
+
+### Shipped (MVP mỏng)
+
+| Item | Ghi chú |
+|------|---------|
+| `activeHours` | Khung giờ claim theo target (`activeStart`/`activeEnd`); ngoài cửa sổ → không claim |
+| `maxRuntimeHours` | `autoClose.maxRuntimeHours` → target `RUNNING` quá hạn chuyển `NEEDS_REVIEW` |
+| Prefer joined | Claim ưu tiên tài khoản đã join group (intel); cold start / chưa có joined → cho claim |
+| `onlineOnly` | Đã gỡ khỏi UI; server ignore (không build device presence) |
+| Ops resolve | Dashboard resolve job `INTERRUPTED`; resume target `NEEDS_REVIEW` → `RUNNING` |
+| Speed pacing | Planner gán `scheduledAt` theo SLOW/NORMAL/FAST (`executor-schedule`) |
+
+### Deferred (ngoài MVP mỏng)
+
+| Item | Ghi chú |
+|------|---------|
+| Campaign | Chiến dịch đa target — explicit non-goal |
+| Worker-pool | Nhóm worker / phân bổ pool — explicit non-goal |
+| `DRAFT` lifecycle | Trạng thái nháp đầy đủ chưa ship |
+| Full online presence | Presence thiết bị thật (thay cho `onlineOnly`) — deferred |
+
+Phần còn lại của tài liệu vẫn là yêu cầu/thiết kế dài hạn; không đồng nghĩa mọi mục đã có code.
 
 ## 1. Mục tiêu
 

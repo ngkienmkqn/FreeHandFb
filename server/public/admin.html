@@ -3,83 +3,138 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>⚡ Comment Helper Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <title>FreeHand Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #09090b; --panel: rgba(24, 24, 27, 0.7); --border: rgba(255, 255, 255, 0.1);
-            --primary: #8b5cf6; --success: #10b981; --error: #ef4444; --warn: #f59e0b; --text: #f8fafc;
+            --bg: #141412;
+            --panel: #1c1c19;
+            --surface-2: #22221e;
+            --border: #34342e;
+            --primary: #0f766e;
+            --primary-hover: #0d9488;
+            --primary-soft: rgba(15, 118, 110, 0.16);
+            --success: #059669;
+            --error: #dc2626;
+            --warn: #d97706;
+            --text: #f4f1ea;
+            --muted: #a39e93;
+            --sidebar: #121210;
+            --radius: 10px;
+            --text-xs: 0.75rem;
+            --text-sm: 0.8125rem;
+            --text-md: 0.9375rem;
+            --text-lg: 1.0625rem;
+            --text-xl: 1.25rem;
+            --text-2xl: 1.5rem;
         }
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+        body {
+            margin: 0; padding: 0;
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: var(--text-md);
+            line-height: 1.45;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
 
-        /* Login */
         .login-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); z-index: 100; }
-        .login-box { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 40px; width: 380px; backdrop-filter: blur(12px); }
-        .login-box h1 { margin: 0 0 24px; text-align: center; font-size: 1.5rem; }
-        .login-box .error { color: var(--error); font-size: 0.85rem; margin-top: 8px; min-height: 20px; }
+        .login-box { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 36px; width: 380px; }
+        .login-box h1 { margin: 0 0 20px; text-align: center; font-size: var(--text-2xl); font-weight: 700; letter-spacing: -0.03em; }
+        .login-box .error { color: #f87171; font-size: var(--text-sm); margin-top: 8px; min-height: 20px; }
 
-        /* Layout */
-        .app { display: none; }
-        .app.visible { display: block; }
-        .topbar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
-        .topbar-user { display: flex; align-items: center; gap: 12px; }
-        .topbar-badge { background: var(--primary); padding: 3px 12px; border-radius: 20px; font-size: 0.75rem; }
-        .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1400px; margin: 20px auto; padding: 0 20px; }
-        .layout-single { max-width: 900px; margin: 0 auto; padding: 0 20px; }
-        .sub-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-        .sub-tab { padding: 8px 16px; cursor: pointer; font-size: 0.85rem; border-bottom: 2px solid transparent; transition: 0.2s; color: #94a3b8; }
-        .sub-tab.active { color: var(--success); border-bottom-color: var(--success); }
-        .sub-tab-content { display: none; }
-        .sub-tab-content.visible { display: block; }
-        .glass-panel { background: var(--panel); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
-        h2 { margin: 0 0 16px; font-size: 1.1rem; color: #a5b4fc; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 8px; }
-        .badge { background: var(--primary); padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; }
+        .app { display: none; min-height: 100vh; }
+        .app.visible { display: flex; flex-direction: column; }
+        .topbar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar-user { display: flex; align-items: center; gap: 12px; font-size: var(--text-sm); }
+        .topbar-badge { background: var(--primary); color: #fff; padding: 3px 10px; border-radius: 6px; font-size: var(--text-xs); font-weight: 600; }
 
-        input, textarea, select { width: 100%; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid #334155; border-radius: 8px; color: white; font-family: inherit; font-size: 0.9rem; transition: 0.3s; }
-        input:focus, textarea:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 10px rgba(139, 92, 246, 0.3); }
+        .shell { display: flex; flex: 1; min-height: 0; }
+        .sidebar {
+            width: 220px; flex-shrink: 0; background: var(--sidebar); border-right: 1px solid var(--border);
+            padding: 16px 12px; display: none; flex-direction: column; gap: 2px;
+        }
+        .sidebar.visible { display: flex; }
+        .nav-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: #6f6a60; padding: 14px 10px 6px; font-weight: 600; }
+        .side-nav {
+            display: block; width: 100%; text-align: left; background: transparent; border: none; color: var(--muted);
+            padding: 9px 12px; border-radius: 8px; cursor: pointer; font: inherit; font-size: var(--text-sm); font-weight: 500;
+        }
+        .side-nav:hover { background: var(--surface-2); color: var(--text); }
+        .side-nav.active { background: var(--primary-soft); color: #5eead4; }
+
+        .shell-main { flex: 1; overflow-y: auto; padding: 24px; }
+        .page { display: none; max-width: 1200px; margin: 0 auto; }
+        .page.visible { display: block; }
+        .page-title { margin: 0 0 6px; font-size: var(--text-2xl); font-weight: 700; letter-spacing: -0.03em; }
+        .page-desc { margin: 0 0 20px; color: var(--muted); font-size: var(--text-sm); }
+
+        .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .layout-single { max-width: 720px; }
+        @media (max-width: 900px) {
+            .sidebar { width: 180px; }
+            .layout { grid-template-columns: 1fr; }
+        }
+
+        .glass-panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
+        h2 { margin: 0 0 12px; font-size: var(--text-sm); font-weight: 600; color: #5eead4; letter-spacing: 0.01em; display: flex; align-items: center; gap: 8px; }
+        h3 { margin: 16px 0 8px; font-size: var(--text-sm); font-weight: 600; }
+        .badge { background: var(--primary); color: #fff; padding: 2px 8px; border-radius: 6px; font-size: var(--text-xs); font-weight: 600; }
+        .field { margin-bottom: 12px; }
+        .field label { display: block; font-size: var(--text-sm); font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+        .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 700px) { .field-grid { grid-template-columns: 1fr; } }
+
+        input, textarea, select {
+            width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border);
+            border-radius: 8px; color: var(--text); font-family: inherit; font-size: var(--text-md);
+        }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: var(--primary-hover); box-shadow: 0 0 0 3px var(--primary-soft); }
         textarea { resize: vertical; min-height: 80px; }
-        .btn { border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: 0.2s; }
-        .btn:hover { transform: translateY(-1px); }
-        .btn-primary { background: linear-gradient(135deg, var(--primary), #6d28d9); color: white; }
-        .btn-success { background: var(--success); color: white; }
-        .btn-danger { background: var(--error); color: white; font-size: 0.8rem; padding: 6px 12px; }
-        .btn-small { font-size: 0.8rem; padding: 6px 12px; }
+        .btn { border: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; font-size: var(--text-sm); cursor: pointer; font-family: inherit; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-success { background: var(--success); color: #fff; }
+        .btn-danger { background: var(--error); color: #fff; font-size: var(--text-xs); padding: 6px 12px; }
+        .btn-small { font-size: var(--text-xs); padding: 6px 12px; }
         .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
         .btn-row { display: flex; gap: 8px; margin-top: 12px; }
 
-        .post-item { background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 14px; border-radius: 10px; margin-bottom: 10px; }
-        .post-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-        .post-url { font-size: 0.85rem; color: #94a3b8; word-break: break-all; }
-        .status-badge { padding: 3px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; }
-        .status-PENDING { background: rgba(245, 158, 11, 0.2); color: var(--warn); }
-        .status-DONE { background: rgba(16, 185, 129, 0.2); color: var(--success); }
-
-        .tpl-item { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 12px; border-radius: 10px; margin-bottom: 8px; }
-        .tpl-text { flex: 1; font-size: 0.9rem; }
-
-        .user-item { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 12px; border-radius: 10px; margin-bottom: 8px; }
+        .post-item, .tpl-item, .user-item { background: var(--surface-2); border: 1px solid var(--border); padding: 12px; border-radius: 8px; margin-bottom: 8px; }
+        .post-item .post-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .post-url { font-size: var(--text-sm); color: var(--muted); word-break: break-all; }
+        .status-badge { padding: 3px 8px; border-radius: 6px; font-size: var(--text-xs); font-weight: 700; }
+        .status-PENDING { background: rgba(217, 119, 6, 0.16); color: #fbbf24; }
+        .status-DONE { background: rgba(5, 150, 105, 0.16); color: #34d399; }
+        .tpl-item { display: flex; align-items: center; gap: 8px; }
+        .tpl-text { flex: 1; font-size: var(--text-md); }
+        .user-item { display: flex; align-items: center; gap: 12px; }
         .user-info { flex: 1; }
         .user-name { font-weight: 600; }
-        .user-meta { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+        .user-meta { font-size: var(--text-xs); color: #6f6a60; margin-top: 2px; }
 
-        .stats { display: flex; gap: 16px; margin-bottom: 16px; }
-        .stat { flex: 1; text-align: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 10px; }
-        .stat-num { font-size: 1.5rem; font-weight: 700; }
-        .stat-label { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
-        .scroll-list { max-height: 400px; overflow-y: auto; margin-top: 12px; }
-        .bulk-hint { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
-        .filter-btns { display: flex; gap: 8px; margin-bottom: 12px; }
-        .filter-btn { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text); padding: 6px 14px; border-radius: 20px; cursor: pointer; font-size: 0.8rem; transition: 0.2s; }
-        .filter-btn.active { background: var(--primary); border-color: var(--primary); }
+        .stats { display: flex; gap: 12px; margin-bottom: 14px; }
+        .stat { flex: 1; text-align: center; padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
+        .stat-num { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; }
+        .stat-label { font-size: var(--text-xs); color: #6f6a60; margin-top: 4px; }
+        .scroll-list { max-height: 480px; overflow-y: auto; margin-top: 12px; }
+        .bulk-hint { font-size: var(--text-xs); color: #6f6a60; margin-top: 4px; }
+        .filter-btns { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+        .filter-btn { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: var(--text-sm); font-family: inherit; }
+        .filter-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
         .form-row { display: flex; gap: 8px; margin-bottom: 8px; }
         .form-row > * { flex: 1; }
-
-        .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-        .tab { padding: 10px 20px; cursor: pointer; font-size: 0.9rem; border-bottom: 2px solid transparent; transition: 0.2s; }
-        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
-        .tab-content { display: none; }
-        .tab-content.visible { display: block; }
+        .danger-zone { border-color: rgba(220, 38, 38, 0.45) !important; margin-top: 24px; }
+        .danger-zone h2 { color: #f87171; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+        .data-table th, .data-table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+        .data-table th { color: var(--muted); font-weight: 600; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; }
+        .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+        .data-table tr.selected td { background: var(--primary-soft); }
+        .pause-active { color: #fbbf24; }
+        .muted-cell { color: var(--muted); }
     </style>
 </head>
 <body>
@@ -87,7 +142,7 @@
 <!-- LOGIN SCREEN -->
 <div class="login-overlay" id="loginOverlay">
     <div class="login-box">
-        <h1>⚡ Comment Helper</h1>
+        <h1>FreeHand Admin</h1>
         <div style="margin-bottom:16px">
             <input type="text" id="loginUser" placeholder="Tên đăng nhập" style="margin-bottom:8px" />
             <input type="password" id="loginPass" placeholder="Mật khẩu" />
@@ -100,185 +155,302 @@
 <!-- MAIN APP -->
 <div class="app" id="mainApp">
     <div class="topbar">
-        <div style="font-weight:700; font-size:1.1rem;">⚡ Comment Helper</div>
+        <div style="font-weight:700; font-size:1.1rem;">FreeHand Admin</div>
         <div class="topbar-user">
             <span id="topUsername"></span>
             <span class="topbar-badge" id="topGroup"></span>
+            <a href="/dashboard.html" class="btn btn-outline btn-small" style="text-decoration:none">App User</a>
             <button class="btn btn-outline btn-small" onclick="doLogout()">Đăng xuất</button>
         </div>
     </div>
 
-    <!-- TABS (admin sees extra tab) -->
-    <div style="max-width:1400px; margin:20px auto; padding:0 20px;">
-        <div class="tabs">
-            <div class="tab active" onclick="switchTab('main', this)">📋 Bài viết & Templates</div>
-            <div class="tab" id="adminTab" style="display:none" onclick="switchTab('admin', this)">👥 Quản lý Users</div>
-            <div class="tab" id="groupsTab" style="display:none" onclick="switchTab('groups', this)">🎯 Nhóm Gợi Ý</div>
-        </div>
+    <div class="shell">
+        <aside class="sidebar" id="adminSidebar">
+            <div class="nav-label">Làm việc</div>
+            <button type="button" class="side-nav active" data-page="posts" onclick="switchPage('posts', this)">Bài viết</button>
+            <div class="nav-label">Vận hành</div>
+            <button type="button" class="side-nav" data-page="users" onclick="switchPage('users', this)">Users</button>
+            <button type="button" class="side-nav" data-page="comments" onclick="switchPage('comments', this)">Comment global</button>
+            <button type="button" class="side-nav" data-page="articles" onclick="switchPage('articles', this)">Bài mẫu</button>
+            <button type="button" class="side-nav" data-page="groups" onclick="switchPage('groups', this)">Nhóm gợi ý</button>
+            <button type="button" class="side-nav" data-page="group-intel" onclick="switchPage('group-intel', this)">Group Intel</button>
+            <div class="nav-label">Hệ thống</div>
+            <button type="button" class="side-nav" data-page="ota" onclick="switchPage('ota', this)">OTA Engine</button>
+            <button type="button" class="side-nav" data-page="settings" onclick="switchPage('settings', this)">Cài đặt</button>
+            <button type="button" class="side-nav" data-page="logs" onclick="switchPage('logs', this)">Logs</button>
+        </aside>
 
-        <!-- TAB: Main -->
-        <div class="tab-content visible" id="tab-main">
-            <div class="layout">
-                <div>
-                    <div class="glass-panel">
-                        <h2>📝 Thêm Bài Viết</h2>
-                        <textarea id="bulkUrls" placeholder="Dán link bài viết (mỗi dòng 1 link)"></textarea>
-                        <div class="bulk-hint">Mỗi dòng 1 link. Hỗ trợ thêm nhiều bài cùng lúc.</div>
-                        <div class="btn-row"><button class="btn btn-primary" onclick="addPosts()" style="flex:1">➕ Thêm bài</button></div>
+        <div class="shell-main">
+            <!-- PAGE: Posts -->
+            <div class="page visible" id="page-posts">
+                <h1 class="page-title">Bài viết &amp; comment cá nhân</h1>
+                <p class="page-desc">Thêm link cần comment và quản lý mẫu comment của tài khoản.</p>
+                <div class="layout">
+                    <div>
+                        <div class="glass-panel">
+                            <h2>Thêm bài viết</h2>
+                            <textarea id="bulkUrls" placeholder="Dán link bài viết (mỗi dòng 1 link)"></textarea>
+                            <div class="bulk-hint">Mỗi dòng 1 link. Hỗ trợ thêm nhiều bài cùng lúc.</div>
+                            <div class="btn-row"><button class="btn btn-primary" onclick="addPosts()" style="flex:1">Thêm bài</button></div>
+                        </div>
+                        <div class="glass-panel">
+                            <h2>Danh sách bài viết <span class="badge" id="postCount">0</span></h2>
+                            <div id="groupFilterWrap" style="display:none; margin-bottom:12px">
+                                <select id="groupFilter" onchange="fetchPosts()" style="max-width:200px">
+                                    <option value="">Tất cả nhóm</option>
+                                </select>
+                            </div>
+                            <div class="stats">
+                                <div class="stat"><div class="stat-num" id="pendingCount" style="color:var(--warn)">0</div><div class="stat-label">Chưa làm</div></div>
+                                <div class="stat"><div class="stat-num" id="doneCount" style="color:var(--success)">0</div><div class="stat-label">Đã xong</div></div>
+                            </div>
+                            <div class="filter-btns">
+                                <button class="filter-btn active" onclick="setFilter('all', this)">Tất cả</button>
+                                <button class="filter-btn" onclick="setFilter('PENDING', this)">Chưa làm</button>
+                                <button class="filter-btn" onclick="setFilter('DONE', this)">Đã xong</button>
+                            </div>
+                            <div class="scroll-list" id="postList"></div>
+                            <div class="btn-row"><button class="btn btn-danger btn-small" onclick="clearDone()">Xoá tất cả đã xong</button></div>
+                        </div>
                     </div>
-                    <div class="glass-panel">
-                        <h2>📋 Danh Sách Bài Viết <span class="badge" id="postCount">0</span></h2>
-                        <div id="groupFilterWrap" style="display:none; margin-bottom:12px">
-                            <select id="groupFilter" onchange="fetchPosts()" style="max-width:200px">
-                                <option value="">Tất cả nhóm</option>
-                            </select>
+                    <div>
+                        <div class="glass-panel">
+                            <h2>Mẫu comment <span class="badge" id="tplCount">0</span></h2>
+                            <textarea id="newTemplate" placeholder="Nhập câu comment mẫu..." rows="2"></textarea>
+                            <div class="btn-row"><button class="btn btn-success" onclick="addTemplate()" style="flex:1">Thêm comment</button></div>
+                            <div class="scroll-list" id="templateList" style="margin-top:16px"></div>
                         </div>
-                        <div class="stats">
-                            <div class="stat"><div class="stat-num" id="pendingCount" style="color:var(--warn)">0</div><div class="stat-label">Chưa làm</div></div>
-                            <div class="stat"><div class="stat-num" id="doneCount" style="color:var(--success)">0</div><div class="stat-label">Đã xong</div></div>
-                        </div>
-                        <div class="filter-btns">
-                            <button class="filter-btn active" onclick="setFilter('all', this)">Tất cả</button>
-                            <button class="filter-btn" onclick="setFilter('PENDING', this)">Chưa làm</button>
-                            <button class="filter-btn" onclick="setFilter('DONE', this)">Đã xong</button>
-                        </div>
-                        <div class="scroll-list" id="postList"></div>
-                        <div class="btn-row"><button class="btn btn-danger btn-small" onclick="clearDone()">🗑️ Xoá tất cả đã xong</button></div>
-                    </div>
-                </div>
-                <div>
-                    <div class="glass-panel">
-                        <h2>💬 Mẫu Comment <span class="badge" id="tplCount">0</span></h2>
-                        <textarea id="newTemplate" placeholder="Nhập câu comment mẫu..." rows="2"></textarea>
-                        <div class="btn-row"><button class="btn btn-success" onclick="addTemplate()" style="flex:1">➕ Thêm comment</button></div>
-                        <div class="scroll-list" id="templateList" style="margin-top:16px"></div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- TAB: Admin -->
-        <div class="tab-content" id="tab-admin">
-            <div class="sub-tabs">
-                <div class="sub-tab active" onclick="switchSubTab('users', this)">👥 Users</div>
-                <div class="sub-tab" onclick="switchSubTab('content', this)">📝 Nội dung</div>
-                <div class="sub-tab" onclick="switchSubTab('settings', this)">⚙️ Cài đặt</div>
-                <div class="sub-tab" onclick="switchSubTab('logs', this)">📋 Logs</div>
+            <!-- PAGE: Users -->
+            <div class="page" id="page-users">
+                <h1 class="page-title">Users <span class="badge" id="userCount">0</span></h1>
+                <p class="page-desc">Tạo tài khoản và quản lý nhóm / quyền.</p>
+                <div class="layout">
+                    <div class="glass-panel">
+                        <h2>Thêm user</h2>
+                        <div class="field-grid">
+                            <div class="field"><label for="newUserName">Username</label><input type="text" id="newUserName" placeholder="vd: anh.tuan" /></div>
+                            <div class="field"><label for="newUserPass">Password</label><input type="password" id="newUserPass" placeholder="Mật khẩu" /></div>
+                            <div class="field"><label for="newUserGroup">Group có sẵn</label><select id="newUserGroup"><option value="">-- Chọn group --</option></select></div>
+                            <div class="field"><label for="newUserGroupCustom">Hoặc group mới</label><input type="text" id="newUserGroupCustom" placeholder="vd: sales-t1" /></div>
+                            <div class="field"><label for="newUserRole">Role</label><select id="newUserRole"><option value="user">User</option><option value="admin">Admin</option></select></div>
+                            <div class="field"><label for="newUserMaxPosts">Số bài / nhóm / ngày</label><input type="number" id="newUserMaxPosts" value="1" min="1" title="Giới hạn bài đăng mỗi ngày vào 1 nhóm" /></div>
+                            <div class="field"><label for="newUserPhone">SĐT</label><input type="text" id="newUserPhone" placeholder="Tuỳ chọn" /></div>
+                            <div class="field"><label for="newUserZalo">Link Zalo</label><input type="text" id="newUserZalo" placeholder="Tuỳ chọn" /></div>
+                        </div>
+                        <button class="btn btn-primary btn-small" onclick="addUser()" style="margin-top:4px">Thêm user</button>
+                    </div>
+                    <div class="glass-panel">
+                        <h2>Danh sách</h2>
+                        <div class="scroll-list" id="userList"></div>
+                    </div>
+                </div>
             </div>
 
-            <!-- SUB: Users -->
-            <div class="sub-tab-content visible" id="subtab-users">
+            <!-- PAGE: Comments global -->
+            <div class="page" id="page-comments">
+                <h1 class="page-title">Comment mặc định</h1>
+                <p class="page-desc">Đồng bộ xuống toàn bộ tài khoản.</p>
                 <div class="layout-single">
                     <div class="glass-panel">
-                        <h2>👥 Quản lý Users <span class="badge" id="userCount">0</span></h2>
-                        <div class="form-row"><input type="text" id="newUserName" placeholder="Username" /><input type="password" id="newUserPass" placeholder="Password" /></div>
-                        <div class="form-row"><select id="newUserGroup" style="max-width:50%"><option value="">-- Chọn group --</option></select><input type="text" id="newUserGroupCustom" placeholder="Hoặc nhập group mới" /></div>
-                        <div class="form-row"><select id="newUserRole"><option value="user">User</option><option value="admin">Admin</option></select><input type="text" id="newUserPhone" placeholder="SĐT" /><input type="text" id="newUserZalo" placeholder="Link Zalo" /><input type="number" id="newUserMaxPosts" placeholder="Số bài/nhóm/ngày" value="1" title="Giới hạn bài đăng mỗi ngày vào 1 nhóm" /></div>
-                        <button class="btn btn-primary btn-small" onclick="addUser()" style="margin-top:8px">➕ Thêm user</button>
-                        <div class="scroll-list" id="userList" style="margin-top:16px"></div>
+                        <textarea id="newGlobalTpl" placeholder="Nhập câu comment mặc định..." rows="2"></textarea>
+                        <div class="btn-row"><button class="btn btn-success btn-small" onclick="addGlobalTpl()">Thêm</button></div>
+                        <div class="scroll-list" id="globalTemplateList"></div>
                     </div>
                 </div>
             </div>
 
-            <!-- SUB: Content -->
-            <div class="sub-tab-content" id="subtab-content">
+            <!-- PAGE: Articles -->
+            <div class="page" id="page-articles">
+                <h1 class="page-title">Bài viết mẫu</h1>
+                <p class="page-desc">Tạo, duyệt và công khai bài mẫu cho app.</p>
                 <div class="layout">
-                    <div>
-                        <div class="glass-panel">
-                            <h2>🌐 Comment Mặc Định (Global)</h2>
-                            <div class="bulk-hint" style="margin-bottom:8px">Tự động đồng bộ xuống toàn bộ tài khoản.</div>
-                            <textarea id="newGlobalTpl" placeholder="Nhập câu comment mặc định..." rows="2"></textarea>
-                            <div class="btn-row"><button class="btn btn-success btn-small" onclick="addGlobalTpl()">➕ Thêm</button></div>
-                            <div class="scroll-list" id="globalTemplateList" style="margin-top:16px;max-height:300px"></div>
+                    <div class="glass-panel">
+                        <h2>Tạo bài mẫu</h2>
+                        <div class="field-grid">
+                            <div class="field"><label for="newArtCategory">Nhóm / category</label><input type="text" id="newArtCategory" placeholder="vd: sales-t1" /></div>
+                            <div class="field"><label for="newArtTitle">Tiêu đề</label><input type="text" id="newArtTitle" placeholder="Tiêu đề ngắn" /></div>
                         </div>
+                        <div class="field"><label for="newArtContent">Nội dung</label><textarea id="newArtContent" rows="4" placeholder="Nội dung bài đăng..."></textarea></div>
+                        <div class="field"><label for="newArtImagesUpload">Ảnh đính kèm</label><input type="file" id="newArtImagesUpload" multiple accept="image/*" onchange="previewImages()" /><div id="imagePreviewContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div></div>
+                        <button id="btnAddArticle" class="btn btn-primary" onclick="addArticle()">Tạo bài mẫu</button>
                     </div>
                     <div>
+                        <div class="stats" style="gap:8px">
+                            <div class="stat" style="padding:8px"><div class="stat-num" id="pendingArtCount" style="color:var(--warn);font-size:1.2rem">0</div><div class="stat-label">Chờ duyệt</div></div>
+                            <div class="stat" style="padding:8px"><div class="stat-num" id="approvedArtCount" style="color:var(--success);font-size:1.2rem">0</div><div class="stat-label">Đã duyệt</div></div>
+                        </div>
                         <div class="glass-panel">
-                            <h2>📝 Bài Viết Mẫu (Articles)</h2>
-                            <div class="form-row"><input type="text" id="newArtCategory" placeholder="Nhóm (vd: sales-t1)" /><input type="text" id="newArtTitle" placeholder="Tiêu đề" /></div>
-                            <textarea id="newArtContent" rows="3" placeholder="Nội dung bài đăng..."></textarea>
-                            <div style="margin:12px 0"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Ảnh đính kèm</label><input type="file" id="newArtImagesUpload" multiple accept="image/*" onchange="previewImages()" /><div id="imagePreviewContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div></div>
-                            <button id="btnAddArticle" class="btn btn-primary" onclick="addArticle()">➕ Tạo Bài Mẫu</button>
-                            <div class="stats" style="margin-top:16px;gap:8px"><div class="stat" style="padding:8px"><div class="stat-num" id="pendingArtCount" style="color:var(--warn);font-size:1.2rem">0</div><div class="stat-label">Chờ duyệt</div></div><div class="stat" style="padding:8px"><div class="stat-num" id="approvedArtCount" style="color:var(--success);font-size:1.2rem">0</div><div class="stat-label">Đã duyệt</div></div></div>
-                            <h3 style="margin-top:12px;font-size:0.9rem;color:#f59e0b">⏳ CHỜ DUYỆT</h3>
-                            <div class="scroll-list" id="pendingArtList" style="max-height:300px"></div>
-                            <h3 style="margin-top:12px;font-size:0.9rem;color:#10b981">✅ CÔNG KHAI</h3>
-                            <div class="scroll-list" id="approvedArtList" style="max-height:400px"></div>
+                            <h2 style="color:var(--warn)">Chờ duyệt</h2>
+                            <div class="scroll-list" id="pendingArtList" style="max-height:280px"></div>
+                        </div>
+                        <div class="glass-panel">
+                            <h2 style="color:var(--success)">Công khai</h2>
+                            <div class="scroll-list" id="approvedArtList" style="max-height:360px"></div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- SUB: Settings -->
-            <div class="sub-tab-content" id="subtab-settings">
+            <!-- PAGE: Groups -->
+            <div class="page" id="page-groups">
+                <h1 class="page-title">Nhóm gợi ý</h1>
+                <p class="page-desc">Duyệt yêu cầu và quản lý nhóm hiển thị trên app.</p>
+                <div class="layout">
+                    <div class="glass-panel">
+                        <h2 style="color:var(--warn)">Chờ duyệt</h2>
+                        <div class="scroll-list" id="pendingGroupsList" style="max-height:480px"></div>
+                    </div>
+                    <div class="glass-panel">
+                        <h2>Nhóm hoạt động</h2>
+                        <div class="field-grid">
+                            <div class="field"><label for="newSugGroupName">Tên nhóm</label><input type="text" id="newSugGroupName" placeholder="Vd: Khách sạn Đà Lạt" /></div>
+                            <div class="field"><label for="newSugGroupCount">Số thành viên</label><input type="text" id="newSugGroupCount" placeholder="Vd: 150K" /></div>
+                        </div>
+                        <div class="field"><label for="newSugGroupUrl">Link</label><input type="text" id="newSugGroupUrl" placeholder="https://..." /></div>
+                        <button class="btn btn-primary btn-small" onclick="addSuggestedGroup()">Thêm nhóm (auto duyệt)</button>
+                        <div class="scroll-list" id="approvedGroupsList" style="margin-top:16px;max-height:400px"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE: Group Intel -->
+            <div class="page" id="page-group-intel">
+                <h1 class="page-title">Group Intel <span class="badge" id="groupIntelCount">0</span></h1>
+                <p class="page-desc">Theo dõi fail streak / pause theo Facebook group và chỉnh membership tài khoản.</p>
+                <div class="layout">
+                    <div class="glass-panel">
+                        <h2>Groups</h2>
+                        <div class="btn-row" style="margin-top:0;margin-bottom:12px">
+                            <button class="btn btn-outline btn-small" onclick="fetchGroupIntel()">Làm mới</button>
+                        </div>
+                        <div class="scroll-list" id="groupIntelTableWrap" style="max-height:560px">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>groupId</th>
+                                        <th>failStreak</th>
+                                        <th>pausedUntil</th>
+                                        <th>pauseReason</th>
+                                        <th>joined</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="groupIntelTableBody"></tbody>
+                            </table>
+                        </div>
+                        <div id="groupIntelEmpty" style="display:none;text-align:center;color:#64748b;padding:24px">Chưa có group intelligence.</div>
+                    </div>
+                    <div class="glass-panel">
+                        <h2>Account membership</h2>
+                        <div class="field">
+                            <label for="intelGroupSelect">Group</label>
+                            <select id="intelGroupSelect" onchange="onIntelGroupSelect()"></select>
+                        </div>
+                        <div id="intelSelectedMeta" class="bulk-hint" style="margin-bottom:12px">Chọn group để xem / sửa membership.</div>
+                        <div class="scroll-list" id="intelAccountList" style="max-height:360px;margin-top:0"></div>
+                        <h3>Thêm / cập nhật account</h3>
+                        <div class="field-grid">
+                            <div class="field"><label for="intelAccountUser">Username</label><input type="text" id="intelAccountUser" placeholder="vd: anh.tuan" /></div>
+                            <div class="field">
+                                <label for="intelAccountStatus">Status</label>
+                                <select id="intelAccountStatus">
+                                    <option value="JOINED">JOINED</option>
+                                    <option value="NOT_JOINED">NOT_JOINED</option>
+                                    <option value="PENDING">PENDING</option>
+                                    <option value="BLOCKED">BLOCKED</option>
+                                    <option value="LEFT">LEFT</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary btn-small" onclick="saveIntelAccountStatus()">Lưu membership</button>
+                        <div id="intelAccountStatusMsg" style="margin-top:8px;font-size:0.85rem"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE: OTA Engine -->
+            <div class="page" id="page-ota">
+                <h1 class="page-title">OTA Engine</h1>
+                <p class="page-desc">Sửa version, anchors JSON và jsCode. Device hot-reload ở lần post tiếp theo.</p>
+                <div class="layout-single" style="max-width:960px">
+                    <div class="glass-panel">
+                        <h2>Script OTA</h2>
+                        <div class="bulk-hint" style="margin-bottom:12px">Load theo version (hoặc <code>latest</code>). Save đẩy lên server và đặt version đó thành latest.</div>
+                        <div class="field"><label for="otaVersion">Version</label><input type="text" id="otaVersion" placeholder="latest hoặc 1.3.0" /></div>
+                        <div class="field"><label for="otaAnchors">Anchors (JSON)</label><textarea id="otaAnchors" rows="12" placeholder='{ "commentBtn": "...", ... }' style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.8rem"></textarea></div>
+                        <div class="field"><label for="otaJsCode">jsCode</label><textarea id="otaJsCode" rows="16" placeholder="// OTA Javascript…" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.8rem"></textarea></div>
+                        <div class="btn-row">
+                            <button class="btn btn-outline" onclick="loadOtaScript()">Load current</button>
+                            <button class="btn btn-success" onclick="saveOtaScript()">Save</button>
+                        </div>
+                        <div id="otaStatus" style="margin-top:8px;font-size:0.85rem"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE: Settings -->
+            <div class="page" id="page-settings">
+                <h1 class="page-title">Cài đặt hệ thống</h1>
+                <p class="page-desc">Giới hạn đăng bài, LLM, APK và splash.</p>
                 <div class="layout">
                     <div>
                         <div class="glass-panel">
-                            <h2>⚙️ Cài đặt Hệ thống</h2>
-                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Mỗi nhóm tối đa / ngày / user</label><input type="number" id="cfgMaxPosts" placeholder="1" step="1" min="1" /></div>
-                            <button class="btn btn-success" onclick="saveGlobalSettings()">💾 Lưu</button>
+                            <h2>Hệ thống</h2>
+                            <div class="field"><label for="cfgMaxPosts">Mỗi nhóm tối đa / ngày / user</label><input type="number" id="cfgMaxPosts" placeholder="1" step="1" min="1" /></div>
+                            <div class="field">
+                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                                    <input type="checkbox" id="cfgLlmEnabled" style="width:auto" /> Bật LLM (Wealify)
+                                </label>
+                                <div id="cfgLlmKeyStatus" style="font-size:0.75rem;color:#64748b;margin-top:6px"></div>
+                            </div>
+                            <button class="btn btn-success" onclick="saveGlobalSettings()">Lưu</button>
                             <div id="cfgSettingsStatus" style="margin-top:8px;font-size:0.85rem"></div>
                         </div>
                         <div class="glass-panel">
-                            <h2>📦 Cập nhật App</h2>
-                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Phiên bản</label><input type="text" id="cfgVersion" placeholder="1.0.0" /></div>
-                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Link APK</label><input type="text" id="cfgApkUrl" placeholder="https://github.com/..." /></div>
-                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Changelog</label><textarea id="cfgChangelog" rows="2" placeholder="Mô tả thay đổi..."></textarea></div>
-                            <button class="btn btn-success" onclick="saveAppVersion()">💾 Lưu cấu hình</button>
+                            <h2>Cập nhật app</h2>
+                            <div class="field"><label for="cfgVersion">Phiên bản</label><input type="text" id="cfgVersion" placeholder="1.0.0" /></div>
+                            <div class="field"><label for="cfgApkUrl">Link APK</label><input type="text" id="cfgApkUrl" placeholder="https://github.com/..." /></div>
+                            <div class="field"><label for="cfgChangelog">Changelog</label><textarea id="cfgChangelog" rows="2" placeholder="Mô tả thay đổi..."></textarea></div>
+                            <button class="btn btn-success" onclick="saveAppVersion()">Lưu cấu hình</button>
                             <div id="cfgStatus" style="margin-top:8px;font-size:0.85rem"></div>
-                        </div>
-                        <div class="glass-panel" style="border-color:rgba(239,68,68,.5)">
-                            <h2 style="color:#ef4444">⚠️ Reset Queue Executor</h2>
-                            <div class="bulk-hint" style="margin-bottom:12px">Xoá vĩnh viễn toàn bộ task Tương tác và Đăng bài, kể cả task đang chạy. Không xoá tài khoản, cấu hình hoặc bài mẫu.</div>
-                            <button class="btn btn-danger" style="width:100%;padding:12px" onclick="resetAllExecutorQueues()">🗑️ RESET TẤT CẢ TASK</button>
                         </div>
                     </div>
                     <div>
                         <div class="glass-panel">
-                            <h2>🎨 Splash Screen App</h2>
-                            <div class="bulk-hint" style="margin-bottom:12px">Màn hình chờ khi mở App trên điện thoại</div>
-                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Ảnh (Logo / Cover)</label><input type="file" id="splashImageUpload" accept="image/*" /><div id="splashImagePreview" style="margin-top:8px;display:flex;gap:8px"></div></div>
-                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Chữ hiển thị (xuống dòng)</label><textarea id="splashText" rows="3" placeholder="Chào mừng bạn..."></textarea></div>
-                            <div style="margin-bottom:12px"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px">Thời gian (ms, 1s=1000)</label><input type="number" id="splashDuration" placeholder="3000" /></div>
-                            <button class="btn btn-primary" onclick="saveSplashSettings()">🚀 Cập nhật</button>
+                            <h2>Splash screen</h2>
+                            <div class="bulk-hint" style="margin-bottom:12px">Màn hình chờ khi mở app trên điện thoại</div>
+                            <div class="field"><label for="splashImageUpload">Ảnh logo / cover</label><input type="file" id="splashImageUpload" accept="image/*" /><div id="splashImagePreview" style="margin-top:8px;display:flex;gap:8px"></div></div>
+                            <div class="field"><label for="splashText">Chữ hiển thị</label><textarea id="splashText" rows="3" placeholder="Chào mừng bạn..."></textarea></div>
+                            <div class="field"><label for="splashDuration">Thời gian (ms)</label><input type="number" id="splashDuration" placeholder="3000" /></div>
+                            <button class="btn btn-primary" onclick="saveSplashSettings()">Cập nhật splash</button>
                             <div id="splashStatus" style="margin-top:8px;font-size:0.85rem"></div>
+                        </div>
+                        <div class="glass-panel danger-zone">
+                            <h2>Vùng nguy hiểm</h2>
+                            <div class="bulk-hint" style="margin-bottom:12px">Xoá vĩnh viễn toàn bộ task Tương tác và Đăng bài. Không xoá tài khoản, cấu hình hoặc bài mẫu. Gõ <strong>RESET</strong> để xác nhận.</div>
+                            <div class="field"><label for="adminResetConfirm">Xác nhận</label><input type="text" id="adminResetConfirm" placeholder="Gõ RESET" autocomplete="off" /></div>
+                            <button class="btn btn-danger" style="width:100%;padding:12px" onclick="resetAllExecutorQueues()">Reset tất cả task</button>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- SUB: Logs -->
-            <div class="sub-tab-content" id="subtab-logs">
+            <!-- PAGE: Logs -->
+            <div class="page" id="page-logs">
+                <h1 class="page-title">Logs hệ thống</h1>
+                <p class="page-desc">Xem log server và lỗi app.</p>
                 <div class="layout-single">
                     <div class="glass-panel">
-                        <h2>📋 Logs Hệ Thống</h2>
-                        <div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-outline" onclick="viewLog('server-out')">Log Server</button><button class="btn btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="viewLog('server-err')">Lỗi Server</button><button class="btn btn-outline" style="color:#f59e0b;border-color:rgba(245,158,11,0.2)" onclick="viewLog('apk')">Lỗi App</button></div>
-                        <pre id="logViewerContainer" style="display:none;background:rgba(0,0,0,0.5);color:#10b981;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap;"></pre>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- TAB: Groups -->
-        <div class="tab-content" id="tab-groups">
-            <div class="layout">
-                <div>
-                    <div class="glass-panel">
-                        <h2>🎯 Yêu cầu Đề xuất (Chờ duyệt)</h2>
-                        <div style="font-weight:bold;color:var(--warn);margin-bottom:8px">Danh sách thành viên gửi yêu cầu:</div>
-                        <div class="scroll-list" id="pendingGroupsList" style="margin-bottom:20px;max-height:400px"></div>
-                    </div>
-                </div>
-                <div>
-                    <div class="glass-panel">
-                        <h2>✅ Nhóm Hoạt Động (Hiển thị ra App)</h2>
-                        <div class="form-row">
-                            <input type="text" id="newSugGroupName" placeholder="Tên nhóm (Vd: Khách sạn Đà Lạt)" />
-                            <input type="text" id="newSugGroupCount" placeholder="Số TV (Vd: 150K)" style="max-width:140px"/>
+                        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+                            <button class="btn btn-outline" onclick="viewLog('server-out')">Log Server</button>
+                            <button class="btn btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="viewLog('server-err')">Lỗi Server</button>
+                            <button class="btn btn-outline" style="color:#f59e0b;border-color:rgba(245,158,11,0.2)" onclick="viewLog('apk')">Lỗi App</button>
                         </div>
-                        <input type="text" id="newSugGroupUrl" placeholder="Link (https://...)" style="margin-bottom:12px" />
-                        <button class="btn btn-primary btn-small" onclick="addSuggestedGroup()">➕ Thêm nhóm (Auto Duyệt)</button>
-                        <div class="scroll-list" id="approvedGroupsList" style="margin-top:16px;max-height:500px"></div>
+                        <pre id="logViewerContainer" style="display:none;background:rgba(0,0,0,0.5);color:#10b981;padding:12px;border-radius:8px;max-height:560px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap;"></pre>
                     </div>
                 </div>
             </div>
@@ -291,6 +463,8 @@ let authToken = localStorage.getItem('ch_token') || '';
 let currentUser = JSON.parse(localStorage.getItem('ch_user') || 'null');
 let allPosts = [], allTemplates = [];
 let currentFilter = 'all';
+let allGroupIntel = [];
+let selectedIntelGroupId = '';
 
 // ---- AUTH ----
 async function apiFetch(path, opts = {}) {
@@ -345,40 +519,45 @@ async function showApp() {
     document.getElementById('topUsername').textContent = `${currentUser.username} (Điểm: ${currentUser.points || 0})`;
     document.getElementById('topGroup').textContent = currentUser.group;
 
+    const sidebar = document.getElementById('adminSidebar');
     if (currentUser.role === 'admin') {
-        document.getElementById('adminTab').style.display = '';
+        sidebar.classList.add('visible');
         document.getElementById('groupFilterWrap').style.display = '';
-        document.getElementById('groupsTab').style.display = '';
         fetchUsers();
         fetchAppVersion();
         fetchGlobalSettings();
         fetchGlobalComments();
         fetchArticles();
         fetchSuggestedGroups();
-        // Populate group filter
+        fetchGroupIntel();
+        loadOtaScript();
         const gRes = await apiFetch('/api/groups');
         if (gRes.ok) {
             const groups = await gRes.json();
             const sel = document.getElementById('groupFilter');
             sel.innerHTML = '<option value="">Tất cả nhóm</option>' + groups.map(g => `<option value="${g}">${g}</option>`).join('');
         }
+    } else {
+        sidebar.classList.remove('visible');
+        switchPage('posts');
     }
     fetchPosts();
     fetchTemplates();
 }
 
-// ---- TABS ----
-function switchTab(name, el) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('visible'));
-    el.classList.add('active');
-    document.getElementById('tab-' + name).classList.add('visible');
-}
-function switchSubTab(name, el) {
-    el.parentElement.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
-    el.closest('.tab-content').querySelectorAll('.sub-tab-content').forEach(t => t.classList.remove('visible'));
-    el.classList.add('active');
-    document.getElementById('subtab-' + name).classList.add('visible');
+// ---- PAGES ----
+function switchPage(name, el) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('visible'));
+    document.querySelectorAll('.side-nav').forEach(n => n.classList.remove('active'));
+    const page = document.getElementById('page-' + name);
+    if (page) page.classList.add('visible');
+    if (el) el.classList.add('active');
+    else {
+        const nav = document.querySelector(`.side-nav[data-page="${name}"]`);
+        if (nav) nav.classList.add('active');
+    }
+    if (name === 'group-intel') fetchGroupIntel();
+    if (name === 'ota') loadOtaScript();
 }
 
 // ---- POSTS ----
@@ -492,7 +671,7 @@ function renderArticles() {
                 <div class="user-name">[${esc(a.category)}] ${esc(a.title)}</div>
                 <div class="user-meta">Post By: <b>${esc(a.addedBy || 'admin')}</b> · ${new Date(a.createdAt).toLocaleString()}</div>
                 <div style="font-size:0.8rem;margin-top:4px;color:#cbd5e1;white-space:pre-wrap;border-left:2px solid #3b82f6;padding-left:8px">${esc(a.content).substring(0, 150)}${a.content.length > 150 ? '...' : ''}</div>
-                ${a.images && a.images.length ? `<div style="font-size:0.75rem; color:#8b5cf6; margin-top:4px">🖼 Có ${a.images.length} ảnh đính kèm</div>` : ''}
+                ${a.images && a.images.length ? `<div style="font-size:0.75rem; color:#5eead4; margin-top:4px">Có ${a.images.length} ảnh đính kèm</div>` : ''}
             </div>
             <div style="display:flex;gap:6px;align-items:flex-start">
                 ${isPending ? `<button class="btn btn-success btn-small" onclick="updateArticleStatus('${a.id}', 'approved')">Duyệt</button>` : ''}
@@ -722,6 +901,169 @@ async function deleteSuggestedGroup(id) {
     fetchSuggestedGroups();
 }
 
+// ---- GROUP INTEL ----
+const MEMBERSHIP_STATUSES = ['JOINED', 'NOT_JOINED', 'PENDING', 'BLOCKED', 'LEFT'];
+
+function formatPausedUntil(ts) {
+    const n = Number(ts) || 0;
+    if (!n) return '—';
+    if (n <= Date.now()) return 'hết hạn';
+    try { return new Date(n).toLocaleString('vi-VN'); } catch { return String(n); }
+}
+
+function joinedCountOf(item) {
+    if (typeof item.joinedCount === 'number') return item.joinedCount;
+    return Array.isArray(item.joinedAccounts) ? item.joinedAccounts.length : 0;
+}
+
+function membershipRowsForGroup(item) {
+    const byUser = {};
+    (item.accountMembership || []).forEach(m => {
+        if (m && m.username) byUser[m.username] = { username: m.username, status: m.status || 'NOT_JOINED' };
+    });
+    (item.joinedAccounts || []).forEach(a => {
+        const username = a.username || a;
+        if (!username) return;
+        if (!byUser[username]) byUser[username] = { username, status: 'JOINED' };
+        else if (!byUser[username].status) byUser[username].status = 'JOINED';
+    });
+    return Object.values(byUser).sort((a, b) => a.username.localeCompare(b.username));
+}
+
+async function fetchGroupIntel() {
+    const res = await apiFetch('/api/group-intelligence');
+    if (!res.ok) return;
+    allGroupIntel = await res.json();
+    renderGroupIntel();
+}
+
+function renderGroupIntel() {
+    document.getElementById('groupIntelCount').textContent = allGroupIntel.length;
+    const tbody = document.getElementById('groupIntelTableBody');
+    const empty = document.getElementById('groupIntelEmpty');
+    const wrap = document.getElementById('groupIntelTableWrap');
+    const sel = document.getElementById('intelGroupSelect');
+
+    sel.innerHTML = '<option value="">-- Chọn group --</option>' +
+        allGroupIntel.map(g => `<option value="${esc(g.groupId)}" ${g.groupId === selectedIntelGroupId ? 'selected' : ''}>${esc(g.groupId)}</option>`).join('');
+
+    if (!allGroupIntel.length) {
+        tbody.innerHTML = '';
+        empty.style.display = '';
+        wrap.style.display = 'none';
+        renderIntelAccounts();
+        return;
+    }
+    empty.style.display = 'none';
+    wrap.style.display = '';
+
+    tbody.innerHTML = allGroupIntel.map(g => {
+        const paused = Number(g.pausedUntil) > Date.now();
+        const reason = g.pauseReason || '';
+        const selected = g.groupId === selectedIntelGroupId ? 'selected' : '';
+        return `
+            <tr class="${selected}" style="cursor:pointer" onclick="selectIntelGroup('${escJs(g.groupId)}')">
+                <td><strong>${esc(g.groupId)}</strong></td>
+                <td>${g.failStreak || 0}</td>
+                <td class="${paused ? 'pause-active' : 'muted-cell'}">${formatPausedUntil(g.pausedUntil)}</td>
+                <td class="${reason ? 'pause-active' : 'muted-cell'}" style="max-width:220px;word-break:break-word">${reason ? esc(reason) : '—'}</td>
+                <td>${joinedCountOf(g)}</td>
+                <td onclick="event.stopPropagation()">
+                    <button class="btn btn-success btn-small" ${paused || (g.failStreak || 0) > 0 ? '' : 'disabled'} onclick="resumeGroupIntel('${escJs(g.groupId)}')">Resume</button>
+                </td>
+            </tr>`;
+    }).join('');
+
+    if (selectedIntelGroupId && !allGroupIntel.some(g => g.groupId === selectedIntelGroupId)) {
+        selectedIntelGroupId = '';
+        sel.value = '';
+    }
+    renderIntelAccounts();
+}
+
+function selectIntelGroup(groupId) {
+    selectedIntelGroupId = groupId || '';
+    document.getElementById('intelGroupSelect').value = selectedIntelGroupId;
+    renderGroupIntel();
+}
+
+function onIntelGroupSelect() {
+    selectedIntelGroupId = document.getElementById('intelGroupSelect').value || '';
+    renderGroupIntel();
+}
+
+function renderIntelAccounts() {
+    const meta = document.getElementById('intelSelectedMeta');
+    const list = document.getElementById('intelAccountList');
+    const item = allGroupIntel.find(g => g.groupId === selectedIntelGroupId);
+    if (!item) {
+        meta.textContent = 'Chọn group để xem / sửa membership.';
+        list.innerHTML = '<div style="color:#64748b;font-size:0.85rem;padding:8px">Chưa chọn group.</div>';
+        return;
+    }
+    const rows = membershipRowsForGroup(item);
+    meta.textContent = `${item.groupId} · ${joinedCountOf(item)} joined · failStreak ${item.failStreak || 0}`;
+    if (!rows.length) {
+        list.innerHTML = '<div style="color:#64748b;font-size:0.85rem;padding:8px">Chưa có account membership.</div>';
+        return;
+    }
+    list.innerHTML = rows.map(row => {
+        const opts = MEMBERSHIP_STATUSES.map(s =>
+            `<option value="${s}" ${s === row.status ? 'selected' : ''}>${s}</option>`
+        ).join('');
+        return `
+            <div class="user-item">
+                <div class="user-info">
+                    <div class="user-name">${esc(row.username)}</div>
+                    <div class="user-meta">status hiện tại: ${esc(row.status)}</div>
+                </div>
+                <select style="max-width:140px" onchange="updateIntelAccountStatus('${escJs(item.groupId)}','${escJs(row.username)}', this.value)">
+                    ${opts}
+                </select>
+            </div>`;
+    }).join('');
+}
+
+async function resumeGroupIntel(groupId) {
+    if (!groupId) return;
+    if (!confirm(`Resume group "${groupId}"? Xoá pause + reset fail streak.`)) return;
+    const res = await apiFetch(`/api/group-intelligence/${encodeURIComponent(groupId)}/resume`, { method: 'POST' });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Resume thất bại');
+        return;
+    }
+    await fetchGroupIntel();
+}
+
+async function updateIntelAccountStatus(groupId, username, status) {
+    const msg = document.getElementById('intelAccountStatusMsg');
+    msg.textContent = '';
+    const res = await apiFetch(
+        `/api/group-intelligence/${encodeURIComponent(groupId)}/accounts/${encodeURIComponent(username)}`,
+        { method: 'PUT', body: JSON.stringify({ status, source: 'admin' }) }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        msg.innerHTML = `<span style="color:#ef4444">${esc(data.error || 'Cập nhật thất bại')}</span>`;
+        await fetchGroupIntel();
+        return;
+    }
+    msg.innerHTML = `<span style="color:#10b981">Đã set ${esc(username)} → ${esc(status)}</span>`;
+    await fetchGroupIntel();
+}
+
+async function saveIntelAccountStatus() {
+    const groupId = selectedIntelGroupId || document.getElementById('intelGroupSelect').value;
+    const username = document.getElementById('intelAccountUser').value.trim();
+    const status = document.getElementById('intelAccountStatus').value;
+    const msg = document.getElementById('intelAccountStatusMsg');
+    if (!groupId) { msg.innerHTML = '<span style="color:#ef4444">Chọn group trước.</span>'; return; }
+    if (!username) { msg.innerHTML = '<span style="color:#ef4444">Nhập username.</span>'; return; }
+    await updateIntelAccountStatus(groupId, username, status);
+    document.getElementById('intelAccountUser').value = '';
+}
+
 // ---- LOGS (admin) ----
 async function deleteUser(id) { if (!confirm('Xoá user này?')) return; await apiFetch(`/api/users/${id}`, { method: 'DELETE' }); fetchUsers(); }
 
@@ -743,10 +1085,75 @@ async function saveAppVersion() {
     else document.getElementById('cfgStatus').innerHTML = '<span style="color:#ef4444">❌ Lỗi</span>';
 }
 
+// ---- OTA ENGINE (admin) ----
+async function loadOtaScript() {
+    const status = document.getElementById('otaStatus');
+    const verInput = document.getElementById('otaVersion');
+    const version = (verInput.value || 'latest').trim() || 'latest';
+    try {
+        if (status) status.textContent = 'Đang tải…';
+        const res = await apiFetch(`/api/engine/script?version=${encodeURIComponent(version)}`);
+        const data = await res.json();
+        if (!res.ok) {
+            if (status) status.innerHTML = `<span style="color:#ef4444">${esc(data.error || 'Load thất bại')}</span>`;
+            return;
+        }
+        verInput.value = data.version || version;
+        document.getElementById('otaAnchors').value = JSON.stringify(data.anchors || {}, null, 2);
+        document.getElementById('otaJsCode').value = data.jsCode || '';
+        if (status) status.innerHTML = `<span style="color:#10b981">Đã load version ${esc(data.version || version)}</span>`;
+    } catch (e) {
+        if (status) status.innerHTML = '<span style="color:#ef4444">Không thể kết nối server</span>';
+    }
+}
+
+async function saveOtaScript() {
+    const status = document.getElementById('otaStatus');
+    const version = document.getElementById('otaVersion').value.trim();
+    const anchorsText = document.getElementById('otaAnchors').value;
+    const jsCode = document.getElementById('otaJsCode').value;
+    if (!version || version === 'latest') return alert('Nhập version cụ thể để Save (không dùng latest).');
+    let anchors;
+    try {
+        anchors = JSON.parse(anchorsText);
+    } catch (e) {
+        alert('Anchors không phải JSON hợp lệ: ' + e.message);
+        return;
+    }
+    try {
+        if (status) status.textContent = 'Đang lưu…';
+        const res = await apiFetch('/api/engine/script', {
+            method: 'POST',
+            body: JSON.stringify({ version, anchors, jsCode })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            if (status) status.innerHTML = `<span style="color:#10b981">✅ Đã lưu version ${esc(data.version || version)}</span>`;
+        } else {
+            if (status) status.innerHTML = `<span style="color:#ef4444">❌ ${esc(data.error || 'Lỗi lưu')}</span>`;
+        }
+    } catch {
+        if (status) status.innerHTML = '<span style="color:#ef4444">Không thể kết nối server</span>';
+    }
+}
+
 // ---- UTILS ----
 function shortenUrl(url) { return url.length > 60 ? url.slice(0, 57) + '...' : url; }
-function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function escJs(s) { return s.replace(/\\/g,'\\\\').replace(/`/g,'\\`').replace(/\$/g,'\\$'); }
+function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+/** Safe inside JS string/template literals embedded in HTML attributes (e.g. onclick="fn('${escJs(x)}')"). */
+function escJs(s) {
+    return String(s ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '\\u0022')
+        .replace(/`/g, '\\`')
+        .replace(/\$/g, '\\$')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029')
+        .replace(/</g, '\\u003c');
+}
 
 // ---- INIT ----
 // Allow Enter key on login
@@ -919,6 +1326,15 @@ async function fetchGlobalSettings() {
         if (res.ok) {
             const data = await res.json();
             document.getElementById('cfgMaxPosts').value = data.maxGroupPostsPerDay || 1;
+            const llmCb = document.getElementById('cfgLlmEnabled');
+            if (llmCb) llmCb.checked = !!data.llmEnabled;
+            const keyStatus = document.getElementById('cfgLlmKeyStatus');
+            if (keyStatus) {
+                keyStatus.textContent = data.llmConfigured
+                    ? 'API key env WEALIFY_LLM_API_KEY: đã cấu hình'
+                    : 'API key env WEALIFY_LLM_API_KEY: chưa có — bật LLM sẽ không gọi được Wealify';
+                keyStatus.style.color = data.llmConfigured ? '#10b981' : '#f59e0b';
+            }
         }
         
         const splashRes = await apiFetch('/api/splash');
@@ -934,25 +1350,31 @@ async function fetchGlobalSettings() {
 }
 async function saveGlobalSettings() {
     const val = parseInt(document.getElementById('cfgMaxPosts').value) || 1;
+    const llmEnabled = !!document.getElementById('cfgLlmEnabled')?.checked;
     document.getElementById('cfgSettingsStatus').textContent = 'Đang lưu...';
     try {
         const res = await apiFetch('/api/settings', {
-            method: 'POST', body: JSON.stringify({ maxGroupPostsPerDay: val })
+            method: 'POST',
+            body: JSON.stringify({ maxGroupPostsPerDay: val, llmEnabled })
         });
-        if (res.ok) document.getElementById('cfgSettingsStatus').innerHTML = '<span style="color:#10b981">Đã lưu!</span>';
-        else document.getElementById('cfgSettingsStatus').innerHTML = '<span style="color:#ef4444">Lỗi!</span>';
+        if (res.ok) {
+            document.getElementById('cfgSettingsStatus').innerHTML = '<span style="color:#10b981">Đã lưu!</span>';
+            fetchGlobalSettings();
+        } else document.getElementById('cfgSettingsStatus').innerHTML = '<span style="color:#ef4444">Lỗi!</span>';
     } catch {
         document.getElementById('cfgSettingsStatus').innerHTML = '<span style="color:#ef4444">Mất kết nối!</span>';
     }
 }
 
 async function resetAllExecutorQueues() {
-    if (!confirm('CẢNH BÁO: Xoá vĩnh viễn tất cả task trong cả hai queue?')) return;
-    if (!confirm('Xác nhận lần cuối: task đang chạy cũng sẽ bị xoá và không thể khôi phục.')) return;
+    const typed = (document.getElementById('adminResetConfirm')?.value || '').trim();
+    if (typed !== 'RESET') return alert('Gõ RESET vào ô xác nhận trước khi xoá.');
+    if (!confirm('Xoá vĩnh viễn tất cả task (kể cả đang chạy)?')) return;
     try {
         const res = await apiFetch('/api/executor/queues/reset', { method: 'DELETE' });
         const data = await res.json();
         if (!res.ok) return alert(data.error || 'Reset queue thất bại.');
+        document.getElementById('adminResetConfirm').value = '';
         alert(`Đã xoá ${data.totalDeleted} task (Tương tác: ${data.deleted.interaction}, Đăng bài: ${data.deleted.publishing}).`);
     } catch (e) {
         alert('Không thể kết nối server để reset queue.');

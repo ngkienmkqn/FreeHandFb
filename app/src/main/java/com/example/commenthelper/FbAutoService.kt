@@ -1754,9 +1754,11 @@ class FbAutoService : AccessibilityService() {
                 try {
                     val prefs = getSharedPreferences("comment_helper_prefs", android.content.Context.MODE_PRIVATE)
                     val user = prefs.getString("username", "unknown") ?: "unknown"
+                    val token = prefs.getString("auth_token", "") ?: ""
                     val conn = java.net.URL("$SERVER_URL/api/logs/apk").openConnection() as java.net.HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
+                    if (token.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $token")
                     conn.doOutput = true
                     val payload = org.json.JSONObject().apply {
                         put("log", msg)

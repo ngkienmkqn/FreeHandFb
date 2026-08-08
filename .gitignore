@@ -17,3 +17,7 @@ node_modules/
 .trash-*
 app/build
 server/data/
+.env
+.env.local
+server/.env
+server/.env.local

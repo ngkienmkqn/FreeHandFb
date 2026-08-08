@@ -281,12 +281,34 @@ async function loadJobs(queueType) {
     return result.rows.map(dbToJob);
 }
 
+/** Merge top-level Wave-4 fields into auto_close JSONB for persist (no migration). */
+function autoCloseForPersist(target) {
+    const autoClose = { ...(target?.autoClose || {}) };
+    const resumed = Number(target?.resumedFromReviewAt ?? autoClose.resumedFromReviewAt);
+    if (Number.isFinite(resumed) && resumed > 0) {
+        autoClose.resumedFromReviewAt = resumed;
+    }
+    const hours = target?.activeHours;
+    if (hours?.start && hours?.end && !(autoClose.activeHours?.start && autoClose.activeHours?.end)) {
+        autoClose.activeHours = { start: hours.start, end: hours.end };
+    }
+    return autoClose;
+}
+
 function dbToTarget(row) {
+    const autoClose = { ...(row.auto_close || {}) };
+    const activeHours = autoClose.activeHours && typeof autoClose.activeHours === 'object'
+        ? autoClose.activeHours
+        : undefined;
+    const resumedRaw = row.resumed_from_review_at ?? autoClose.resumedFromReviewAt;
+    const resumedFromReviewAt = Number(resumedRaw);
     const target = {
         id: row.id, group: row.user_group, groupId: row.group_id, postUrl: row.post_url, status: row.status,
         requirements: row.requirements || {}, commentPool: row.comment_pool || [],
         allowRepeatComments: !!row.allow_repeat_comments, targetPost: row.target_post || {}, speed: row.speed,
-        priority: row.priority, onlineOnly: !!row.online_only, autoClose: row.auto_close || {},
+        priority: row.priority, onlineOnly: !!row.online_only, autoClose,
+        ...(activeHours?.start && activeHours?.end ? { activeHours: { start: activeHours.start, end: activeHours.end } } : {}),
+        ...(Number.isFinite(resumedFromReviewAt) && resumedFromReviewAt > 0 ? { resumedFromReviewAt } : {}),
         createdBy: row.created_by || undefined, closedBy: row.closed_by || undefined,
         closeReason: row.close_reason || undefined, reviewReason: row.review_reason || undefined,
         createdAt: row.created_at, updatedAt: row.updated_at, lastPlannedAt: row.last_planned_at || undefined,
@@ -308,7 +330,7 @@ async function replaceInteractionTargets(targets) {
                 [target.id,target.group || 'default',target.groupId || 'default',target.postUrl,target.status || 'RUNNING',
                  JSON.stringify(target.requirements || {}),JSON.stringify(target.commentPool || []),!!target.allowRepeatComments,
                  JSON.stringify(target.targetPost || {}),target.speed || 'NORMAL',target.priority || 'NORMAL',target.onlineOnly !== false,
-                 JSON.stringify(target.autoClose || {}),target.createdBy || null,target.closedBy || null,target.closeReason || null,
+                 JSON.stringify(autoCloseForPersist(target)),target.createdBy || null,target.closedBy || null,target.closeReason || null,
                  target.reviewReason || null,target.createdAt || nowMs(),target.updatedAt || nowMs(),target.lastPlannedAt || null,
                  target.completedAt || null,target.closedAt || null]
             );
@@ -403,6 +425,8 @@ module.exports = {
     upsertJob,
     loadInteractionTargets,
     replaceInteractionTargets,
+    autoCloseForPersist,
+    dbToTarget,
     loadPosts, replacePosts, loadTemplates, replaceTemplates, loadNotifications, replaceNotifications,
     loadArticles, replaceArticles, loadSuggestedGroups, replaceSuggestedGroups, loadSettings, saveSettings,
     loadConfig, saveConfig, loadGroupIntelligence, replaceGroupIntelligence, loadEngine, saveEngine

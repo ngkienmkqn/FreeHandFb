@@ -152,7 +152,8 @@ FreeHandFb/
 │   └── public/                             # Static web files
 │       └── admin.html                      # ★ Admin Dashboard (Glassmorphism PWA)
 ├── docs/
-│   └── README.md                           # ← Bạn đang đọc file này
+│   ├── README.md                           # ← Bạn đang đọc file này
+│   └── wealify-llm.md                      # Gateway LLM Wealify (Gemma/Qwen)
 ├── .gitignore
 └── gradle/                                 # Gradle wrapper
 ```
@@ -169,7 +170,7 @@ FreeHandFb/
 | **Đường dẫn code trên VPS** | `/root/server/` |
 | **GitHub Repo** | `https://github.com/ngkienmkqn/FreeHandFb.git` (Private) |
 | **Branch** | `main` |
-| **SSH Key (local)** | `C:\Users\admin\.ssh\id_ed25519_dtvps` |
+| **SSH Key (local)** | `~/.ssh/id_ed25519_dtvps` |
 
 ### Quy trình Deploy lên VPS
 ```bash
@@ -186,23 +187,40 @@ pm2 restart C2-Dashboard
 pm2 logs C2-Dashboard --lines 50
 ```
 
-### Thông tin chứng thực SSH (Dành cho Cập Nhật tự động)
-Để AI Agents hoặc Developer truy cập và deploy code lên máy chủ Cloud `free.xommuaban.com`, sử dụng **Ed25519 Private Key** (quyền root) dưới đây:
+### Thông tin chứng thực SSH
+SSH key path (local only, never commit): `~/.ssh/id_ed25519_dtvps`
 
-```text
------BEGIN OPENSSH PRIVATE KEY-----
-b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-QyNTUxOQAAACBZRuU9+SFB0s90uPMGCuBddTGhOq5lwm2v25alICPnOQAAAJA/MDPNPzAz
-zQAAAAtzc2gtZWQyNTUxOQAAACBZRuU9+SFB0s90uPMGCuBddTGhOq5lwm2v25alICPnOQ
-AAAEDPknHep38u8c8z6QnMD1Vm6s3USldnnPknpp4vYb4HyVlG5T35IUHSz3S48wYK4F11
-MaE6rmXCba/blqUgI+c5AAAADHZwcy1jMi1hZG1pbgE=
------END OPENSSH PRIVATE KEY-----
+Do not paste private key contents into the repository.
+
+```bash
+chmod 600 ~/.ssh/id_ed25519_dtvps
+ssh -i ~/.ssh/id_ed25519_dtvps root@free.xommuaban.com
 ```
 
-**Cách sử dụng:**
-1. Lưu nội dung trên vào tệp `~/.ssh/id_ed25519_dtvps`.
-2. `chmod 600 ~/.ssh/id_ed25519_dtvps`
-3. `ssh -i ~/.ssh/id_ed25519_dtvps root@free.xommuaban.com`
+---
+
+## 5b. LLM Gateway (Wealify)
+
+OpenAI-compatible: `https://llm.wealify.app/v1` — chat VN dùng `gemma3:12b-it-qat`, code/toán/logic dùng `qwen3:14b`.
+
+**Tích hợp sản phẩm:** server đọc `WEALIFY_LLM_API_KEY`; admin bật `llmEnabled`. Dashboard sinh **comment pool** / **nội dung đăng** (preview) → chỉ persist khi tạo yêu cầu Executor. Chi tiết: [`docs/wealify-llm.md`](./wealify-llm.md), design [`docs/superpowers/specs/2026-08-07-llm-comment-publish-design.md`](./superpowers/specs/2026-08-07-llm-comment-publish-design.md).
+
+---
+
+## 5c. Executor ops (Four-Wave hardening)
+
+Sau Waves 1–4 (2026-08-08), executor farm có thêm lớp ops/reliability + MVP mỏng. Chi tiết yêu cầu: [`docs/product-group-interaction-requirements.md`](./product-group-interaction-requirements.md); plan: [`docs/superpowers/plans/2026-08-08-four-wave-product-hardening.md`](./superpowers/plans/2026-08-08-four-wave-product-hardening.md).
+
+| Wave | Nội dung chính |
+|------|----------------|
+| W1 | Resolve `INTERRUPTED`, resume `NEEDS_REVIEW`, cooldown claim (`block_timeout`), `speed` → `scheduledAt` |
+| W2 | Seed/auth hygiene, logs + OTA auth, scrub secrets khỏi docs |
+| W3 | Settings / group intel UI, OTA editor, light dashboard poll |
+| W4 | `activeHours`, `maxRuntimeHours` → `NEEDS_REVIEW`, prefer joined at claim; `onlineOnly` removed/ignored |
+
+**Helpers (testable):** `server/lib/executor-schedule.js`, `executor-resolve.js`, `executor-target-window.js`, `executor-claim-gate.js`. Chạy: `cd server && node --test`.
+
+**Không ship (deferred):** campaign, worker-pool, full `DRAFT` lifecycle, device online presence.
 
 ---
 
@@ -282,6 +300,8 @@ git push origin main
 
 | Ngày | Component | Thay đổi |
 |------|-----------|----------|
+| **07/08/2026** | Server/App | **LLM comment/publish + outbox:** API sinh comment/bài (toggle `llmEnabled`), dashboard nút AI; Android retry/outbox khi mất mạng lúc `complete`/`fail`. |
+| **05/08/2026** | Docs | **Wealify LLM:** Thêm `docs/wealify-llm.md` — gateway OpenAI-compatible (`gemma3:12b-it-qat` / `qwen3:14b`), đã smoke test OK. |
 | **21/05/2026** | Server/App | **Log Phân Mảnh Theo User & Cơ Chế GC Hằng Tuần:** Ghi log theo từng user riêng biệt; tự động dọn dẹp các log cũ hơn 7 ngày hằng tuần; bổ sung API xem trực tiếp log của từng user cho Admin trên web. Android client tự lọc log nhiễu và đính kèm username khi báo crash. |
 | **21/05/2026** | App/Server | **Ngăn Chặn Comment Trùng Lặp (Dual-Layer):** Sửa lỗi kiểm tra trạng thái tương tác từ server (chuyển đổi từ `completedBy` sang `interactedBy`); bổ sung kịch bản quét màn hình phát hiện comment của bản thân trước khi tương tác để tự động skip. |
 | **02/05/2026** | App/Server | **Chuyển đổi HTTP Polling sang Socket.io Real-time Push:** Đồng bộ trạng thái bài viết ngay lập tức giữa các máy trong cùng nhóm khi có thao tác thêm/xóa/tương tác bài. |

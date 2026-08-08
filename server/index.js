@@ -10,6 +10,11 @@ const fs = require('fs');
 const crypto = require('crypto');
 const dbStore = require('./db/store');
 const executorPolicy = require('./lib/executor-policy');
+const wealifyLlm = require('./lib/wealify-llm');
+const { scheduledAtForJobIndex } = require('./lib/executor-schedule');
+const { applyJobResolve } = require('./lib/executor-resolve');
+const { isWithinActiveWindow, isPastMaxRuntime } = require('./lib/executor-target-window');
+const { preferJoinedGate } = require('./lib/executor-claim-gate');
 
 app.use(cors());
 app.use(express.json({ limit: '200mb' }));
@@ -111,7 +116,7 @@ let templates = {};
 let notifications = [];
 let articles = [];
 let suggestedGroups = [];
-let appSettings = { maxGroupPostsPerDay: 1 };
+let appSettings = { maxGroupPostsPerDay: 1, llmEnabled: false };
 let interactionQueue = [];
 let interactionTargets = [];
 let groupIntelligence = {};
@@ -273,6 +278,7 @@ function isExecutorJobDue(job, now = Date.now()) {
 }
 
 function canClaimExecutorJob(item, type, user, now = Date.now(), deviceId = '') {
+    // onlineOnly is intentionally unused — no device presence in MVP.
     if (item.group !== user.group || item.status !== 'QUEUED') return false;
     if (!isExecutorJobDue(item, now)) return false;
 
@@ -288,12 +294,14 @@ function canClaimExecutorJob(item, type, user, now = Date.now(), deviceId = '') 
     if (!targetId) return true;
     const target = interactionTargets.find(t => t.id === targetId);
     if (target?.status !== 'RUNNING') return false;
+    if (!isWithinActiveWindow(target, now)) return false;
     const targetGroup = target.groupId || target.group;
     if (groupPausedReason(targetGroup)) return false;
     const intel = groupIntel(targetGroup);
     const membership = intel.accountMembership?.[user.username];
     if (membership && ['NOT_JOINED', 'PENDING', 'BLOCKED', 'LEFT'].includes(membership.status)) return false;
     if (membership?.cooldownUntil > now) return false;
+    if (!preferJoinedGate(intel, user.username)) return false;
     if (item.payload?.actions?.comment !== true) return true;
     if (commentRecentlyUsedInGroup(targetGroup, item.payload?.comment)) return false;
     return !targetJobs(targetId).some(job =>
@@ -619,6 +627,16 @@ function refreshInteractionTargetStatus(target) {
         target.updatedAt = Date.now();
         return true;
     }
+    if (
+        target.status === 'RUNNING' &&
+        target.autoClose?.enabled !== false &&
+        isPastMaxRuntime(target)
+    ) {
+        target.status = 'NEEDS_REVIEW';
+        target.reviewReason = 'Quá maxRuntimeHours.';
+        target.updatedAt = Date.now();
+        return true;
+    }
     return false;
 }
 
@@ -699,6 +717,7 @@ function planInteractionTarget(target) {
             createdAt: now + i,
             updatedAt: now
         };
+        job.scheduledAt = scheduledAtForJobIndex(now, i, jobCount, target.speed);
         interactionQueue.push(job);
         createdJobs.push(job);
     }
@@ -743,15 +762,21 @@ app.get('/api/interaction-targets', authMiddleware, (req, res) => {
 app.get('/api/group-intelligence', authMiddleware, (req, res) => {
     const entries = Object.values(groupIntelligence)
         .filter(item => req.user.role === 'admin' || item.groupId === req.user.group)
-        .map(item => ({
-            groupId: item.groupId,
-            joinedAccounts: Object.values(item.joinedAccounts || {}),
-            recentComments: (item.recentComments || []).slice(-30).reverse(),
-            failStreak: item.failStreak || 0,
-            pausedUntil: item.pausedUntil || 0,
-            pauseReason: item.pauseReason || '',
-            updatedAt: item.updatedAt || 0
-        }))
+        .map(item => {
+            const joinedAccounts = Object.values(item.joinedAccounts || {});
+            const accountMembership = Object.values(item.accountMembership || {});
+            return {
+                groupId: item.groupId,
+                joinedAccounts,
+                accountMembership,
+                joinedCount: joinedAccounts.length,
+                recentComments: (item.recentComments || []).slice(-30).reverse(),
+                failStreak: item.failStreak || 0,
+                pausedUntil: item.pausedUntil || 0,
+                pauseReason: item.pauseReason || '',
+                updatedAt: item.updatedAt || 0
+            };
+        })
         .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     res.json(entries);
 });
@@ -760,15 +785,42 @@ app.put('/api/group-intelligence/:groupId/accounts/:username', authMiddleware, a
     const username = normalizeTargetText(req.params.username, 160);
     const groupId = intelligenceKey(req.params.groupId);
     if (!username) return res.status(400).json({ error: 'Username không hợp lệ.' });
-    if (req.body.joined === false) {
-        const intel = groupIntel(groupId);
-        delete intel.joinedAccounts[username];
-        intel.updatedAt = Date.now();
-        saveGroupIntelligence();
-        return res.json({ ok: true, joined: false });
+
+    const allowed = ['JOINED', 'NOT_JOINED', 'PENDING', 'BLOCKED', 'LEFT'];
+    let status = String(req.body.status || '').toUpperCase();
+    if (!status) {
+        if (req.body.joined === false) status = 'NOT_JOINED';
+        else if (req.body.joined === true) status = 'JOINED';
     }
-    markAccountJoinedGroup(username, groupId, req.body.source || 'admin');
-    res.json({ ok: true, joined: true, account: groupIntel(groupId).joinedAccounts[username] });
+    if (!allowed.includes(status)) {
+        return res.status(400).json({ error: `status phải là một trong: ${allowed.join(', ')}` });
+    }
+
+    const intel = groupIntel(groupId);
+    intel.accountMembership ||= {};
+    if (status === 'JOINED') {
+        markAccountJoinedGroup(username, groupId, req.body.source || 'admin');
+        return res.json({
+            ok: true,
+            joined: true,
+            status,
+            account: intel.joinedAccounts[username],
+            membership: intel.accountMembership[username]
+        });
+    }
+
+    delete intel.joinedAccounts[username];
+    intel.accountMembership[username] = {
+        username,
+        status,
+        source: req.body.source || 'admin',
+        lastVerifiedAt: Date.now(),
+        cooldownUntil: status === 'BLOCKED' ? Date.now() + 24 * 60 * 60 * 1000 : 0,
+        lastError: normalizeTargetText(req.body.lastError || '', 500)
+    };
+    intel.updatedAt = Date.now();
+    saveGroupIntelligence();
+    res.json({ ok: true, joined: false, status, membership: intel.accountMembership[username] });
 });
 
 app.post('/api/group-intelligence/:groupId/resume', authMiddleware, adminOnly, (req, res) => {
@@ -802,6 +854,14 @@ app.post('/api/interaction-targets', authMiddleware, (req, res) => {
     const group = req.user.role === 'admin' && req.body.group ? String(req.body.group).trim() : req.user.group;
     const pausedReason = groupPausedReason(req.body.groupId || group);
     if (pausedReason) return res.status(409).json({ error: pausedReason });
+    const bodyActive = req.body.activeHours && typeof req.body.activeHours === 'object'
+        ? req.body.activeHours
+        : null;
+    const activeStart = String(bodyActive?.start || '').trim();
+    const activeEnd = String(bodyActive?.end || '').trim();
+    const activeHours = (activeStart && activeEnd) ? { start: activeStart, end: activeEnd } : undefined;
+    const maxRuntimeHours = normalizeQuantity(req.body.autoClose?.maxRuntimeHours) || 24;
+    const maxFailedJobs = normalizeQuantity(req.body.autoClose?.maxFailedJobs) || 5;
     const target = {
         id: `TGT-${genId()}`,
         postUrl: normalizeFbUrlForNative(postUrl),
@@ -817,12 +877,15 @@ app.post('/api/interaction-targets', authMiddleware, (req, res) => {
         targetPost,
         speed: normalizeSpeed(req.body.speed),
         priority: normalizePriority(req.body.priority),
-        onlineOnly: req.body.onlineOnly !== false,
+        onlineOnly: false, // ignored — no device presence in MVP
+        ...(activeHours ? { activeHours } : {}),
         autoClose: {
             enabled: req.body.autoClose?.enabled !== false,
             whenRequirementsMet: req.body.autoClose?.whenRequirementsMet !== false,
-            maxRuntimeHours: normalizeQuantity(req.body.autoClose?.maxRuntimeHours) || 24,
-            maxFailedJobs: normalizeQuantity(req.body.autoClose?.maxFailedJobs) || 5
+            maxRuntimeHours,
+            maxFailedJobs,
+            // Persist activeHours inside autoClose JSONB so it survives reload without a migration.
+            ...(activeHours ? { activeHours } : {})
         },
         createdBy: req.user.username,
         createdAt: now,
@@ -846,8 +909,23 @@ app.patch('/api/interaction-targets/:id', authMiddleware, (req, res) => {
     if (req.body.priority !== undefined) target.priority = normalizePriority(req.body.priority);
     if (req.body.status !== undefined) {
         const status = String(req.body.status).toUpperCase();
-        if (!['RUNNING', 'PAUSED'].includes(status)) return res.status(400).json({ error: 'Chỉ hỗ trợ RUNNING hoặc PAUSED ở endpoint này.' });
-        if (!['CLOSED', 'COMPLETED'].includes(target.status)) target.status = status;
+        if (!['RUNNING', 'PAUSED'].includes(status)) {
+            return res.status(400).json({ error: 'Chỉ hỗ trợ RUNNING hoặc PAUSED ở endpoint này.' });
+        }
+        if (['CLOSED', 'COMPLETED'].includes(target.status)) {
+            return res.status(409).json({ error: 'Target đã đóng/hoàn tất.' });
+        }
+        // Allow NEEDS_REVIEW → RUNNING|PAUSED and PAUSED ↔ RUNNING
+        if (!['RUNNING', 'PAUSED', 'NEEDS_REVIEW'].includes(target.status) && status !== target.status) {
+            return res.status(409).json({ error: `Không chuyển từ ${target.status} sang ${status}.` });
+        }
+        if (target.status === 'NEEDS_REVIEW' && status === 'RUNNING') {
+            const resumedFromReviewAt = Date.now();
+            target.resumedFromReviewAt = resumedFromReviewAt;
+            // Mirror into autoClose JSONB so Postgres persist (auto_close) survives reload.
+            target.autoClose = { ...(target.autoClose || {}), resumedFromReviewAt };
+        }
+        target.status = status;
     }
     target.updatedAt = Date.now();
     saveInteractionTargets();
@@ -1046,20 +1124,45 @@ app.post('/api/executor/jobs/:id/actions/:action', authMiddleware, (req, res) =>
 });
 
 app.post('/api/executor/jobs/:id/complete', authMiddleware, (req, res) => {
-    const found = ownedExecutorJob(req, res); if (!found) return;
-    found.job.status = 'SUCCEEDED';
-    found.job.result = req.body.result || {};
-    found.job.finishedAt = Date.now();
-    found.job.updatedAt = Date.now();
-    found.job.leaseToken = null;
-    saveExecutorQueue(found.type);
-    const target = interactionTargets.find(item => item.id === (found.job.targetPostId || found.job.payload?.targetPostId));
-    if (target) recordGroupInteraction(found.job, 'SUCCEEDED', req);
+    const found = findExecutorJob(req.params.id);
+    const leaseToken = String(req.body.leaseToken || '');
+    if (!found) return res.status(404).json({ error: 'Job không tồn tại.' });
+    const { type, job } = found;
+
+    // Idempotent: client retries after success when network dropped on the first ACK.
+    if (job.status === 'SUCCEEDED') {
+        const completedLease = job.result?.completedLeaseToken || '';
+        if (leaseToken && completedLease && leaseToken === completedLease) {
+            return res.json({ ok: true, idempotent: true });
+        }
+        if (job.claimedBy === req.user.username && job.deviceId && String(req.body.deviceId || '') === String(job.deviceId)) {
+            return res.json({ ok: true, idempotent: true });
+        }
+        return res.status(409).json({ error: 'Job đã hoàn thành với lease khác.' });
+    }
+
+    if (job.status !== 'RUNNING' || job.claimedBy !== req.user.username || !leaseToken || leaseToken !== job.leaseToken) {
+        return res.status(409).json({ error: 'Lease của job không còn hợp lệ.' });
+    }
+
+    job.status = 'SUCCEEDED';
+    job.result = {
+        ...(req.body.result || {}),
+        completedLeaseToken: leaseToken,
+        completedBy: req.user.username,
+        completedDeviceId: job.deviceId || null
+    };
+    job.finishedAt = Date.now();
+    job.updatedAt = Date.now();
+    job.leaseToken = null;
+    saveExecutorQueue(type);
+    const target = interactionTargets.find(item => item.id === (job.targetPostId || job.payload?.targetPostId));
+    if (target) recordGroupInteraction(job, 'SUCCEEDED', req);
     if (target && refreshInteractionTargetStatus(target)) {
         saveInteractionTargets();
         emitInteractionTargetsUpdate(target.group);
     }
-    emitExecutorUpdate(found.job.group);
+    emitExecutorUpdate(job.group);
     res.json({ ok: true });
 });
 
@@ -1114,6 +1217,49 @@ app.post('/api/executor/jobs/:id/interrupted', authMiddleware, (req, res) => {
     res.json({ ok: true, status: found.job.status });
 });
 
+app.post('/api/executor/jobs/:id/resolve', authMiddleware, (req, res) => {
+    const found = findExecutorJob(req.params.id);
+    if (!found) return res.status(404).json({ error: 'Job không tồn tại.' });
+    const { type, job } = found;
+    if (req.user.role !== 'admin' && job.group !== req.user.group) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    const priorClaimedBy = job.claimedBy || null;
+    const now = Date.now();
+    const result = applyJobResolve(job, {
+        action: req.body.action,
+        note: req.body.note,
+        username: req.user.username,
+        now
+    });
+    if (!result.ok) return res.status(result.statusCode).json({ error: result.error });
+
+    const target = interactionTargets.find(item => item.id === (job.targetPostId || job.payload?.targetPostId));
+    if (target && job.status === 'SUCCEEDED' && priorClaimedBy) {
+        // Temporarily restore executor account so join/activity is not attributed to ops user
+        job.claimedBy = priorClaimedBy;
+        recordGroupInteraction(job, 'SUCCEEDED', req);
+        delete job.claimedBy;
+    } else if (target && job.status === 'FAILED') {
+        // ops fail: no replacement; TARGET category so fail streak / NEEDS_REVIEW can apply
+        job.result = {
+            ...(job.result || {}),
+            failure: {
+                category: 'TARGET',
+                code: 'OPS_RESOLVE_FAIL',
+                message: job.lastError || 'Ops đánh fail sau INTERRUPTED'
+            }
+        };
+        recordGroupInteraction(job, 'FAILED', req);
+    }
+    refreshAllInteractionTargets();
+    saveExecutorQueue(type);
+    saveInteractionTargets();
+    emitExecutorUpdate(job.group);
+    emitInteractionTargetsUpdate(job.group);
+    res.json({ job: publicExecutorJob(job) });
+});
+
 setInterval(reclaimExpiredExecutorJobs, 30 * 1000);
 
 /* ================== CONSTANTS & SETTINGS ================== */
@@ -1123,16 +1269,108 @@ app.get('/api/settings', authMiddleware, (req, res) => {
     if (req.user && req.user.maxGroupPostsPerDay !== undefined) {
         customSettings.maxGroupPostsPerDay = req.user.maxGroupPostsPerDay;
     }
+    customSettings.llmEnabled = !!appSettings.llmEnabled;
+    customSettings.llmConfigured = wealifyLlm.getLlmConfig().configured;
     res.json(customSettings);
 });
 
 app.post('/api/settings', authMiddleware, adminOnly, (req, res) => {
-    const { maxGroupPostsPerDay } = req.body;
+    const { maxGroupPostsPerDay, llmEnabled } = req.body;
+    let changed = false;
     if (typeof maxGroupPostsPerDay === 'number' && maxGroupPostsPerDay >= 1) {
         appSettings.maxGroupPostsPerDay = maxGroupPostsPerDay;
-        saveState(SETTINGS_STORE, appSettings);
+        changed = true;
     }
-    res.json(appSettings);
+    if (typeof llmEnabled === 'boolean') {
+        appSettings.llmEnabled = llmEnabled;
+        changed = true;
+    }
+    if (changed) saveState(SETTINGS_STORE, appSettings);
+    res.json({
+        ...appSettings,
+        llmEnabled: !!appSettings.llmEnabled,
+        llmConfigured: wealifyLlm.getLlmConfig().configured
+    });
+});
+
+function requireLlmEnabled(req, res) {
+    if (!appSettings.llmEnabled) {
+        res.status(403).json({ error: 'LLM đang tắt trên server.' });
+        return false;
+    }
+    return true;
+}
+
+function beginLlmSse(res) {
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+}
+
+function writeLlmSse(res, payload) {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    if (typeof res.flush === 'function') res.flush();
+}
+
+async function pipeLlmStream(res, iterator) {
+    beginLlmSse(res);
+    try {
+        for await (const event of iterator) {
+            writeLlmSse(res, event);
+        }
+    } catch (e) {
+        writeLlmSse(res, { type: 'error', error: e.message || 'LLM stream thất bại.' });
+    } finally {
+        writeLlmSse(res, { type: 'close' });
+        res.end();
+    }
+}
+
+app.post('/api/llm/generate-comments', authMiddleware, async (req, res) => {
+    if (!requireLlmEnabled(req, res)) return;
+    try {
+        const comments = await wealifyLlm.generateComments({
+            postText: req.body.postText,
+            count: req.body.count,
+            userPrompt: req.body.userPrompt || req.body.prompt || ''
+        });
+        res.json({ comments });
+    } catch (e) {
+        res.status(e.statusCode || 500).json({ error: e.message || 'Sinh comment thất bại.' });
+    }
+});
+
+app.post('/api/llm/generate-comments/stream', authMiddleware, async (req, res) => {
+    if (!requireLlmEnabled(req, res)) return;
+    await pipeLlmStream(res, wealifyLlm.streamGenerateComments({
+        postText: req.body.postText,
+        count: req.body.count,
+        userPrompt: req.body.userPrompt || req.body.prompt || ''
+    }));
+});
+
+app.post('/api/llm/generate-post', authMiddleware, async (req, res) => {
+    if (!requireLlmEnabled(req, res)) return;
+    try {
+        const result = await wealifyLlm.generatePostContent({
+            draft: req.body.draft,
+            userPrompt: req.body.userPrompt || req.body.prompt || ''
+        });
+        res.json(result);
+    } catch (e) {
+        res.status(e.statusCode || 500).json({ error: e.message || 'Sinh bài thất bại.' });
+    }
+});
+
+app.post('/api/llm/generate-post/stream', authMiddleware, async (req, res) => {
+    if (!requireLlmEnabled(req, res)) return;
+    await pipeLlmStream(res, wealifyLlm.streamGeneratePostContent({
+        draft: req.body.draft,
+        userPrompt: req.body.userPrompt || req.body.prompt || ''
+    }));
 });
 
 // --- Splash Screen ---
@@ -1789,15 +2027,16 @@ app.put('/api/app-version', authMiddleware, adminOnly, (req, res) => {
 });
 
 // Logs API
-app.post('/api/logs/apk', (req, res) => {
+app.post('/api/logs/apk', authMiddleware, (req, res) => {
     try {
-        const { log, username } = req.body;
+        const log = req.body.log;
+        const username = req.user.username; // ignore body username for pathing
         if (log) {
             const time = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
             const logMsg = `[${time}] ${log}\n`;
             if (username) {
                 // Sanitize username to prevent directory traversal
-                const safeUsername = username.replace(/[^a-zA-Z0-9@._-]/g, '_');
+                const safeUsername = String(username).replace(/[^a-zA-Z0-9@._-]/g, '_');
                 const userLogFile = path.join(LOGS_DIR, `${safeUsername}_logs.txt`);
                 fs.appendFileSync(userLogFile, logMsg);
             } else {
@@ -1889,7 +2128,7 @@ function getEngineData() {
     return engineDataCache;
 }
 
-app.get('/api/engine/scripts', (req, res) => {
+app.get('/api/engine/scripts', authMiddleware, (req, res) => {
     const data = getEngineData();
     res.json({
         latest: data.latest,
@@ -1897,7 +2136,7 @@ app.get('/api/engine/scripts', (req, res) => {
     });
 });
 
-app.get('/api/engine/script', (req, res) => {
+app.get('/api/engine/script', authMiddleware, (req, res) => {
     const data = getEngineData();
     let v = req.query.version || "latest";
     if (v === "latest") v = data.latest;
@@ -1972,8 +2211,7 @@ async function loadRuntimeStateFromPostgres() {
 
 async function ensurePostgresSeedUsers() {
     let changed = false;
-    const admin = users.find(u => u.username === SYSTEM_ADMIN);
-    if (!admin) {
+    if (!users.find(u => u.username === SYSTEM_ADMIN)) {
         users.push({
             id: genId(),
             username: SYSTEM_ADMIN,
@@ -1985,16 +2223,9 @@ async function ensurePostgresSeedUsers() {
             updatedAt: Date.now()
         });
         changed = true;
-    } else {
-        admin.password = hashPw('16691');
-        admin.role = 'admin';
-        admin.group = admin.group || 'default';
-        admin.points = Number.isFinite(admin.points) ? admin.points : 20;
-        changed = true;
+        console.warn('[DB] Seeded default admin — CHANGE PASSWORD immediately.');
     }
-
-    const worker = users.find(u => u.username === 'worker01');
-    if (!worker) {
+    if (!users.find(u => u.username === 'worker01')) {
         users.push({
             id: genId(),
             username: 'worker01',
@@ -2006,14 +2237,7 @@ async function ensurePostgresSeedUsers() {
             updatedAt: Date.now()
         });
         changed = true;
-    } else {
-        worker.password = hashPw('123456');
-        worker.group = worker.group || 'default';
-        worker.role = worker.role || 'user';
-        worker.points = Number.isFinite(worker.points) ? worker.points : 20;
-        changed = true;
     }
-
     if (changed) {
         await dbStore.replaceUsers(users);
         users = await dbStore.loadUsers();

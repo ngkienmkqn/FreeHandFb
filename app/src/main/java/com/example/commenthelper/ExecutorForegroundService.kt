@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -34,6 +35,8 @@ class ExecutorForegroundService : Service() {
         const val EXTRA_MODE = "mode"
         const val MODE_INTERACTION = "interaction"
         const val MODE_PUBLISHING = "publishing"
+        private const val OUTBOX_PREFS_KEY = "executor_lifecycle_outbox"
+        private const val OUTBOX_MAX_ATTEMPTS = 8
 
         val activeMode = MutableStateFlow<String?>(null)
         val isConnected = MutableStateFlow(false)
@@ -141,7 +144,9 @@ class ExecutorForegroundService : Service() {
                 val body = JSONObject()
                     .put("safeToRetry", !irreversibleReached)
                     .put("error", "Người dùng dừng executor trên điện thoại.")
-                postLifecycle(active, "interrupted", body)
+                if (!deliverLifecycleWithRetry(active, "interrupted", body, maxAttempts = 3)) {
+                    enqueueLifecycleOutbox(active.id, "interrupted", body, active.leaseToken)
+                }
             }
             clearActiveJob()
             executorStatus.value = "Đang dừng"
@@ -154,30 +159,41 @@ class ExecutorForegroundService : Service() {
         var lastHeartbeat = 0L
         var lastSummary = 0L
         try {
+            flushLifecycleOutbox()
             while (activeMode.value == mode) {
                 val now = System.currentTimeMillis()
                 if (now - lastSummary > 10_000) {
                     refreshQueueSummary()
+                    flushLifecycleOutbox()
                     lastSummary = now
                 }
 
                 val active = claimedJob
                 if (active == null) {
-                    executorStatus.value = "Đang chờ yêu cầu"
-                    updateNotification("${modeLabel(mode)} · Đang chờ yêu cầu")
-                    claimNext(mode)?.let { claimed ->
-                        claimedJob = claimed
-                        irreversibleReached = claimed.irreversible
-                        currentJobId.value = claimed.id
-                        sessionProgress.value = sessionProgress.value.first to (sessionProgress.value.second + 1)
-                        if (claimed.irreversible) {
-                            postLifecycle(claimed, "interrupted", JSONObject()
-                                .put("safeToRetry", false)
-                                .put("error", "Khôi phục job sau checkpoint; cần kiểm tra thủ công."))
-                            clearActiveJob()
-                        } else {
-                            dispatchToAccessibility(claimed)
-                            lastHeartbeat = now
+                    val cool = cooldownRemainingMs()
+                    if (cool > 0L) {
+                        val until = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                            .format(java.util.Date(System.currentTimeMillis() + cool))
+                        executorStatus.value = "Tạm nghỉ chống chặn đến $until"
+                        updateNotification("${modeLabel(mode)} · Tạm nghỉ đến $until")
+                        delay(minOf(cool, 60_000L))
+                    } else {
+                        executorStatus.value = "Đang chờ yêu cầu"
+                        updateNotification("${modeLabel(mode)} · Đang chờ yêu cầu")
+                        claimNext(mode)?.let { claimed ->
+                            claimedJob = claimed
+                            irreversibleReached = claimed.irreversible
+                            currentJobId.value = claimed.id
+                            sessionProgress.value = sessionProgress.value.first to (sessionProgress.value.second + 1)
+                            if (claimed.irreversible) {
+                                postLifecycle(claimed, "interrupted", JSONObject()
+                                    .put("safeToRetry", false)
+                                    .put("error", "Khôi phục job sau checkpoint; cần kiểm tra thủ công."))
+                                clearActiveJob()
+                            } else {
+                                dispatchToAccessibility(claimed)
+                                lastHeartbeat = now
+                            }
                         }
                     }
                 } else if (now - lastHeartbeat > 15_000) {
@@ -294,17 +310,100 @@ class ExecutorForegroundService : Service() {
     private suspend fun finishClaimedJob(success: Boolean, reasonCode: String, error: String, step: String, retryable: Boolean) {
         val active = claimedJob ?: return
         val endpoint = if (success) "complete" else "fail"
-        val body = if (success) JSONObject().put("result", JSONObject().put("completedAt", System.currentTimeMillis()))
+        val body = if (success) JSONObject()
+            .put("result", JSONObject().put("completedAt", System.currentTimeMillis()))
+            .put("deviceId", Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown")
         else JSONObject()
             .put("reasonCode", reasonCode)
             .put("error", error)
             .put("step", step)
             .put("retryable", retryable && !irreversibleReached)
-        val code = postLifecycle(active, endpoint, body)
-        if (code !in 200..299) lastError.value = "Không báo được kết quả job ${active.id} (HTTP $code)."
-        else if (!success) lastError.value = "Job ${active.id} thất bại."
+        val delivered = deliverLifecycleWithRetry(active, endpoint, body)
+        if (!delivered) {
+            enqueueLifecycleOutbox(active.id, endpoint, body, active.leaseToken)
+            lastError.value = "Không báo được kết quả job ${active.id}; đã xếp hàng gửi lại."
+        } else if (!success) {
+            lastError.value = "Job ${active.id} thất bại."
+        }
         sessionProgress.value = (sessionProgress.value.first + 1) to sessionProgress.value.second
         clearActiveJob()
+    }
+
+    private suspend fun deliverLifecycleWithRetry(job: ClaimedJob, action: String, body: JSONObject, maxAttempts: Int = 4): Boolean {
+        var delayMs = 2_000L
+        repeat(maxAttempts) { attempt ->
+            val code = postLifecycle(job, action, JSONObject(body.toString()))
+            if (code in 200..299) return true
+            // 409 on complete may still mean already succeeded (idempotent path) — handled server-side when lease matches.
+            if (code == 409 && action == "complete") {
+                // Lease lost; keep outbox only if not already acknowledged as succeeded via idempotent token path later.
+            }
+            if (attempt < maxAttempts - 1) delay(delayMs)
+            delayMs = (delayMs * 2).coerceAtMost(15_000L)
+        }
+        return false
+    }
+
+    private fun enqueueLifecycleOutbox(jobId: String, action: String, body: JSONObject, leaseToken: String) {
+        val arr = loadOutbox()
+        // Replace existing entry for same job+action
+        val next = JSONArray()
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            if (item.optString("jobId") == jobId && item.optString("action") == action) continue
+            next.put(item)
+        }
+        next.put(JSONObject()
+            .put("jobId", jobId)
+            .put("action", action)
+            .put("body", body)
+            .put("leaseToken", leaseToken)
+            .put("attempts", 0)
+            .put("nextAt", System.currentTimeMillis()))
+        saveOutbox(next)
+    }
+
+    private fun loadOutbox(): JSONArray {
+        val raw = prefs.getString(OUTBOX_PREFS_KEY, "[]") ?: "[]"
+        return try { JSONArray(raw) } catch (_: Exception) { JSONArray() }
+    }
+
+    private fun saveOutbox(arr: JSONArray) {
+        prefs.edit().putString(OUTBOX_PREFS_KEY, arr.toString()).apply()
+    }
+
+    private suspend fun flushLifecycleOutbox() {
+        val arr = loadOutbox()
+        if (arr.length() == 0) return
+        val token = prefs.getString("auth_token", "") ?: ""
+        if (token.isBlank()) return
+        val kept = JSONArray()
+        val now = System.currentTimeMillis()
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            if (item.optLong("nextAt", 0L) > now) {
+                kept.put(item)
+                continue
+            }
+            val jobId = item.optString("jobId")
+            val action = item.optString("action")
+            val leaseToken = item.optString("leaseToken")
+            val body = item.optJSONObject("body") ?: JSONObject()
+            body.put("leaseToken", leaseToken)
+            val response = request("/api/executor/jobs/$jobId/$action", "POST", body, token)
+            val code = response.first
+            if (code in 200..299) continue
+            val attempts = item.optInt("attempts", 0) + 1
+            if (attempts >= OUTBOX_MAX_ATTEMPTS) {
+                lastError.value = "Outbox bỏ job $jobId/$action sau $attempts lần (HTTP $code)."
+                continue
+            }
+            val backoff = (2_000L * (1L shl (attempts - 1).coerceAtMost(4))).coerceAtMost(60_000L)
+            kept.put(item
+                .put("attempts", attempts)
+                .put("nextAt", now + backoff))
+        }
+        saveOutbox(kept)
     }
 
     private suspend fun refreshQueueSummary() {
@@ -395,6 +494,12 @@ class ExecutorForegroundService : Service() {
             }
         }
         true
+    }
+
+    private fun cooldownRemainingMs(): Long {
+        val unlockAt = prefs.getLong("block_timeout_epoch", 0L)
+        val now = System.currentTimeMillis()
+        return if (unlockAt > now) unlockAt - now else 0L
     }
 
     private fun modeLabel(mode: String) = if (mode == MODE_INTERACTION) "Tương tác" else "Đăng bài"
