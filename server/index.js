@@ -16,6 +16,7 @@ const { applyJobResolve } = require('./lib/executor-resolve');
 const { isWithinActiveWindow, isPastMaxRuntime } = require('./lib/executor-target-window');
 const { preferJoinedGate } = require('./lib/executor-claim-gate');
 const { buildJoinJobsFromInputs } = require('./lib/executor-join-create');
+const { resolveJoinIntelKey } = require('./lib/executor-join-input');
 
 app.use(cors());
 app.use(express.json({ limit: '200mb' }));
@@ -292,7 +293,7 @@ function canClaimExecutorJob(item, type, user, now = Date.now(), deviceId = '') 
     // Keeping the exclusions in payload makes the rule survive server restarts.
     if (!executorPolicy.canExecutorRetry(item.payload?.retry || {}, user.username, deviceId)) return false;
 
-    if (type === 'publishing') {
+    if (type === 'publishing' || type === 'join') {
         return item.createdBy === user.username;
     }
 
@@ -1213,6 +1214,17 @@ app.post('/api/executor/jobs/:id/complete', authMiddleware, (req, res) => {
     job.finishedAt = Date.now();
     job.updatedAt = Date.now();
     job.leaseToken = null;
+    if (type === 'join') {
+        const groupKey = resolveJoinIntelKey(job, req.body.result || {});
+        if (groupKey && req.user.username) {
+            markAccountJoinedGroup(req.user.username, groupKey, 'join_job');
+            job.payload = {
+                ...job.payload,
+                resolvedGroupUrl: (req.body.result || {}).groupUrl || job.payload.groupUrl || null,
+                resolvedGroupName: (req.body.result || {}).groupName || null
+            };
+        }
+    }
     saveExecutorQueue(type);
     const target = interactionTargets.find(item => item.id === (job.targetPostId || job.payload?.targetPostId));
     if (target) recordGroupInteraction(job, 'SUCCEEDED', req);

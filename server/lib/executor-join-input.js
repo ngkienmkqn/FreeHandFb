@@ -41,4 +41,14 @@ function detectJoinInput(raw) {
   return { ok: true, kind: 'keyword', query: text.replace(/\s+/g, ' ').trim(), groupUrl: null };
 }
 
-module.exports = { detectJoinInput, keywordIntelKey, normalizeJoinQuery };
+function resolveJoinIntelKey(job, result = {}) {
+  const fromResult = String(result.groupUrl || '').trim();
+  if (fromResult) return fromResult;
+  const fromPayload = String(job?.payload?.groupUrl || '').trim();
+  if (fromPayload) return fromPayload;
+  const q = String(job?.payload?.query || '').trim();
+  if (q) return keywordIntelKey(q);
+  return null;
+}
+
+module.exports = { detectJoinInput, keywordIntelKey, normalizeJoinQuery, resolveJoinIntelKey };
