@@ -465,6 +465,32 @@
                 </div>
             </div>
 
+            <!-- TAB: JOIN -->
+            <div class="tab-content" id="tab-join">
+                <div class="queue-strip">
+                    <div class="queue-chip"><div class="val" id="joinQueued">0</div><div class="lbl">Join chờ</div></div>
+                    <div class="queue-chip"><div class="val" id="joinRunning" style="color:var(--text-muted)">0</div><div class="lbl">Đang join</div></div>
+                </div>
+                <div class="glass card">
+                    <div class="card-header"><i class="ph-fill ph-user-plus"></i> Tìm & tham gia group</div>
+                    <p class="section-hint">Mỗi dòng: từ khóa (lấy group đầu trong search) hoặc link group Facebook.</p>
+                    <label class="field-label" for="joinInputs">Từ khóa hoặc link group</label>
+                    <textarea id="joinInputs" rows="5" placeholder="mua bán xe HN&#10;https://facebook.com/groups/..."></textarea>
+                    <label class="field-label" for="joinScheduledAt">Lên lịch (tuỳ chọn)</label>
+                    <input id="joinScheduledAt" type="datetime-local" />
+                    <button class="btn-success" style="width:100%;margin-top:14px" onclick="createJoinJobs()">
+                        <i class="ph-bold ph-user-plus"></i> Đưa vào queue join
+                    </button>
+                </div>
+                <div class="glass card">
+                    <div class="card-header" style="justify-content:space-between">
+                        <div><i class="ph-fill ph-list-dashes"></i> Job join</div>
+                        <button class="btn-secondary" style="font-size:0.8rem;padding:4px 10px" onclick="fetchExecutorQueues()">Tải lại</button>
+                    </div>
+                    <div id="executorJobListJoin"></div>
+                </div>
+            </div>
+
             <!-- TAB: ARTICLES -->
             <div class="tab-content" id="tab-articles">
                 <div class="glass card" style="padding: 0; overflow: hidden">
@@ -527,6 +553,10 @@
             <button class="nav-item" onclick="switchTab('publish', this); fetchExecutorQueues()">
                 <i class="ph-fill ph-upload-simple"></i>
                 <span>Đăng bài</span>
+            </button>
+            <button class="nav-item" onclick="switchTab('join', this); fetchExecutorQueues()">
+                <i class="ph-fill ph-users-three"></i>
+                <span>Join</span>
             </button>
             <button class="nav-item" onclick="switchTab('articles', this); fetchArticles()">
                 <i class="ph-fill ph-article"></i>
@@ -1081,6 +1111,27 @@ async function createPublishingJob() {
     await fetchExecutorQueues();
 }
 
+async function createJoinJobs() {
+    const raw = document.getElementById('joinInputs').value || '';
+    const scheduledAt = document.getElementById('joinScheduledAt').value || null;
+    const body = { input: raw };
+    if (scheduledAt) body.scheduledAt = scheduledAt;
+    const res = await apiCall('/api/executor/join', {
+        method: 'POST', body: JSON.stringify(body)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        alert(data?.error || (data?.errors && data.errors[0]?.error) || 'Tạo join job thất bại');
+        return;
+    }
+    const n = (data.created || []).length;
+    const e = (data.errors || []).length;
+    alert(`Đã tạo ${n} job join` + (e ? `, ${e} dòng lỗi` : ''));
+    if (e) console.warn(data.errors);
+    document.getElementById('joinInputs').value = '';
+    await fetchExecutorQueues();
+}
+
 function formatScheduleTime(ts) {
     if (!ts) return '';
     try { return new Date(ts).toLocaleString(); }
@@ -1116,6 +1167,24 @@ async function resolveExecutorJob(id, action) {
     await fetchInteractionTargets();
 }
 
+function jobTypeLabel(job) {
+    if (job.type === 'interaction') return 'Tương tác';
+    if (job.type === 'publishing') return 'Đăng bài';
+    if (job.type === 'join') {
+        const kind = job.payload?.kind === 'link' ? 'link' : (job.payload?.kind === 'keyword' ? 'keyword' : 'join');
+        return `Join · ${kind}`;
+    }
+    return job.type || 'job';
+}
+
+function jobTargetText(job) {
+    if (job.type === 'join') {
+        if (job.payload?.kind === 'keyword') return job.payload?.query || '';
+        return job.payload?.groupUrl || job.payload?.query || '';
+    }
+    return job.payload?.url || job.payload?.groupUrl || '';
+}
+
 function renderJobList(jobs, emptyText) {
     const filter = document.getElementById('jobStatusFilter')?.value || 'ALL';
     const filtered = filter === 'ALL' ? jobs : jobs.filter(j => j.status === filter);
@@ -1123,8 +1192,8 @@ function renderJobList(jobs, emptyText) {
     if (!filtered.length) return `<div style="text-align:center;color:var(--text-muted);padding:20px">${emptyText}</div>`;
     return filtered.map(job => `
         <div class="list-item">
-            <div class="list-title">${escapeHtml(job.id)} · ${job.type === 'interaction' ? 'Tương tác' : 'Đăng bài'}</div>
-            <div style="font-size:.8rem;color:var(--text-muted);word-break:break-all">${escapeHtml(job.payload?.url || job.payload?.groupUrl || '')}</div>
+            <div class="list-title">${escapeHtml(job.id)} · ${escapeHtml(jobTypeLabel(job))}</div>
+            <div style="font-size:.8rem;color:var(--text-muted);word-break:break-all">${escapeHtml(jobTargetText(job))}</div>
             <div class="list-meta"><span>${escapeHtml(job.createdBy)}</span><span class="badge ${job.status === 'SUCCEEDED' ? 'done' : 'pending'}" style="${job.status === 'INTERRUPTED' ? 'background:rgba(239,68,68,.2);color:#fca5a5' : ''}">${escapeHtml(labels[job.status] || job.status || '')}</span></div>
             ${job.scheduledAt ? `<div style="font-size:.78rem;color:var(--warn);margin-top:6px">Hẹn: ${escapeHtml(formatScheduleTime(job.scheduledAt))}</div>` : ''}
             ${job.lastError ? `<div style="font-size:.78rem;color:var(--error);margin-top:6px">${escapeHtml(job.lastError)}</div>` : ''}
@@ -1143,21 +1212,29 @@ async function fetchExecutorQueues() {
         const data = await res.json();
         const iQueued = data.interaction?.counts?.QUEUED || 0;
         const pQueued = data.publishing?.counts?.QUEUED || 0;
+        const joinCounts = data.join?.counts || {};
         const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
         setText('interactionQueued', iQueued);
         setText('interactionQueuedPublish', iQueued);
         setText('publishingQueued', pQueued);
         setText('publishingQueuedHeader', pQueued);
+        setText('joinQueued', joinCounts.QUEUED || 0);
+        setText('joinRunning', joinCounts.RUNNING || 0);
 
-        const interrupted = (data.interaction?.counts?.INTERRUPTED || 0) + (data.publishing?.counts?.INTERRUPTED || 0);
+        const interrupted = (data.interaction?.counts?.INTERRUPTED || 0)
+            + (data.publishing?.counts?.INTERRUPTED || 0)
+            + (joinCounts.INTERRUPTED || 0);
         updateOpsNeedsCount(interrupted);
 
         const iJobs = (data.interaction?.jobs || []).sort((a, b) => b.createdAt - a.createdAt).slice(0, 15);
         const pJobs = (data.publishing?.jobs || []).sort((a, b) => b.createdAt - a.createdAt).slice(0, 15);
+        const jJobs = (data.join?.jobs || []).sort((a, b) => b.createdAt - a.createdAt).slice(0, 15);
         const interactList = document.getElementById('executorJobListInteract');
         const publishList = document.getElementById('executorJobList');
+        const joinList = document.getElementById('executorJobListJoin');
         if (interactList) interactList.innerHTML = renderJobList(iJobs, 'Chưa có job tương tác');
         if (publishList) publishList.innerHTML = renderJobList(pJobs, 'Chưa có job đăng bài');
+        if (joinList) joinList.innerHTML = renderJobList(jJobs, 'Chưa có job join');
     } catch (e) {}
 }
 
