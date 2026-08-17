@@ -165,7 +165,7 @@ fun ExecutorApp(
         }
         val types = selectedTypes()
         if (types.isEmpty()) {
-            startHint = "Chọn ít nhất một loại job."
+            startHint = "Cần ít nhất một loại job"
             return
         }
         startHint = ""
@@ -181,6 +181,24 @@ fun ExecutorApp(
             Intent(context, ExecutorForegroundService::class.java)
                 .setAction(ExecutorForegroundService.ACTION_STOP)
         )
+    }
+
+    /** Apply checkbox change; refuse unchecking the last selected type. */
+    fun onTypeChecked(type: String, checked: Boolean) {
+        val nextJoin = if (type == ExecutorForegroundService.TYPE_JOIN) checked else selJoin
+        val nextInteract = if (type == ExecutorForegroundService.TYPE_INTERACTION) checked else selInteract
+        val nextPublish = if (type == ExecutorForegroundService.TYPE_PUBLISHING) checked else selPublish
+        val nextCount = listOf(nextJoin, nextInteract, nextPublish).count { it }
+        if (nextCount == 0) {
+            startHint = "Cần ít nhất một loại job"
+            return
+        }
+        startHint = ""
+        selJoin = nextJoin
+        selInteract = nextInteract
+        selPublish = nextPublish
+        persistSelections()
+        if (activeMode != null) startSession()
     }
 
     val isRunning = activeMode != null
@@ -244,29 +262,17 @@ fun ExecutorApp(
                                 checked = selJoin,
                                 label = "Join nhóm",
                                 count = joinQ
-                            ) {
-                                selJoin = it
-                                persistSelections()
-                                if (isRunning) startSession()
-                            }
+                            ) { onTypeChecked(ExecutorForegroundService.TYPE_JOIN, it) }
                             TypeCheckRow(
                                 checked = selInteract,
                                 label = "Tương tác",
                                 count = interactQ
-                            ) {
-                                selInteract = it
-                                persistSelections()
-                                if (isRunning) startSession()
-                            }
+                            ) { onTypeChecked(ExecutorForegroundService.TYPE_INTERACTION, it) }
                             TypeCheckRow(
                                 checked = selPublish,
                                 label = "Đăng bài",
                                 count = publishQ
-                            ) {
-                                selPublish = it
-                                persistSelections()
-                                if (isRunning) startSession()
-                            }
+                            ) { onTypeChecked(ExecutorForegroundService.TYPE_PUBLISHING, it) }
                         }
                     }
 
