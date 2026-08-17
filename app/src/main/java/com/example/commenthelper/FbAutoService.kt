@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import org.mozilla.javascript.Context as RhinoContext
 import org.mozilla.javascript.Scriptable
 import org.mozilla.javascript.Function
+import java.net.URLEncoder
 import java.text.Normalizer
 import kotlin.math.abs
 
@@ -253,8 +254,11 @@ class FbAutoService : AccessibilityService() {
     private var lastJoinedGroupUrl: String? = null
     private var lastJoinedGroupName: String? = null
     private var joinAlreadyJoined: Boolean = false
+    private var joinPendingRequest: Boolean = false
     private var joinClicked: Boolean = false
     private var joinQuestionnaireAttempts: Int = 0
+    /** When true, intercept only toggled form controls without clear progress — do not reset retryCount. */
+    private var joinSoftInterceptNoRetryReset: Boolean = false
     
     // Auto-learned Facebook display name of the device owner
     private var fbProfileName: String? = null
@@ -648,7 +652,8 @@ class FbAutoService : AccessibilityService() {
             handler.postDelayed({
                 if (task.url.startsWith("fb_join_keyword:")) {
                     val kw = task.url.substringAfter("fb_join_keyword:")
-                    openFacebookLink("fb://search/groups?query=$kw")
+                    val encoded = URLEncoder.encode(kw, "UTF-8")
+                    openFacebookLink("fb://search/groups?query=$encoded")
                 } else {
                     openFacebookLink(task.url)
                 }
@@ -769,7 +774,10 @@ class FbAutoService : AccessibilityService() {
                         return
                     }
                     if (interceptGroupJoin(allNodes)) {
-                        retryCount = 0
+                        if (!joinSoftInterceptNoRetryReset) {
+                            retryCount = 0
+                        }
+                        joinSoftInterceptNoRetryReset = false
                         recycleNodes(allNodes)
                         root.recycle()
                         handler.postDelayed(this, 1500)
@@ -854,6 +862,12 @@ class FbAutoService : AccessibilityService() {
     private var healingCount = 0
 
     private fun attemptSelfHealing(screen: ScreenType): Boolean {
+        // Join jobs must never jump into composer/feed publish self-heal.
+        if (isJoinTask(currentTask)) {
+            debugLog("❌ Join task timeout — bỏ self-heal composer/feed, fail STEP_TIMEOUT.")
+            return false
+        }
+
         healingCount++
         if (healingCount > 3) {
             debugLog("❌ Tự chữa lành thất bại sau 3 lần. Hủy bài viết.")
@@ -3156,6 +3170,10 @@ class FbAutoService : AccessibilityService() {
                 putExtra("groupUrl", urlExtra)
                 putExtra("groupName", lastJoinedGroupName ?: "")
                 putExtra("alreadyJoined", joinAlreadyJoined)
+                if (joinPendingRequest) {
+                    putExtra("pendingRequest", true)
+                    putExtra("membershipStatus", "PENDING")
+                }
             }
             setPackage(packageName)
         }
@@ -3240,8 +3258,10 @@ class FbAutoService : AccessibilityService() {
         lastJoinedGroupUrl = null
         lastJoinedGroupName = null
         joinAlreadyJoined = false
+        joinPendingRequest = false
         joinClicked = false
         joinQuestionnaireAttempts = 0
+        joinSoftInterceptNoRetryReset = false
     }
 
     private fun isJoinTask(task: TaskItem?): Boolean {
@@ -3301,10 +3321,12 @@ class FbAutoService : AccessibilityService() {
 
         if (isJoinRequestPending(nodes)) {
             scrapeJoinMeta(nodes)
-            debugLog("✅ Yêu cầu tham gia đã gửi / đang chờ — success.")
+            joinAlreadyJoined = false
+            joinPendingRequest = true
+            debugLog("✅ Yêu cầu tham gia đã gửi / đang chờ — success (PENDING, not JOINED).")
             recycleNodes(nodes)
             root.recycle()
-            markCurrentDone(success = true)
+            markCurrentDone(success = true, reasonCode = "PENDING")
             return
         }
 
@@ -3376,11 +3398,16 @@ class FbAutoService : AccessibilityService() {
         if (isAlreadyJoinedGroup(nodes) || isJoinRequestPending(nodes)) {
             scrapeJoinMeta(nodes)
             joinAlreadyJoined = isAlreadyJoinedGroup(nodes)
+            joinPendingRequest = !joinAlreadyJoined && isJoinRequestPending(nodes)
             recycleNodes(nodes)
             root.recycle()
             markCurrentDone(
                 success = true,
-                reasonCode = if (joinAlreadyJoined) "ALREADY_JOINED" else ""
+                reasonCode = when {
+                    joinAlreadyJoined -> "ALREADY_JOINED"
+                    joinPendingRequest -> "PENDING"
+                    else -> ""
+                }
             )
             return
         }
@@ -3412,8 +3439,13 @@ class FbAutoService : AccessibilityService() {
         setNextStepDelay(STEP_DELAY)
     }
 
+    /** Exact Groups tab chrome labels (normalized) — not a real search result row. */
+    private fun isGroupSearchTabChrome(label: String): Boolean {
+        val t = label.trim()
+        return t == "nhom" || t == "group" || t == "groups"
+    }
+
     private fun findFirstGroupSearchResult(nodes: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
-        val hintNorms = listOf("nhom", "group", "thanh vien", "members")
         val excludeNorms = listOf(
             "tim kiem", "search", "bo loc", "filter", "goi y", "suggest",
             "moi nguoi", "people", "trang", "pages"
@@ -3422,14 +3454,30 @@ class FbAutoService : AccessibilityService() {
         fun labelOf(node: AccessibilityNodeInfo): String =
             nodeFields(node).joinToString(" ")
 
-        // Return first group-like row; performClick climbs to clickable ancestor (no parent recycle here).
+        fun isExcluded(label: String): Boolean =
+            label.isBlank() || isGroupSearchTabChrome(label) || excludeNorms.any { label.contains(it) }
+
+        // Prefer rows with members/thành viên signals (real result rows).
+        val memberHit = nodes.asSequence()
+            .filter { it.isVisibleToUser }
+            .filter { node ->
+                val label = labelOf(node)
+                if (isExcluded(label)) return@filter false
+                label.contains("thanh vien") || label.contains("members")
+            }
+            .sortedBy { nodeBounds(it).top }
+            .firstOrNull()
+        if (memberHit != null) return memberHit
+
+        // Next: group-like rows that are not bare tab labels.
         val hintHit = nodes.asSequence()
             .filter { it.isVisibleToUser }
             .filter { node ->
                 val label = labelOf(node)
-                if (label.isBlank()) return@filter false
-                if (excludeNorms.any { label.contains(it) }) return@filter false
-                hintNorms.any { label.contains(it) }
+                if (isExcluded(label)) return@filter false
+                // Require more than bare "nhom"/"group" — e.g. "Nhom Mua Ban" or "public group"
+                (label.contains("nhom") && label.length > 6) ||
+                    (label.contains("group") && label.length > 6)
             }
             .sortedBy { nodeBounds(it).top }
             .firstOrNull()
@@ -3441,7 +3489,7 @@ class FbAutoService : AccessibilityService() {
             .filter { node ->
                 val label = labelOf(node)
                 if (label.length < 3) return@filter false
-                if (excludeNorms.any { label.contains(it) }) return@filter false
+                if (isExcluded(label)) return@filter false
                 nodeBounds(node).top > 120
             }
             .sortedBy { nodeBounds(it).top }
@@ -3453,8 +3501,10 @@ class FbAutoService : AccessibilityService() {
         return nodes.any { node ->
             if (!node.isVisibleToUser) return@any false
             val label = nodeFields(node).joinToString(" ")
+            if (isGroupSearchTabChrome(label)) return@any false
             label.contains("thanh vien") || label.contains("members") ||
-                (label.contains("nhom") && label.length > 6)
+                (label.contains("nhom") && label.length > 6) ||
+                (label.contains("group") && label.length > 6)
         }
     }
 
@@ -3566,8 +3616,41 @@ class FbAutoService : AccessibilityService() {
         return strongHints.any { screenText.contains(it) }
     }
 
+    private fun hasJoinRulesOrQuestionsChrome(nodes: List<AccessibilityNodeInfo>): Boolean {
+        return nodes.any { node ->
+            if (!node.isVisibleToUser) return@any false
+            val t = listOf(
+                node.text?.toString() ?: "",
+                node.contentDescription?.toString() ?: "",
+                node.hintText?.toString() ?: ""
+            ).joinToString(" ").lowercase()
+            t.contains("quy tắc") || t.contains("rules") || t.contains("câu hỏi") ||
+                t.contains("questions") || t.contains("screening") ||
+                t.contains("membership question") || t.contains("đồng ý") ||
+                t.contains("i agree")
+        }
+    }
+
     private fun trySimpleJoinQuestionnaire(nodes: List<AccessibilityNodeInfo>): Boolean {
         if (isJoinQuestionnaireWithFreeText(nodes)) return false
+
+        // Cap simple-form attempts → free-text-style fail (do not loop forever).
+        if (joinQuestionnaireAttempts >= 5) {
+            debugLog("❌ joinQuestionnaireAttempts>=5 → GROUP_QUESTIONNAIRE_REQUIRED")
+            markCurrentDone(
+                false,
+                "GROUP_QUESTIONNAIRE_REQUIRED",
+                "Group yêu cầu trả lời câu hỏi (form đơn giản thất bại).",
+                retryable = false
+            )
+            joinSoftInterceptNoRetryReset = false
+            return true
+        }
+
+        // Only after Join was clicked, or real rules/questions chrome is visible.
+        // Do not treat the Join button label "Tham gia nhóm" as a form.
+        val hasRealChrome = hasJoinRulesOrQuestionsChrome(nodes)
+        if (!joinClicked && !hasRealChrome) return false
 
         val checkBoxes = nodes.filter { node ->
             if (!node.isVisibleToUser) return@filter false
@@ -3583,11 +3666,8 @@ class FbAutoService : AccessibilityService() {
             } && (node.isClickable || node.parent?.isClickable == true)
         }
 
-        val looksLikeForm = nodes.any { node ->
-            val t = (node.text?.toString() ?: "").lowercase()
-            t.contains("quy tắc") || t.contains("rules") || t.contains("đồng ý") ||
-                t.contains("câu hỏi") || t.contains("tham gia nhóm") || t.contains("i agree")
-        }
+        // looksLikeForm: rules/questions only — never bare "tham gia nhóm"
+        val looksLikeForm = hasRealChrome
         if (!looksLikeForm && checkBoxes.isEmpty()) return false
         if (submitBtn == null && checkBoxes.isEmpty()) return false
 
@@ -3598,10 +3678,30 @@ class FbAutoService : AccessibilityService() {
                 altered = true
             }
         }
-        if (altered) return true
+        if (altered) {
+            joinQuestionnaireAttempts++
+            // Checkbox-only pass without submit — do not reset retryCount.
+            joinSoftInterceptNoRetryReset = true
+            if (joinQuestionnaireAttempts >= 5) {
+                debugLog("❌ joinQuestionnaireAttempts>=5 after checkbox → GROUP_QUESTIONNAIRE_REQUIRED")
+                markCurrentDone(
+                    false,
+                    "GROUP_QUESTIONNAIRE_REQUIRED",
+                    "Group yêu cầu trả lời câu hỏi (form đơn giản thất bại).",
+                    retryable = false
+                )
+                joinSoftInterceptNoRetryReset = false
+            }
+            return true
+        }
         if (submitBtn != null) {
             performClick(submitBtn)
             joinQuestionnaireAttempts++
+            // Submit is real progress — allow retryCount reset.
+            joinSoftInterceptNoRetryReset = false
+            if (joinQuestionnaireAttempts >= 5) {
+                // Last submit still counted; next entry will fail. Soft-allow one UI settle.
+            }
             return true
         }
         return false

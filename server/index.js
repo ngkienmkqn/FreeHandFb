@@ -482,6 +482,24 @@ function markAccountJoinedGroup(username, groupId, source) {
     saveGroupIntelligence();
 }
 
+/** Join request sent / awaiting approval — not full membership. */
+function markAccountPendingGroup(username, groupId, source) {
+    if (!username) return;
+    const intel = groupIntel(groupId);
+    delete intel.joinedAccounts[username];
+    intel.accountMembership ||= {};
+    intel.accountMembership[username] = {
+        username,
+        status: 'PENDING',
+        source: source || 'join_job',
+        lastVerifiedAt: Date.now(),
+        cooldownUntil: 0
+    };
+    intel.updatedAt = Date.now();
+    trimGroupIntel(intel);
+    saveGroupIntelligence();
+}
+
 function recordGroupInteraction(job, outcome, req) {
     const targetGroup = job.payload?.groupId || job.group;
     const intel = groupIntel(targetGroup);
@@ -1215,13 +1233,20 @@ app.post('/api/executor/jobs/:id/complete', authMiddleware, (req, res) => {
     job.updatedAt = Date.now();
     job.leaseToken = null;
     if (type === 'join') {
-        const groupKey = resolveJoinIntelKey(job, req.body.result || {});
+        const resultBody = req.body.result || {};
+        const groupKey = resolveJoinIntelKey(job, resultBody);
         if (groupKey && req.user.username) {
-            markAccountJoinedGroup(req.user.username, groupKey, 'join_job');
+            const pending = resultBody.pendingRequest === true ||
+                String(resultBody.membershipStatus || '').toUpperCase() === 'PENDING';
+            if (pending) {
+                markAccountPendingGroup(req.user.username, groupKey, 'join_job');
+            } else {
+                markAccountJoinedGroup(req.user.username, groupKey, 'join_job');
+            }
             job.payload = {
                 ...job.payload,
-                resolvedGroupUrl: (req.body.result || {}).groupUrl || job.payload.groupUrl || null,
-                resolvedGroupName: (req.body.result || {}).groupName || null
+                resolvedGroupUrl: resultBody.groupUrl || job.payload.groupUrl || null,
+                resolvedGroupName: resultBody.groupName || null
             };
         }
     }

@@ -68,7 +68,9 @@ class ExecutorForegroundService : Service() {
     private data class JobResultExtras(
         val groupUrl: String? = null,
         val groupName: String? = null,
-        val alreadyJoined: Boolean? = null
+        val alreadyJoined: Boolean? = null,
+        val pendingRequest: Boolean? = null,
+        val membershipStatus: String? = null
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -90,7 +92,9 @@ class ExecutorForegroundService : Service() {
             val extras = JobResultExtras(
                 groupUrl = intent.getStringExtra("groupUrl")?.takeIf { it.isNotBlank() },
                 groupName = intent.getStringExtra("groupName")?.takeIf { it.isNotBlank() },
-                alreadyJoined = if (intent.hasExtra("alreadyJoined")) intent.getBooleanExtra("alreadyJoined", false) else null
+                alreadyJoined = if (intent.hasExtra("alreadyJoined")) intent.getBooleanExtra("alreadyJoined", false) else null,
+                pendingRequest = if (intent.hasExtra("pendingRequest")) intent.getBooleanExtra("pendingRequest", false) else null,
+                membershipStatus = intent.getStringExtra("membershipStatus")?.takeIf { it.isNotBlank() }
             )
             scope.launch { finishClaimedJob(success, reasonCode, error, step, retryable, extras) }
         }
@@ -404,6 +408,8 @@ class ExecutorForegroundService : Service() {
             extras.groupUrl?.let { result.put("groupUrl", it) }
             extras.groupName?.let { result.put("groupName", it) }
             extras.alreadyJoined?.let { result.put("alreadyJoined", it) }
+            extras.pendingRequest?.let { result.put("pendingRequest", it) }
+            extras.membershipStatus?.let { result.put("membershipStatus", it) }
             JSONObject()
                 .put("result", result)
                 .put("deviceId", Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown")
