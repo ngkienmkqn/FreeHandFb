@@ -17,6 +17,14 @@ test('detects bare fb.com/groups link', () => {
   assert.equal(r.kind, 'link');
 });
 
+test('does not treat not-a-fb.com as facebook host', () => {
+  const r = detectJoinInput('https://not-a-fb.com/groups/1');
+  assert.equal(r.ok, true);
+  assert.equal(r.kind, 'keyword');
+  assert.equal(r.query, 'https://not-a-fb.com/groups/1');
+  assert.equal(r.groupUrl, null);
+});
+
 test('detects keyword', () => {
   const r = detectJoinInput('  mua bán xe HN  ');
   assert.equal(r.ok, true);

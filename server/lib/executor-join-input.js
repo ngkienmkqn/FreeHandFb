@@ -1,6 +1,7 @@
 'use strict';
 
-const GROUP_URL_RE = /(?:https?:\/\/)?(?:www\.|m\.)?(?:facebook|fb)\.com\/groups\/[^\s]+/i;
+// Host labels only (not substring of not-a-fb.com). Boundary checked in findGroupUrlMatch.
+const GROUP_URL_RE = /(?:https?:\/\/)?(?:www\.|m\.)?(?:facebook\.com|fb\.com)\/groups\/[^\s]+/gi;
 
 function normalizeJoinQuery(query) {
   return String(query || '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 200);
@@ -17,6 +18,19 @@ function ensureHttpUrl(raw) {
   return `https://${s}`;
 }
 
+/** @returns {RegExpMatchArray|null} */
+function findGroupUrlMatch(text) {
+  GROUP_URL_RE.lastIndex = 0;
+  let match;
+  while ((match = GROUP_URL_RE.exec(text))) {
+    const idx = match.index;
+    // Reject mid-label hosts e.g. not-a-fb.com/groups/...
+    if (idx > 0 && /[A-Za-z0-9-]/.test(text[idx - 1])) continue;
+    return match;
+  }
+  return null;
+}
+
 /**
  * @param {string} raw
  * @returns {{ok:true,kind:'keyword'|'link',query:string|null,groupUrl:string|null}|{ok:false,error:string}}
@@ -24,12 +38,16 @@ function ensureHttpUrl(raw) {
 function detectJoinInput(raw) {
   const text = String(raw || '').trim();
   if (!text) return { ok: false, error: 'Input trống.' };
-  const match = text.match(GROUP_URL_RE);
+  const match = findGroupUrlMatch(text);
   if (match) {
     let groupUrl = ensureHttpUrl(match[0].replace(/[),.]+$/, ''));
     // strip trailing slash noise except keep path
     try {
       const u = new URL(groupUrl);
+      const host = u.hostname.toLowerCase().replace(/^www\./, '').replace(/^m\./, '');
+      if (host !== 'facebook.com' && host !== 'fb.com') {
+        return { ok: false, error: 'Link group không hợp lệ.' };
+      }
       if (!/\/groups\//i.test(u.pathname)) return { ok: false, error: 'Link group không hợp lệ.' };
       groupUrl = `https://www.facebook.com${u.pathname.replace(/\/$/, '')}/`;
     } catch {
