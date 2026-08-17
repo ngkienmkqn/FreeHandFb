@@ -189,6 +189,7 @@ class FbAutoService : AccessibilityService() {
         val isPublishingGroup: Boolean = false,
         val imageCount: Int = 0,
         val isScrapingGroup: Boolean = false,
+        val isJoinGroup: Boolean = false,
         val postIndex: Int = 0,
         val executorJobId: String? = null,
         val reportLegacyCompletion: Boolean = true,

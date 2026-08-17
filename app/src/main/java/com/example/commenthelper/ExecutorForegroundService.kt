@@ -33,14 +33,24 @@ class ExecutorForegroundService : Service() {
         const val ACTION_START = "com.example.commenthelper.executor.START"
         const val ACTION_STOP = "com.example.commenthelper.executor.STOP"
         const val EXTRA_MODE = "mode"
+        const val EXTRA_TYPES = "types"
         const val MODE_INTERACTION = "interaction"
         const val MODE_PUBLISHING = "publishing"
+        const val TYPE_INTERACTION = "interaction"
+        const val TYPE_PUBLISHING = "publishing"
+        const val TYPE_JOIN = "join"
+        const val SESSION_MODE = "session"
+        val CLAIM_PRIORITY = listOf(TYPE_JOIN, TYPE_INTERACTION, TYPE_PUBLISHING)
         private const val OUTBOX_PREFS_KEY = "executor_lifecycle_outbox"
         private const val OUTBOX_MAX_ATTEMPTS = 8
+        private val ALL_TYPES = setOf(TYPE_JOIN, TYPE_INTERACTION, TYPE_PUBLISHING)
 
+        val activeTypes = MutableStateFlow<Set<String>>(emptySet())
+        /** Non-null while a multi-type session is running (value = [SESSION_MODE]). */
         val activeMode = MutableStateFlow<String?>(null)
         val isConnected = MutableStateFlow(false)
-        val queueCounts = MutableStateFlow(0 to 0)
+        /** join, interaction, publishing queued counts */
+        val queueCounts = MutableStateFlow(Triple(0, 0, 0))
         val sessionProgress = MutableStateFlow(0 to 0)
         val currentJobId = MutableStateFlow<String?>(null)
         val executorStatus = MutableStateFlow("Đang dừng")
@@ -53,6 +63,12 @@ class ExecutorForegroundService : Service() {
         val payload: JSONObject,
         val leaseToken: String,
         val irreversible: Boolean = false
+    )
+
+    private data class JobResultExtras(
+        val groupUrl: String? = null,
+        val groupName: String? = null,
+        val alreadyJoined: Boolean? = null
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -71,7 +87,12 @@ class ExecutorForegroundService : Service() {
             val error = intent.getStringExtra("error") ?: "Accessibility không hoàn thành được thao tác."
             val step = intent.getStringExtra("step") ?: ""
             val retryable = intent.getBooleanExtra("retryable", true)
-            scope.launch { finishClaimedJob(success, reasonCode, error, step, retryable) }
+            val extras = JobResultExtras(
+                groupUrl = intent.getStringExtra("groupUrl")?.takeIf { it.isNotBlank() },
+                groupName = intent.getStringExtra("groupName")?.takeIf { it.isNotBlank() },
+                alreadyJoined = if (intent.hasExtra("alreadyJoined")) intent.getBooleanExtra("alreadyJoined", false) else null
+            )
+            scope.launch { finishClaimedJob(success, reasonCode, error, step, retryable, extras) }
         }
     }
 
@@ -102,37 +123,63 @@ class ExecutorForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> stopExecutor(intent.getStringExtra(EXTRA_MODE))
-            ACTION_START -> startExecutor(intent.getStringExtra(EXTRA_MODE))
-            else -> prefs.getString("executor_running_mode", null)?.let { startExecutor(it) }
+            ACTION_STOP -> stopExecutor()
+            ACTION_START -> {
+                val types = intent.getStringArrayListExtra(EXTRA_TYPES)?.toSet()
+                    ?: intent.getStringExtra(EXTRA_MODE)?.let { setOf(it) }
+                    ?: emptySet()
+                startExecutor(types)
+            }
+            else -> {
+                val saved = prefs.getStringSet("executor_running_types", null)?.toSet()
+                val types = if (!saved.isNullOrEmpty()) {
+                    saved
+                } else {
+                    prefs.getString("executor_running_mode", null)?.let { legacy ->
+                        when (legacy) {
+                            MODE_INTERACTION, MODE_PUBLISHING, TYPE_JOIN -> setOf(legacy)
+                            SESSION_MODE -> emptySet()
+                            else -> emptySet()
+                        }
+                    } ?: emptySet()
+                }
+                if (types.isNotEmpty()) startExecutor(types)
+            }
         }
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun startExecutor(mode: String?) {
-        if (mode != MODE_INTERACTION && mode != MODE_PUBLISHING) return
-        val running = activeMode.value
-        if (running != null && running != mode) {
-            lastError.value = "Luồng ${modeLabel(running)} đang sử dụng Facebook."
+    private fun startExecutor(types: Set<String>) {
+        val cleaned = types.filter { it in ALL_TYPES }.toSet()
+        if (cleaned.isEmpty()) return
+        if (workerJob?.isActive == true) {
+            activeTypes.value = cleaned
+            prefs.edit().putStringSet("executor_running_types", cleaned).apply()
+            updateNotification(sessionLabel())
             return
         }
-        if (workerJob?.isActive == true) return
-
-        activeMode.value = mode
+        activeTypes.value = cleaned
+        activeMode.value = SESSION_MODE
         executorStatus.value = "Đang kết nối server..."
         lastError.value = ""
-        prefs.edit().putString("executor_running_mode", mode).apply()
-        startForeground(2206, notification("Đang khởi động ${modeLabel(mode)}"))
-        workerJob = scope.launch { workerLoop(mode) }
+        prefs.edit()
+            .putStringSet("executor_running_types", cleaned)
+            .putString("executor_running_mode", SESSION_MODE)
+            .apply()
+        startForeground(2206, notification("Đang khởi động ${sessionLabel()}"))
+        workerJob = scope.launch { workerLoop() }
     }
 
-    private fun stopExecutor(requestedMode: String?) {
-        val running = activeMode.value ?: return
-        if (requestedMode != null && requestedMode != running) return
-        prefs.edit().remove("executor_running_mode").apply()
+    private fun stopExecutor() {
+        if (activeMode.value == null && workerJob == null) return
+        prefs.edit()
+            .remove("executor_running_mode")
+            .remove("executor_running_types")
+            .apply()
         activeMode.value = null
+        activeTypes.value = emptySet()
         executorStatus.value = "Đang dừng an toàn..."
         workerJob?.cancel()
         workerJob = null
@@ -155,12 +202,12 @@ class ExecutorForegroundService : Service() {
         }
     }
 
-    private suspend fun workerLoop(mode: String) {
+    private suspend fun workerLoop() {
         var lastHeartbeat = 0L
         var lastSummary = 0L
         try {
             flushLifecycleOutbox()
-            while (activeMode.value == mode) {
+            while (activeMode.value == SESSION_MODE) {
                 val now = System.currentTimeMillis()
                 if (now - lastSummary > 10_000) {
                     refreshQueueSummary()
@@ -175,12 +222,12 @@ class ExecutorForegroundService : Service() {
                         val until = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
                             .format(java.util.Date(System.currentTimeMillis() + cool))
                         executorStatus.value = "Tạm nghỉ chống chặn đến $until"
-                        updateNotification("${modeLabel(mode)} · Tạm nghỉ đến $until")
+                        updateNotification("${sessionLabel()} · Tạm nghỉ đến $until")
                         delay(minOf(cool, 60_000L))
                     } else {
                         executorStatus.value = "Đang chờ yêu cầu"
-                        updateNotification("${modeLabel(mode)} · Đang chờ yêu cầu")
-                        claimNext(mode)?.let { claimed ->
+                        updateNotification("${sessionLabel()} · Đang chờ yêu cầu")
+                        claimNext()?.let { claimed ->
                             claimedJob = claimed
                             irreversibleReached = claimed.irreversible
                             currentJobId.value = claimed.id
@@ -212,21 +259,31 @@ class ExecutorForegroundService : Service() {
             isConnected.value = false
             lastError.value = e.message ?: "Executor gặp lỗi không xác định."
             executorStatus.value = "Mất kết nối, đang thử lại..."
-            if (activeMode.value == mode) {
+            if (activeMode.value == SESSION_MODE) {
                 delay(5_000)
-                workerJob = scope.launch { workerLoop(mode) }
+                workerJob = scope.launch { workerLoop() }
             }
         }
     }
 
-    private suspend fun claimNext(mode: String): ClaimedJob? {
+    private suspend fun claimNext(): ClaimedJob? {
+        val types = activeTypes.value
+        for (type in CLAIM_PRIORITY) {
+            if (type !in types) continue
+            val job = claimType(type) ?: continue
+            return job
+        }
+        return null
+    }
+
+    private suspend fun claimType(type: String): ClaimedJob? {
         val token = prefs.getString("auth_token", "") ?: ""
         if (token.isBlank()) {
             lastError.value = "Phiên đăng nhập không hợp lệ."
             return null
         }
         val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
-        val response = request("/api/executor/$mode/claim", "POST", JSONObject().put("deviceId", deviceId), token)
+        val response = request("/api/executor/$type/claim", "POST", JSONObject().put("deviceId", deviceId), token)
         isConnected.value = response.first in 200..299
         if (response.first == 204) return null
         if (response.first == 409) {
@@ -257,63 +314,100 @@ class ExecutorForegroundService : Service() {
             return
         }
 
-        executorStatus.value = if (job.type == MODE_INTERACTION) "Đang tương tác" else "Đang chuẩn bị đăng bài"
-        updateNotification("${modeLabel(job.type)} · ${job.id}")
+        executorStatus.value = when (job.type) {
+            TYPE_JOIN -> "Đang tham gia nhóm"
+            TYPE_INTERACTION -> "Đang tương tác"
+            TYPE_PUBLISHING -> "Đang chuẩn bị đăng bài"
+            else -> "Đang xử lý"
+        }
+        updateNotification("${typeLabel(job.type)} · ${job.id}")
         withContext(Dispatchers.IO) {
-            if (job.type == MODE_PUBLISHING) {
-                val images = job.payload.optJSONArray("images")
-                val imageUrls = if (images == null) emptyList() else (0 until images.length()).map { images.getString(it) }
-                if (!downloadImages(imageUrls)) {
-                    postLifecycle(job, "fail", JSONObject().put("error", "Không tải đủ ảnh của job."))
-                    clearActiveJob()
-                    return@withContext
-                }
-                withContext(Dispatchers.Main) {
-                    accessibility.startPublishing(listOf(FbAutoService.TaskItem(
-                        postId = job.id,
-                        url = job.payload.getString("groupUrl"),
-                        comment = job.payload.getString("content"),
-                        isPublishingGroup = true,
-                        imageCount = imageUrls.size,
-                        executorJobId = job.id,
-                        reportLegacyCompletion = false
-                    )), appendNotificationScan = false)
-                }
-            } else {
-                val targetPost = job.payload.optJSONObject("targetPost")
-                val targetAnchorsJson = targetPost?.optJSONArray("anchors")
-                val actions = job.payload.optJSONObject("actions")
-                val actionLike = actions?.optBoolean("like", true) ?: true
-                val actionComment = actions?.optBoolean("comment", true) ?: true
-                val targetAnchors = if (targetAnchorsJson == null) emptyList() else
-                    (0 until targetAnchorsJson.length()).mapNotNull { index ->
-                        targetAnchorsJson.optString(index).trim().takeIf { it.isNotEmpty() }
+            when (job.type) {
+                TYPE_PUBLISHING -> {
+                    val images = job.payload.optJSONArray("images")
+                    val imageUrls = if (images == null) emptyList() else (0 until images.length()).map { images.getString(it) }
+                    if (!downloadImages(imageUrls)) {
+                        postLifecycle(job, "fail", JSONObject().put("error", "Không tải đủ ảnh của job."))
+                        clearActiveJob()
+                        return@withContext
                     }
-                withContext(Dispatchers.Main) {
-                    accessibility.startProcessing(listOf(FbAutoService.TaskItem(
-                        postId = job.id,
-                        url = job.payload.getString("url"),
-                        comment = job.payload.getString("comment"),
-                        executorJobId = job.id,
-                        reportLegacyCompletion = false,
-                        targetPostAuthor = targetPost?.optString("author").orEmpty(),
-                        targetPostText = targetPost?.optString("text").orEmpty(),
-                        targetPostAnchors = targetAnchors,
-                        actionLike = actionLike,
-                        actionComment = actionComment
-                    )), appendNotificationScan = false)
+                    withContext(Dispatchers.Main) {
+                        accessibility.startPublishing(listOf(FbAutoService.TaskItem(
+                            postId = job.id,
+                            url = job.payload.getString("groupUrl"),
+                            comment = job.payload.getString("content"),
+                            isPublishingGroup = true,
+                            imageCount = imageUrls.size,
+                            executorJobId = job.id,
+                            reportLegacyCompletion = false
+                        )), appendNotificationScan = false)
+                    }
+                }
+                TYPE_JOIN -> {
+                    val kind = job.payload.optString("kind")
+                    val url = if (kind == "link") job.payload.getString("groupUrl")
+                    else "fb_join_keyword:${job.payload.getString("query")}"
+                    withContext(Dispatchers.Main) {
+                        accessibility.startProcessing(listOf(
+                            FbAutoService.TaskItem(
+                                postId = job.id,
+                                url = url,
+                                comment = "",
+                                isJoinGroup = true,
+                                executorJobId = job.id,
+                                reportLegacyCompletion = false
+                            )
+                        ), appendNotificationScan = false)
+                    }
+                }
+                else -> {
+                    val targetPost = job.payload.optJSONObject("targetPost")
+                    val targetAnchorsJson = targetPost?.optJSONArray("anchors")
+                    val actions = job.payload.optJSONObject("actions")
+                    val actionLike = actions?.optBoolean("like", true) ?: true
+                    val actionComment = actions?.optBoolean("comment", true) ?: true
+                    val targetAnchors = if (targetAnchorsJson == null) emptyList() else
+                        (0 until targetAnchorsJson.length()).mapNotNull { index ->
+                            targetAnchorsJson.optString(index).trim().takeIf { it.isNotEmpty() }
+                        }
+                    withContext(Dispatchers.Main) {
+                        accessibility.startProcessing(listOf(FbAutoService.TaskItem(
+                            postId = job.id,
+                            url = job.payload.getString("url"),
+                            comment = job.payload.getString("comment"),
+                            executorJobId = job.id,
+                            reportLegacyCompletion = false,
+                            targetPostAuthor = targetPost?.optString("author").orEmpty(),
+                            targetPostText = targetPost?.optString("text").orEmpty(),
+                            targetPostAnchors = targetAnchors,
+                            actionLike = actionLike,
+                            actionComment = actionComment
+                        )), appendNotificationScan = false)
+                    }
                 }
             }
         }
     }
 
-    private suspend fun finishClaimedJob(success: Boolean, reasonCode: String, error: String, step: String, retryable: Boolean) {
+    private suspend fun finishClaimedJob(
+        success: Boolean,
+        reasonCode: String,
+        error: String,
+        step: String,
+        retryable: Boolean,
+        extras: JobResultExtras = JobResultExtras()
+    ) {
         val active = claimedJob ?: return
         val endpoint = if (success) "complete" else "fail"
-        val body = if (success) JSONObject()
-            .put("result", JSONObject().put("completedAt", System.currentTimeMillis()))
-            .put("deviceId", Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown")
-        else JSONObject()
+        val body = if (success) {
+            val result = JSONObject().put("completedAt", System.currentTimeMillis())
+            extras.groupUrl?.let { result.put("groupUrl", it) }
+            extras.groupName?.let { result.put("groupName", it) }
+            extras.alreadyJoined?.let { result.put("alreadyJoined", it) }
+            JSONObject()
+                .put("result", result)
+                .put("deviceId", Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown")
+        } else JSONObject()
             .put("reasonCode", reasonCode)
             .put("error", error)
             .put("step", step)
@@ -416,7 +510,8 @@ class ExecutorForegroundService : Service() {
             val json = JSONObject(response.second!!)
             val interaction = json.getJSONObject("interaction").getJSONObject("counts").optInt("QUEUED", 0)
             val publishing = json.getJSONObject("publishing").getJSONObject("counts").optInt("QUEUED", 0)
-            queueCounts.value = interaction to publishing
+            val join = json.optJSONObject("join")?.getJSONObject("counts")?.optInt("QUEUED", 0) ?: 0
+            queueCounts.value = Triple(join, interaction, publishing)
         }
     }
 
@@ -502,7 +597,18 @@ class ExecutorForegroundService : Service() {
         return if (unlockAt > now) unlockAt - now else 0L
     }
 
-    private fun modeLabel(mode: String) = if (mode == MODE_INTERACTION) "Tương tác" else "Đăng bài"
+    private fun typeLabel(type: String) = when (type) {
+        TYPE_JOIN -> "Join nhóm"
+        TYPE_INTERACTION -> "Tương tác"
+        TYPE_PUBLISHING -> "Đăng bài"
+        else -> type
+    }
+
+    private fun sessionLabel(): String {
+        val types = activeTypes.value
+        if (types.isEmpty()) return "Executor"
+        return types.map { typeLabel(it) }.joinToString(" · ")
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

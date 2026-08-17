@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
-import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,14 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -48,12 +46,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -74,6 +72,7 @@ fun ExecutorApp(
 ) {
     val context = LocalContext.current
     val activeMode by ExecutorForegroundService.activeMode.collectAsState()
+    val activeTypes by ExecutorForegroundService.activeTypes.collectAsState()
     val connected by ExecutorForegroundService.isConnected.collectAsState()
     val queueCounts by ExecutorForegroundService.queueCounts.collectAsState()
     val sessionProgress by ExecutorForegroundService.sessionProgress.collectAsState()
@@ -84,6 +83,10 @@ fun ExecutorApp(
     var selectedTab by remember { mutableIntStateOf(0) }
     var accessibilityEnabled by remember { mutableStateOf(FbAutoService.isServiceEnabled(context)) }
     var showUpdate by remember { mutableStateOf<JSONObject?>(null) }
+    var selJoin by remember { mutableStateOf(prefs.getBoolean("sel_join", true)) }
+    var selInteract by remember { mutableStateOf(prefs.getBoolean("sel_interaction", true)) }
+    var selPublish by remember { mutableStateOf(prefs.getBoolean("sel_publishing", false)) }
+    var startHint by remember { mutableStateOf("") }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -132,30 +135,56 @@ fun ExecutorApp(
             ExecutorForegroundService.isConnected.value = response.first in 200..299
             if (response.first == 200 && !response.second.isNullOrBlank()) {
                 val json = JSONObject(response.second!!)
-                ExecutorForegroundService.queueCounts.value =
-                    json.getJSONObject("interaction").getJSONObject("counts").optInt("QUEUED", 0) to
-                    json.getJSONObject("publishing").getJSONObject("counts").optInt("QUEUED", 0)
+                val interaction = json.getJSONObject("interaction").getJSONObject("counts").optInt("QUEUED", 0)
+                val publishing = json.getJSONObject("publishing").getJSONObject("counts").optInt("QUEUED", 0)
+                val join = json.optJSONObject("join")?.getJSONObject("counts")?.optInt("QUEUED", 0) ?: 0
+                ExecutorForegroundService.queueCounts.value = Triple(join, interaction, publishing)
             }
             delay(10_000)
         }
     }
 
-    fun start(mode: String) {
+    fun persistSelections() {
+        prefs.edit()
+            .putBoolean("sel_join", selJoin)
+            .putBoolean("sel_interaction", selInteract)
+            .putBoolean("sel_publishing", selPublish)
+            .apply()
+    }
+
+    fun selectedTypes(): List<String> = buildList {
+        if (selJoin) add(ExecutorForegroundService.TYPE_JOIN)
+        if (selInteract) add(ExecutorForegroundService.TYPE_INTERACTION)
+        if (selPublish) add(ExecutorForegroundService.TYPE_PUBLISHING)
+    }
+
+    fun startSession() {
         if (!accessibilityEnabled) {
             openAccessibilitySettings(context)
             return
         }
+        val types = selectedTypes()
+        if (types.isEmpty()) {
+            startHint = "Chọn ít nhất một loại job."
+            return
+        }
+        startHint = ""
+        persistSelections()
         val intent = Intent(context, ExecutorForegroundService::class.java)
             .setAction(ExecutorForegroundService.ACTION_START)
-            .putExtra(ExecutorForegroundService.EXTRA_MODE, mode)
+            .putStringArrayListExtra(ExecutorForegroundService.EXTRA_TYPES, ArrayList(types))
         ContextCompat.startForegroundService(context, intent)
     }
 
-    fun stop(mode: String) {
-        context.startService(Intent(context, ExecutorForegroundService::class.java)
-            .setAction(ExecutorForegroundService.ACTION_STOP)
-            .putExtra(ExecutorForegroundService.EXTRA_MODE, mode))
+    fun stopSession() {
+        context.startService(
+            Intent(context, ExecutorForegroundService::class.java)
+                .setAction(ExecutorForegroundService.ACTION_STOP)
+        )
     }
+
+    val isRunning = activeMode != null
+    val (joinQ, interactQ, publishQ) = queueCounts
 
     Scaffold(
         topBar = {
@@ -167,7 +196,7 @@ fun ExecutorApp(
                     } },
                     actions = {
                         TextButton(onClick = {
-                            activeMode?.let { stop(it) }
+                            if (isRunning) stopSession()
                             onLogout()
                         }) { Text("Thoát", color = MaterialTheme.colorScheme.error) }
                     }
@@ -181,33 +210,133 @@ fun ExecutorApp(
                     )
                 }
                 TabRow(selectedTabIndex = selectedTab) {
-                    Tab(selectedTab == 0, { selectedTab = 0 }, text = { Text("TƯƠNG TÁC") })
-                    Tab(selectedTab == 1, { selectedTab = 1 }, text = { Text("ĐĂNG BÀI") })
-                    Tab(selectedTab == 2, { selectedTab = 2 }, text = { Text("CÀI ĐẶT") })
+                    Tab(selectedTab == 0, { selectedTab = 0 }, text = { Text("CHẠY JOB") })
+                    Tab(selectedTab == 1, { selectedTab = 1 }, text = { Text("CÀI ĐẶT") })
                 }
             }
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-            if (selectedTab == 2) {
+            if (selectedTab == 1) {
                 ExecutorSettingsTab(prefs = prefs, authToken = authToken)
             } else {
-                val mode = if (selectedTab == 0) ExecutorForegroundService.MODE_INTERACTION else ExecutorForegroundService.MODE_PUBLISHING
-                ExecutorPanel(
-                    title = if (selectedTab == 0) "LUỒNG TƯƠNG TÁC" else "LUỒNG ĐĂNG BÀI",
-                    mode = mode,
-                    activeMode = activeMode,
-                    queueCount = if (selectedTab == 0) queueCounts.first else queueCounts.second,
-                    sessionProgress = sessionProgress,
-                    currentJobId = currentJobId,
-                    executorStatus = executorStatus,
-                    accessibilityStatus = accessibilityStatus,
-                    accessibilityEnabled = accessibilityEnabled,
-                    lastError = lastError,
-                    onStart = { start(mode) },
-                    onStop = { stop(mode) },
-                    onEnableAccessibility = { openAccessibilitySettings(context) }
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("CHẠY JOB FACEBOOK", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Chọn loại job; ưu tiên claim: Join → Tương tác → Đăng bài. Một job Facebook tại một thời điểm.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Loại job", fontWeight = FontWeight.SemiBold)
+                            TypeCheckRow(
+                                checked = selJoin,
+                                label = "Join nhóm",
+                                count = joinQ
+                            ) {
+                                selJoin = it
+                                persistSelections()
+                                if (isRunning) startSession()
+                            }
+                            TypeCheckRow(
+                                checked = selInteract,
+                                label = "Tương tác",
+                                count = interactQ
+                            ) {
+                                selInteract = it
+                                persistSelections()
+                                if (isRunning) startSession()
+                            }
+                            TypeCheckRow(
+                                checked = selPublish,
+                                label = "Đăng bài",
+                                count = publishQ
+                            ) {
+                                selPublish = it
+                                persistSelections()
+                                if (isRunning) startSession()
+                            }
+                        }
+                    }
+
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            StatusRow("Trạng thái", if (isRunning) "● $executorStatus" else "Đang dừng")
+                            StatusRow(
+                                "Queue chờ",
+                                "Join $joinQ · Tương tác $interactQ · Đăng $publishQ"
+                            )
+                            if (isRunning && activeTypes.isNotEmpty()) {
+                                StatusRow(
+                                    "Đang nhận",
+                                    activeTypes.joinToString(", ") {
+                                        when (it) {
+                                            ExecutorForegroundService.TYPE_JOIN -> "Join"
+                                            ExecutorForegroundService.TYPE_INTERACTION -> "Tương tác"
+                                            ExecutorForegroundService.TYPE_PUBLISHING -> "Đăng bài"
+                                            else -> it
+                                        }
+                                    }
+                                )
+                            }
+                            StatusRow("Tiến độ phiên", "${sessionProgress.first} / ${sessionProgress.second}")
+                            currentJobId?.takeIf { isRunning }?.let { StatusRow("Đang xử lý", it) }
+                            if (isRunning && currentJobId != null) StatusRow("Bước hiện tại", accessibilityStatus)
+                            LinearProgressIndicator(
+                                progress = {
+                                    if (sessionProgress.second == 0) 0f
+                                    else sessionProgress.first.toFloat() / sessionProgress.second
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    if (isRunning) {
+                        Button(onClick = { stopSession() }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                            Text("■ DỪNG", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Button(
+                            onClick = { startSession() },
+                            enabled = selectedTypes().isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth().height(52.dp)
+                        ) {
+                            Text("▶ BẮT ĐẦU", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (startHint.isNotBlank()) {
+                        Text(startHint, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Accessibility: ${if (accessibilityEnabled) "✅ Sẵn sàng" else "❌ Chưa bật"}",
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (!accessibilityEnabled) {
+                            OutlinedButton(onClick = { openAccessibilitySettings(context) }) { Text("Bật") }
+                        }
+                    }
+                    Text(
+                        "Lỗi gần nhất: ${lastError.ifBlank { "Không có" }}",
+                        modifier = Modifier.fillMaxWidth(),
+                        color = if (lastError.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
     }
@@ -227,70 +356,19 @@ fun ExecutorApp(
 }
 
 @Composable
-private fun ExecutorPanel(
-    title: String,
-    mode: String,
-    activeMode: String?,
-    queueCount: Int,
-    sessionProgress: Pair<Int, Int>,
-    currentJobId: String?,
-    executorStatus: String,
-    accessibilityStatus: String,
-    accessibilityEnabled: Boolean,
-    lastError: String,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onEnableAccessibility: () -> Unit
+private fun TypeCheckRow(
+    checked: Boolean,
+    label: String,
+    count: Int,
+    onCheckedChange: (Boolean) -> Unit
 ) {
-    val isThisRunning = activeMode == mode
-    val otherModeRunning = activeMode != null && activeMode != mode
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Spacer(Modifier.height(8.dp))
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatusRow("Trạng thái", if (isThisRunning) "● $executorStatus" else "Đang dừng")
-                StatusRow("Queue chờ", "$queueCount yêu cầu")
-                StatusRow("Tiến độ phiên", "${sessionProgress.first} / ${sessionProgress.second}")
-                currentJobId?.takeIf { isThisRunning }?.let { StatusRow("Đang xử lý", it) }
-                if (isThisRunning && currentJobId != null) StatusRow("Bước hiện tại", accessibilityStatus)
-                LinearProgressIndicator(
-                    progress = { if (sessionProgress.second == 0) 0f else sessionProgress.first.toFloat() / sessionProgress.second },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        if (isThisRunning) {
-            Button(onClick = onStop, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("■ DỪNG", fontWeight = FontWeight.Bold) }
-        } else {
-            Button(onClick = onStart, enabled = !otherModeRunning, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("▶ BẮT ĐẦU", fontWeight = FontWeight.Bold)
-            }
-        }
-
-        if (otherModeRunning) {
-            Text(
-                "Luồng ${if (activeMode == ExecutorForegroundService.MODE_INTERACTION) "Tương tác" else "Đăng bài"} đang sử dụng Facebook. Hãy dừng luồng đó trước.",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Accessibility: ${if (accessibilityEnabled) "✅ Sẵn sàng" else "❌ Chưa bật"}", modifier = Modifier.weight(1f))
-            if (!accessibilityEnabled) OutlinedButton(onClick = onEnableAccessibility) { Text("Bật") }
-        }
-        Text(
-            "Lỗi gần nhất: ${lastError.ifBlank { "Không có" }}",
-            modifier = Modifier.fillMaxWidth(),
-            color = if (lastError.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall
-        )
+        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+        Text(label, modifier = Modifier.weight(1f))
+        Text("$count chờ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
