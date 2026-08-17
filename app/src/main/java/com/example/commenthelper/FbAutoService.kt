@@ -3341,25 +3341,19 @@ class FbAutoService : AccessibilityService() {
             return
         }
 
-        if (joinClicked && looksLikeGroupPage(nodes) && findJoinButton(nodes) == null) {
-            scrapeJoinMeta(nodes)
-            debugLog("✅ Sau khi bấm join, không còn nút tham gia — coi như success.")
+        // No optimistic success after click alone — require membership / pending confirmation.
+        if (retryCount > 25) {
+            dumpScreenToLog(if (joinClicked) "JOIN_NOT_CONFIRMED" else "JOIN_BUTTON_NOT_FOUND")
             recycleNodes(nodes)
             root.recycle()
-            markCurrentDone(success = true)
-            return
-        }
-
-        if (retryCount > 25) {
-            dumpScreenToLog("JOIN_BUTTON_NOT_FOUND")
             if (joinClicked) {
-                scrapeJoinMeta(nodes)
-                recycleNodes(nodes)
-                root.recycle()
-                markCurrentDone(success = true)
+                markCurrentDone(
+                    false,
+                    "JOIN_NOT_CONFIRMED",
+                    "Đã bấm tham gia nhưng chưa xác nhận được membership.",
+                    retryable = true
+                )
             } else {
-                recycleNodes(nodes)
-                root.recycle()
                 markCurrentDone(
                     false,
                     "JOIN_BUTTON_NOT_FOUND",
@@ -3392,19 +3386,16 @@ class FbAutoService : AccessibilityService() {
         }
 
         if (isJoinQuestionnaireWithFreeText(nodes)) {
-            joinQuestionnaireAttempts++
-            if (joinQuestionnaireAttempts > 3) {
-                dumpScreenToLog("JOIN_QUESTIONNAIRE_FREE_TEXT")
-                recycleNodes(nodes)
-                root.recycle()
-                markCurrentDone(
-                    false,
-                    "GROUP_QUESTIONNAIRE_REQUIRED",
-                    "Group yêu cầu trả lời câu hỏi.",
-                    retryable = false
-                )
-                return
-            }
+            dumpScreenToLog("JOIN_QUESTIONNAIRE_FREE_TEXT")
+            recycleNodes(nodes)
+            root.recycle()
+            markCurrentDone(
+                false,
+                "GROUP_QUESTIONNAIRE_REQUIRED",
+                "Group yêu cầu trả lời câu hỏi.",
+                retryable = false
+            )
+            return
         }
 
         if (trySimpleJoinQuestionnaire(nodes)) {
@@ -3425,13 +3416,14 @@ class FbAutoService : AccessibilityService() {
         val hintNorms = listOf("nhom", "group", "thanh vien", "members")
         val excludeNorms = listOf(
             "tim kiem", "search", "bo loc", "filter", "goi y", "suggest",
-            "mọi người", "moi nguoi", "people", "trang", "pages"
+            "moi nguoi", "people", "trang", "pages"
         )
 
         fun labelOf(node: AccessibilityNodeInfo): String =
             nodeFields(node).joinToString(" ")
 
-        val hintHits = nodes.asSequence()
+        // Return first group-like row; performClick climbs to clickable ancestor (no parent recycle here).
+        val hintHit = nodes.asSequence()
             .filter { it.isVisibleToUser }
             .filter { node ->
                 val label = labelOf(node)
@@ -3440,25 +3432,20 @@ class FbAutoService : AccessibilityService() {
                 hintNorms.any { label.contains(it) }
             }
             .sortedBy { nodeBounds(it).top }
-            .toList()
-
-        for (node in hintHits) {
-            if (isNodeActionable(node)) return node
-        }
+            .firstOrNull()
+        if (hintHit != null) return hintHit
 
         // Fallback: first clickable row with non-trivial label below search chrome.
-        val fallback = nodes.asSequence()
+        return nodes.asSequence()
             .filter { it.isVisibleToUser && it.isClickable }
             .filter { node ->
                 val label = labelOf(node)
                 if (label.length < 3) return@filter false
                 if (excludeNorms.any { label.contains(it) }) return@filter false
-                val top = nodeBounds(node).top
-                top > 120
+                nodeBounds(node).top > 120
             }
             .sortedBy { nodeBounds(it).top }
             .firstOrNull()
-        return fallback
     }
 
     private fun hasGroupSearchResults(nodes: List<AccessibilityNodeInfo>): Boolean {
@@ -3508,13 +3495,14 @@ class FbAutoService : AccessibilityService() {
             val txt = (node.text?.toString() ?: "").lowercase()
             val desc = (node.contentDescription?.toString() ?: "").lowercase()
             val combined = "$txt $desc"
+            // Full phrases only — never bare "requested"
             combined.contains("đã gửi yêu cầu") ||
+                combined.contains("yêu cầu đang chờ") ||
                 combined.contains("request pending") ||
                 combined.contains("cancel request") ||
                 combined.contains("hủy yêu cầu") ||
                 combined.contains("đang chờ phê duyệt") ||
-                combined.contains("awaiting approval") ||
-                combined.contains("requested")
+                combined.contains("awaiting approval")
         }
     }
 
@@ -3536,34 +3524,46 @@ class FbAutoService : AccessibilityService() {
         }
     }
 
+    private fun isSearchLikeEditable(node: AccessibilityNodeInfo): Boolean {
+        val blob = listOf(
+            normalizeUiText(node.text),
+            normalizeUiText(node.hintText),
+            normalizeUiText(node.contentDescription)
+        ).joinToString(" ")
+        return blob.contains("tim kiem") || blob.contains("search") ||
+            blob.contains("tim nhom") || blob.contains("search group")
+    }
+
     private fun isJoinQuestionnaireWithFreeText(nodes: List<AccessibilityNodeInfo>): Boolean {
-        val editTexts = nodes.filter { node ->
+        // Answer-style editables only — ignore group search boxes on the page.
+        val answerFields = nodes.filter { node ->
             if (!node.isVisibleToUser) return@filter false
             val cn = node.className?.toString() ?: ""
-            cn == "android.widget.EditText" || node.isEditable
+            val editable = cn == "android.widget.EditText" || node.isEditable
+            if (!editable) return@filter false
+            if (isSearchLikeEditable(node)) return@filter false
+            true
         }
-        if (editTexts.isEmpty()) return false
+        if (answerFields.isEmpty()) return false
 
         val screenText = nodes.joinToString(" ") { n ->
-            "${n.text ?: ""} ${n.contentDescription ?: ""}"
+            "${n.text ?: ""} ${n.contentDescription ?: ""} ${n.hintText ?: ""}"
         }.lowercase()
 
-        val hints = listOf(
-            "câu hỏi", "questions", "trả lời", "answer", "yêu cầu tham gia",
-            "membership questions", "screening", "câu trả lời", "write an answer",
-            "answer these"
+        // Strong questionnaire chrome only (not bare "gửi" / search + join chrome).
+        val strongHints = listOf(
+            "câu hỏi",
+            "questions",
+            "membership questions",
+            "screening questions",
+            "answer these",
+            "write an answer",
+            "câu trả lời",
+            "trả lời các câu",
+            "câu hỏi để tham gia",
+            "questions to join"
         )
-        if (hints.any { screenText.contains(it) }) return true
-
-        val hasSubmit = nodes.any { node ->
-            val txt = (node.text?.toString() ?: "").lowercase()
-            val cd = (node.contentDescription?.toString() ?: "").lowercase()
-            Engine.questionnaireSubmit.any { a -> txt.contains(a) || cd.contains(a) } &&
-                (node.isClickable || node.parent?.isClickable == true)
-        }
-        val looksLikeJoinForm = screenText.contains("tham gia") || screenText.contains("join group") ||
-            screenText.contains("quy tắc") || screenText.contains("rules")
-        return hasSubmit && looksLikeJoinForm
+        return strongHints.any { screenText.contains(it) }
     }
 
     private fun trySimpleJoinQuestionnaire(nodes: List<AccessibilityNodeInfo>): Boolean {
