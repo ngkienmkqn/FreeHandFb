@@ -15,6 +15,7 @@ const { scheduledAtForJobIndex } = require('./lib/executor-schedule');
 const { applyJobResolve } = require('./lib/executor-resolve');
 const { isWithinActiveWindow, isPastMaxRuntime } = require('./lib/executor-target-window');
 const { preferJoinedGate } = require('./lib/executor-claim-gate');
+const { buildJoinJobsFromInputs } = require('./lib/executor-join-create');
 
 app.use(cors());
 app.use(express.json({ limit: '200mb' }));
@@ -40,6 +41,7 @@ const INTERACTION_QUEUE_STORE = 'interaction_queue';
 const INTERACTION_TARGETS_STORE = 'interaction_targets';
 const GROUP_INTELLIGENCE_STORE = 'group_intelligence';
 const PUBLISHING_QUEUE_STORE = 'publishing_queue';
+const JOIN_QUEUE_STORE = 'join_queue';
 const ENGINE_STORE = 'engine';
 const APK_LOGS_FILE = path.join(DATA_DIR, 'apk_logs.txt');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
@@ -65,6 +67,7 @@ function persistToPostgres(file, data) {
         if (file === TOKENS_STORE) return dbStore.replaceTokens(item.data || {});
         if (file === INTERACTION_QUEUE_STORE) return dbStore.replaceJobs('interaction', item.data || []);
         if (file === PUBLISHING_QUEUE_STORE) return dbStore.replaceJobs('publishing', item.data || []);
+        if (file === JOIN_QUEUE_STORE) return dbStore.replaceJobs('join', item.data || []);
         if (file === INTERACTION_TARGETS_STORE) return dbStore.replaceInteractionTargets(item.data || []);
         if (file === POSTS_STORE) return dbStore.replacePosts(item.data || []);
         if (file === TEMPLATES_STORE) return dbStore.replaceTemplates(item.data || {});
@@ -121,6 +124,7 @@ let interactionQueue = [];
 let interactionTargets = [];
 let groupIntelligence = {};
 let publishingQueue = [];
+let joinQueue = [];
 
 function runLogsCleanup() {
     try {
@@ -249,12 +253,14 @@ function adminOnly(req, res, next) {
 const EXECUTOR_LEASE_MS = 60 * 1000;
 const executorQueues = {
     interaction: () => interactionQueue,
-    publishing: () => publishingQueue
+    publishing: () => publishingQueue,
+    join: () => joinQueue
 };
 
 function saveExecutorQueue(type) {
     if (type === 'interaction') saveState(INTERACTION_QUEUE_STORE, interactionQueue);
     if (type === 'publishing') saveState(PUBLISHING_QUEUE_STORE, publishingQueue);
+    if (type === 'join') saveState(JOIN_QUEUE_STORE, joinQueue);
 }
 
 function getExecutorQueue(type) {
@@ -362,7 +368,7 @@ function createReplacementJob(failedJob, failedBy, failedDeviceId, failure) {
 
 function reclaimExpiredExecutorJobs() {
     const now = Date.now();
-    ['interaction', 'publishing'].forEach(type => {
+    ['interaction', 'publishing', 'join'].forEach(type => {
         const queue = getExecutorQueue(type);
         let changed = false;
         queue.forEach(job => {
@@ -383,7 +389,7 @@ function reclaimExpiredExecutorJobs() {
 }
 
 function findExecutorJob(id) {
-    for (const type of ['interaction', 'publishing']) {
+    for (const type of ['interaction', 'publishing', 'join']) {
         const job = getExecutorQueue(type).find(item => item.id === id);
         if (job) return { type, job };
     }
@@ -734,7 +740,7 @@ app.get('/api/executor/queues', authMiddleware, (req, res) => {
     reclaimExpiredExecutorJobs();
     refreshAllInteractionTargets();
     const result = {};
-    for (const type of ['interaction', 'publishing']) {
+    for (const type of ['interaction', 'publishing', 'join']) {
         const jobs = getExecutorQueue(type)
             .filter(job => req.user.role === 'admin' || job.group === req.user.group)
             .sort((a, b) => b.createdAt - a.createdAt);
@@ -977,20 +983,28 @@ app.post('/api/interaction-targets/:id/close', authMiddleware, (req, res) => {
 app.delete('/api/executor/queues/reset', authMiddleware, adminOnly, (req, res) => {
     const deleted = {
         interaction: interactionQueue.length,
-        publishing: publishingQueue.length
+        publishing: publishingQueue.length,
+        join: joinQueue.length
     };
     const affectedGroups = [...new Set([
         ...interactionQueue.map(job => job.group),
-        ...publishingQueue.map(job => job.group)
+        ...publishingQueue.map(job => job.group),
+        ...joinQueue.map(job => job.group)
     ].filter(Boolean))];
 
     interactionQueue = [];
     publishingQueue = [];
+    joinQueue = [];
     saveExecutorQueue('interaction');
     saveExecutorQueue('publishing');
+    saveExecutorQueue('join');
     affectedGroups.forEach(emitExecutorUpdate);
 
-    res.json({ ok: true, deleted, totalDeleted: deleted.interaction + deleted.publishing });
+    res.json({
+        ok: true,
+        deleted,
+        totalDeleted: deleted.interaction + deleted.publishing + deleted.join
+    });
 });
 
 app.post('/api/executor/interaction', authMiddleware, (req, res) => {
@@ -1044,6 +1058,50 @@ app.post('/api/executor/publishing', authMiddleware, (req, res) => {
     res.status(201).json(publicExecutorJob(job));
 });
 
+function createJoinJobsFromInputs(inputs, user, scheduledAt) {
+    const now = Date.now();
+    const { created, errors } = buildJoinJobsFromInputs(inputs, {
+        group: user.group,
+        createdBy: user.username,
+        scheduledAt,
+        now,
+        genId,
+        normalizeGroupUrl: normalizeFbUrlForNative
+    });
+    created.forEach(job => joinQueue.push(job));
+    if (created.length) {
+        saveExecutorQueue('join');
+        emitExecutorUpdate(user.group);
+    }
+    return { created: created.map(publicExecutorJob), errors };
+}
+
+app.post('/api/executor/join', authMiddleware, (req, res) => {
+    const scheduledAt = parseScheduledAt(req.body.scheduledAt);
+    if (Number.isNaN(scheduledAt)) {
+        return res.status(400).json({ error: 'Thời gian hẹn không hợp lệ.' });
+    }
+    let inputs = [];
+    if (Array.isArray(req.body.inputs)) {
+        inputs = req.body.inputs.map(v => String(v));
+    } else if (req.body.input != null) {
+        inputs = String(req.body.input).split(/\r?\n/);
+    } else if (req.body.kind === 'link' && req.body.groupUrl) {
+        inputs = [String(req.body.groupUrl)];
+    } else if (req.body.kind === 'keyword' && req.body.query) {
+        inputs = [String(req.body.query)];
+    } else {
+        return res.status(400).json({ error: 'Cần input, inputs, hoặc kind+query/groupUrl.' });
+    }
+    inputs = inputs.map(s => s.trim()).filter(Boolean);
+    if (!inputs.length) return res.status(400).json({ error: 'Không có dòng input hợp lệ.' });
+    const result = createJoinJobsFromInputs(inputs, req.user, scheduledAt);
+    if (!result.created.length && result.errors.length) {
+        return res.status(400).json(result);
+    }
+    res.status(201).json(result);
+});
+
 app.post('/api/executor/:type/claim', authMiddleware, (req, res) => {
     const type = req.params.type;
     const queue = getExecutorQueue(type);
@@ -1051,7 +1109,7 @@ app.post('/api/executor/:type/claim', authMiddleware, (req, res) => {
     if (!queue || !deviceId) return res.status(400).json({ error: 'Queue type hoặc deviceId không hợp lệ.' });
     reclaimExpiredExecutorJobs();
 
-    const active = ['interaction', 'publishing']
+    const active = ['interaction', 'publishing', 'join']
         .flatMap(queueType => getExecutorQueue(queueType))
         .find(job => job.status === 'RUNNING' && job.claimedBy === req.user.username);
     if (active) {
@@ -2206,6 +2264,7 @@ async function loadRuntimeStateFromPostgres() {
     }
     interactionQueue = await dbStore.loadJobs('interaction');
     publishingQueue = await dbStore.loadJobs('publishing');
+    joinQueue = await dbStore.loadJobs('join');
     interactionTargets = await dbStore.loadInteractionTargets();
 }
 
