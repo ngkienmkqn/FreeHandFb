@@ -226,6 +226,9 @@ class FbAutoService : AccessibilityService() {
         WAITING_FOR_OPENED_POST,
         CLICKING_NOTIFICATION_TAB,
         SCANNING_NOTIFICATIONS,
+        JOIN_SEARCH_RESULTS,
+        JOIN_OPEN_GROUP,
+        JOIN_QUESTIONNAIRE,
         DONE
     }
 
@@ -244,6 +247,14 @@ class FbAutoService : AccessibilityService() {
     private var lastTargetSearchSignature = 0
     private var unchangedTargetSearchCount = 0
     private var postUploadStableChecks = 0
+
+    /** "keyword" | "link" while a join job is running */
+    private var joinFlowKind: String? = null
+    private var lastJoinedGroupUrl: String? = null
+    private var lastJoinedGroupName: String? = null
+    private var joinAlreadyJoined: Boolean = false
+    private var joinClicked: Boolean = false
+    private var joinQuestionnaireAttempts: Int = 0
     
     // Auto-learned Facebook display name of the device owner
     private var fbProfileName: String? = null
@@ -319,6 +330,9 @@ class FbAutoService : AccessibilityService() {
             Step.WAITING_FOR_OPENED_POST -> "Đang chờ tải nội dung bài viết..."
             Step.CLICKING_NOTIFICATION_TAB -> "Đang chuyển sang tab thông báo..."
             Step.SCANNING_NOTIFICATIONS -> "Đang quét thông báo bài viết được phê duyệt..."
+            Step.JOIN_SEARCH_RESULTS -> "Đang chọn group đầu tiên trong kết quả tìm kiếm..."
+            Step.JOIN_OPEN_GROUP -> "Đang tham gia nhóm..."
+            Step.JOIN_QUESTIONNAIRE -> "Đang xử lý form tham gia nhóm..."
             Step.DONE -> "Hoàn thành nhiệm vụ"
         }
         val q = taskQueue.value
@@ -451,6 +465,9 @@ class FbAutoService : AccessibilityService() {
             Step.WAITING_FOR_POST_TO_UPLOAD -> { handleWaitingForPostToUpload() }
             Step.CLICKING_SHARE_AND_COPY -> { handleClickingShareAndCopy() }
             Step.SCRAPING_GROUP_INFO -> { handleScrapingGroupInfo() }
+            Step.JOIN_SEARCH_RESULTS -> handleJoinSearchResults()
+            Step.JOIN_OPEN_GROUP -> handleJoinOpenGroup()
+            Step.JOIN_QUESTIONNAIRE -> handleJoinQuestionnaire()
             else -> {}
         }
     }
@@ -604,6 +621,7 @@ class FbAutoService : AccessibilityService() {
     private fun executePostTask(task: TaskItem) {
         commentEntryOpened = false
         postUploadStableChecks = 0
+        resetJoinState()
         if (task.url == "ACTION_SCAN_NOTIFICATIONS") {
             currentStep = Step.CLICKING_NOTIFICATION_TAB
             retryCount = 0
@@ -618,17 +636,22 @@ class FbAutoService : AccessibilityService() {
             return
         }
 
-        if (task.url.startsWith("fb_join_keyword:")) {
+        if (task.url.startsWith("fb_join_keyword:") || task.isJoinGroup) {
+            joinFlowKind = if (task.url.startsWith("fb_join_keyword:")) "keyword" else "link"
             currentStep = Step.WAITING_FOR_FB_LOAD
             retryCount = 0
             healingCount = 0
             multiSelectClicked = false
-            Log.d(TAG, "Processing keyword group-joining task: ${task.url}")
-            
+            Log.d(TAG, "Processing group-join task ($joinFlowKind): ${task.url}")
+
             forceStopFacebook()
             handler.postDelayed({
-                val kw = task.url.substringAfter("fb_join_keyword:")
-                openFacebookLink("fb://search/groups?query=$kw")
+                if (task.url.startsWith("fb_join_keyword:")) {
+                    val kw = task.url.substringAfter("fb_join_keyword:")
+                    openFacebookLink("fb://search/groups?query=$kw")
+                } else {
+                    openFacebookLink(task.url)
+                }
                 startRetryChecker()
             }, 2000)
             return
@@ -818,6 +841,9 @@ class FbAutoService : AccessibilityService() {
                     Step.WAITING_FOR_OPENED_POST -> { handleWaitingForOpenedPost() }
                     Step.CLICKING_NOTIFICATION_TAB -> { handleClickingNotificationTab() }
                     Step.SCANNING_NOTIFICATIONS -> { handleScanningNotifications() }
+                    Step.JOIN_SEARCH_RESULTS -> handleJoinSearchResults()
+                    Step.JOIN_OPEN_GROUP -> handleJoinOpenGroup()
+                    Step.JOIN_QUESTIONNAIRE -> handleJoinQuestionnaire()
                     else -> { isRetryCheckerRunning = false; return }
                 }
                 handler.postDelayed(this, 500)
@@ -988,9 +1014,33 @@ class FbAutoService : AccessibilityService() {
     }
 
     private fun interceptGroupJoin(nodes: List<AccessibilityNodeInfo>): Boolean {
+        val joinTask = isJoinTask(currentTask)
+
+        // Join jobs: search step must not auto-click; free-text fails; simple form only.
+        if (joinTask) {
+            if (currentStep == Step.JOIN_SEARCH_RESULTS || currentStep == Step.WAITING_FOR_FB_LOAD) {
+                return false
+            }
+            if (isJoinQuestionnaireWithFreeText(nodes)) {
+                debugLog("❌ GROUP_QUESTIONNAIRE_REQUIRED: form free-text trên join job.")
+                markCurrentDone(
+                    false,
+                    "GROUP_QUESTIONNAIRE_REQUIRED",
+                    "Group yêu cầu trả lời câu hỏi.",
+                    retryable = false
+                )
+                return true
+            }
+            if (trySimpleJoinQuestionnaire(nodes)) {
+                Log.d(TAG, "Intercepted simple join questionnaire")
+                return true
+            }
+            return false
+        }
+
         var altered = false
 
-        // 1. Click "Tham gia nhóm" (Join Group)
+        // 1. Click "Tham gia nhóm" (Join Group) — non-join tasks only
         val joinBtn = nodes.firstOrNull { 
             val txt = it.text?.toString()?.lowercase() ?: ""
             (Engine.groupJoin.contains(txt)) && (it.isClickable || it.parent?.isClickable == true)
@@ -1113,15 +1163,77 @@ class FbAutoService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         
         val task = currentTask
-        if (task != null && task.url.startsWith("fb_join_keyword:")) {
-            // For keyword group-joining, wait 15 seconds to let DOM interceptors click join buttons, then succeed
-            if (retryCount >= 30) {
-                debugLog("✅ Đã hoàn thành tìm kiếm và tham gia nhóm cho từ khóa.")
-                markCurrentDone(success = true)
-            } else {
+        if (isJoinTask(task)) {
+            val allNodes = findAllNodes(root)
+            if (isJoinKeywordTask(task)) {
+                if (hasGroupSearchResults(allNodes)) {
+                    debugLog("✅ Kết quả tìm kiếm nhóm đã hiện — chuyển JOIN_SEARCH_RESULTS.")
+                    recycleNodes(allNodes)
+                    root.recycle()
+                    currentStep = Step.JOIN_SEARCH_RESULTS
+                    retryCount = 0
+                    setNextStepDelay(STEP_DELAY)
+                    return
+                }
+                if (retryCount > 25) {
+                    dumpScreenToLog("JOIN_SEARCH_LOAD_TIMEOUT")
+                    recycleNodes(allNodes)
+                    root.recycle()
+                    markCurrentDone(
+                        false,
+                        "GROUP_NOT_FOUND",
+                        "Không tải được kết quả tìm kiếm nhóm.",
+                        retryable = true
+                    )
+                    return
+                }
+                recycleNodes(allNodes)
+                root.recycle()
                 setNextStepDelay(500)
+                return
             }
+
+            // Link join: wait for group page, then JOIN_OPEN_GROUP (never blind success).
+            if (isAlreadyJoinedGroup(allNodes) || findJoinButton(allNodes) != null || looksLikeGroupPage(allNodes)) {
+                debugLog("✅ Trang nhóm đã tải — chuyển JOIN_OPEN_GROUP.")
+                recycleNodes(allNodes)
+                root.recycle()
+                currentStep = Step.JOIN_OPEN_GROUP
+                retryCount = 0
+                setNextStepDelay(STEP_DELAY)
+                return
+            }
+            val isDead = allNodes.any {
+                val text = it.text?.toString()?.lowercase() ?: ""
+                Engine.deadLink.any { deadTxt -> text.contains(deadTxt) }
+            }
+            if (isDead && findJoinButton(allNodes) == null && !isAlreadyJoinedGroup(allNodes)) {
+                dumpScreenToLog("JOIN_LINK_DEAD")
+                recycleNodes(allNodes)
+                root.recycle()
+                markCurrentDone(
+                    false,
+                    "TARGET_POST_UNAVAILABLE",
+                    "Link group không khả dụng.",
+                    retryable = false
+                )
+                return
+            }
+            if (retryCount > 30) {
+                dumpScreenToLog("JOIN_LINK_LOAD_TIMEOUT")
+                recycleNodes(allNodes)
+                root.recycle()
+                markCurrentDone(
+                    false,
+                    "JOIN_BUTTON_NOT_FOUND",
+                    "Không tải được trang nhóm để tham gia.",
+                    retryable = true
+                )
+                return
+            }
+            recycleNodes(allNodes)
             root.recycle()
+            setNextStepDelay(500)
             return
         }
 
@@ -3025,6 +3137,8 @@ class FbAutoService : AccessibilityService() {
                         Step.LOOKING_FOR_COMPOSER, Step.WAITING_FOR_COMPOSER_INPUT -> "COMPOSER_NOT_FOUND"
                         Step.SELECTING_PHOTOS, Step.LOOKING_FOR_PHOTO_BUTTON -> "PHOTO_SELECTION_FAILED"
                         Step.WAITING_FOR_POST_TO_UPLOAD -> "POST_UPLOAD_NOT_CONFIRMED"
+                        Step.JOIN_SEARCH_RESULTS -> "GROUP_NOT_FOUND"
+                        Step.JOIN_OPEN_GROUP, Step.JOIN_QUESTIONNAIRE -> "JOIN_BUTTON_NOT_FOUND"
                         else -> "ACCESSIBILITY_FAILED"
                     }
                 }
@@ -3032,6 +3146,16 @@ class FbAutoService : AccessibilityService() {
                 putExtra("error", error.ifBlank { "Không hoàn thành được thao tác ở bước ${currentStep.name}." })
                 putExtra("step", currentStep.name)
                 putExtra("retryable", retryable)
+            } else if (reasonCode.isNotBlank()) {
+                putExtra("reasonCode", reasonCode)
+            }
+            if (isJoinTask(task)) {
+                val urlExtra = lastJoinedGroupUrl
+                    ?: task.url.takeUnless { it.startsWith("fb_join_keyword:") }
+                    ?: ""
+                putExtra("groupUrl", urlExtra)
+                putExtra("groupName", lastJoinedGroupName ?: "")
+                putExtra("alreadyJoined", joinAlreadyJoined)
             }
             setPackage(packageName)
         }
@@ -3097,6 +3221,7 @@ class FbAutoService : AccessibilityService() {
         isMarkingDone = false
         processedNotifications.clear()
         resetTargetSearch()
+        resetJoinState()
         postUploadStableChecks = 0
         isRetryCheckerRunning = false
         handler.removeCallbacksAndMessages(null)
@@ -3106,5 +3231,401 @@ class FbAutoService : AccessibilityService() {
                 Log.d(TAG, "WakeLock released")
             }
         } catch (_: Exception) {}
+    }
+
+    /* ================== JOIN GROUP FLOW ================== */
+
+    private fun resetJoinState() {
+        joinFlowKind = null
+        lastJoinedGroupUrl = null
+        lastJoinedGroupName = null
+        joinAlreadyJoined = false
+        joinClicked = false
+        joinQuestionnaireAttempts = 0
+    }
+
+    private fun isJoinTask(task: TaskItem?): Boolean {
+        if (task == null) return false
+        return task.isJoinGroup || task.url.startsWith("fb_join_keyword:")
+    }
+
+    private fun isJoinKeywordTask(task: TaskItem?): Boolean {
+        return task != null && task.url.startsWith("fb_join_keyword:")
+    }
+
+    private fun handleJoinSearchResults() {
+        val root = rootInActiveWindow ?: return
+        val nodes = findAllNodes(root)
+        val candidate = findFirstGroupSearchResult(nodes)
+        if (candidate == null) {
+            if (retryCount > 20) {
+                dumpScreenToLog("JOIN_SEARCH_NO_RESULT")
+                recycleNodes(nodes)
+                root.recycle()
+                markCurrentDone(
+                    false,
+                    "GROUP_NOT_FOUND",
+                    "Không thấy group trong kết quả tìm kiếm.",
+                    retryable = true
+                )
+                return
+            }
+            recycleNodes(nodes)
+            root.recycle()
+            setNextStepDelay(500)
+            return
+        }
+        debugLog("✅ Click group đầu tiên trong kết quả tìm kiếm.")
+        scrapeJoinMeta(nodes)
+        performClick(candidate)
+        recycleNodes(nodes)
+        root.recycle()
+        currentStep = Step.JOIN_OPEN_GROUP
+        retryCount = 0
+        setNextStepDelay(STEP_DELAY)
+    }
+
+    private fun handleJoinOpenGroup() {
+        val root = rootInActiveWindow ?: return
+        val nodes = findAllNodes(root)
+
+        if (isAlreadyJoinedGroup(nodes)) {
+            scrapeJoinMeta(nodes)
+            joinAlreadyJoined = true
+            debugLog("✅ ALREADY_JOINED — hoàn thành join job (success).")
+            recycleNodes(nodes)
+            root.recycle()
+            markCurrentDone(success = true, reasonCode = "ALREADY_JOINED")
+            return
+        }
+
+        if (isJoinRequestPending(nodes)) {
+            scrapeJoinMeta(nodes)
+            debugLog("✅ Yêu cầu tham gia đã gửi / đang chờ — success.")
+            recycleNodes(nodes)
+            root.recycle()
+            markCurrentDone(success = true)
+            return
+        }
+
+        if (isJoinQuestionnaireWithFreeText(nodes)) {
+            dumpScreenToLog("JOIN_QUESTIONNAIRE_FREE_TEXT")
+            recycleNodes(nodes)
+            root.recycle()
+            markCurrentDone(
+                false,
+                "GROUP_QUESTIONNAIRE_REQUIRED",
+                "Group yêu cầu trả lời câu hỏi.",
+                retryable = false
+            )
+            return
+        }
+
+        if (trySimpleJoinQuestionnaire(nodes)) {
+            currentStep = Step.JOIN_QUESTIONNAIRE
+            recycleNodes(nodes)
+            root.recycle()
+            setNextStepDelay(800)
+            return
+        }
+
+        val joinBtn = findJoinButton(nodes)
+        if (joinBtn != null) {
+            debugLog("✅ Tìm thấy nút tham gia nhóm — click.")
+            performClick(joinBtn)
+            joinClicked = true
+            retryCount = 0
+            recycleNodes(nodes)
+            root.recycle()
+            setNextStepDelay(1200)
+            return
+        }
+
+        if (joinClicked && looksLikeGroupPage(nodes) && findJoinButton(nodes) == null) {
+            scrapeJoinMeta(nodes)
+            debugLog("✅ Sau khi bấm join, không còn nút tham gia — coi như success.")
+            recycleNodes(nodes)
+            root.recycle()
+            markCurrentDone(success = true)
+            return
+        }
+
+        if (retryCount > 25) {
+            dumpScreenToLog("JOIN_BUTTON_NOT_FOUND")
+            if (joinClicked) {
+                scrapeJoinMeta(nodes)
+                recycleNodes(nodes)
+                root.recycle()
+                markCurrentDone(success = true)
+            } else {
+                recycleNodes(nodes)
+                root.recycle()
+                markCurrentDone(
+                    false,
+                    "JOIN_BUTTON_NOT_FOUND",
+                    "Không tìm thấy nút tham gia nhóm.",
+                    retryable = true
+                )
+            }
+            return
+        }
+
+        recycleNodes(nodes)
+        root.recycle()
+        setNextStepDelay(500)
+    }
+
+    private fun handleJoinQuestionnaire() {
+        val root = rootInActiveWindow ?: return
+        val nodes = findAllNodes(root)
+
+        if (isAlreadyJoinedGroup(nodes) || isJoinRequestPending(nodes)) {
+            scrapeJoinMeta(nodes)
+            joinAlreadyJoined = isAlreadyJoinedGroup(nodes)
+            recycleNodes(nodes)
+            root.recycle()
+            markCurrentDone(
+                success = true,
+                reasonCode = if (joinAlreadyJoined) "ALREADY_JOINED" else ""
+            )
+            return
+        }
+
+        if (isJoinQuestionnaireWithFreeText(nodes)) {
+            joinQuestionnaireAttempts++
+            if (joinQuestionnaireAttempts > 3) {
+                dumpScreenToLog("JOIN_QUESTIONNAIRE_FREE_TEXT")
+                recycleNodes(nodes)
+                root.recycle()
+                markCurrentDone(
+                    false,
+                    "GROUP_QUESTIONNAIRE_REQUIRED",
+                    "Group yêu cầu trả lời câu hỏi.",
+                    retryable = false
+                )
+                return
+            }
+        }
+
+        if (trySimpleJoinQuestionnaire(nodes)) {
+            recycleNodes(nodes)
+            root.recycle()
+            setNextStepDelay(800)
+            return
+        }
+
+        // Form gone — back to open-group checks (join confirm / already joined).
+        currentStep = Step.JOIN_OPEN_GROUP
+        recycleNodes(nodes)
+        root.recycle()
+        setNextStepDelay(STEP_DELAY)
+    }
+
+    private fun findFirstGroupSearchResult(nodes: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
+        val hintNorms = listOf("nhom", "group", "thanh vien", "members")
+        val excludeNorms = listOf(
+            "tim kiem", "search", "bo loc", "filter", "goi y", "suggest",
+            "mọi người", "moi nguoi", "people", "trang", "pages"
+        )
+
+        fun labelOf(node: AccessibilityNodeInfo): String =
+            nodeFields(node).joinToString(" ")
+
+        val hintHits = nodes.asSequence()
+            .filter { it.isVisibleToUser }
+            .filter { node ->
+                val label = labelOf(node)
+                if (label.isBlank()) return@filter false
+                if (excludeNorms.any { label.contains(it) }) return@filter false
+                hintNorms.any { label.contains(it) }
+            }
+            .sortedBy { nodeBounds(it).top }
+            .toList()
+
+        for (node in hintHits) {
+            if (isNodeActionable(node)) return node
+        }
+
+        // Fallback: first clickable row with non-trivial label below search chrome.
+        val fallback = nodes.asSequence()
+            .filter { it.isVisibleToUser && it.isClickable }
+            .filter { node ->
+                val label = labelOf(node)
+                if (label.length < 3) return@filter false
+                if (excludeNorms.any { label.contains(it) }) return@filter false
+                val top = nodeBounds(node).top
+                top > 120
+            }
+            .sortedBy { nodeBounds(it).top }
+            .firstOrNull()
+        return fallback
+    }
+
+    private fun hasGroupSearchResults(nodes: List<AccessibilityNodeInfo>): Boolean {
+        if (findFirstGroupSearchResult(nodes) != null) return true
+        return nodes.any { node ->
+            if (!node.isVisibleToUser) return@any false
+            val label = nodeFields(node).joinToString(" ")
+            label.contains("thanh vien") || label.contains("members") ||
+                (label.contains("nhom") && label.length > 6)
+        }
+    }
+
+    private fun looksLikeGroupPage(nodes: List<AccessibilityNodeInfo>): Boolean {
+        return nodes.any { node ->
+            if (!node.isVisibleToUser) return@any false
+            val txt = (node.text?.toString() ?: "").lowercase()
+            val desc = (node.contentDescription?.toString() ?: "").lowercase()
+            val combined = "$txt $desc"
+            combined.contains("thành viên") || combined.contains("members") ||
+                combined.contains("bạn viết gì") || combined.contains("what's on your mind") ||
+                combined.contains("thảo luận") || combined.contains("discussion") ||
+                combined.contains("giới thiệu") || combined.contains("about")
+        }
+    }
+
+    private fun isAlreadyJoinedGroup(nodes: List<AccessibilityNodeInfo>): Boolean {
+        return nodes.any { node ->
+            if (!node.isVisibleToUser) return@any false
+            val txt = (node.text?.toString() ?: "").lowercase()
+            val desc = (node.contentDescription?.toString() ?: "").lowercase()
+            val combined = "$txt $desc"
+            combined.contains("đã tham gia") ||
+                combined.contains("đã gia nhập") ||
+                combined.contains("leave group") ||
+                combined.contains("rời nhóm") ||
+                combined.contains("rời khỏi nhóm") ||
+                combined.contains("you're a member") ||
+                combined.contains("ban la thanh vien") ||
+                combined.contains("bạn là thành viên") ||
+                txt.trim() == "joined" || desc.trim() == "joined"
+        }
+    }
+
+    private fun isJoinRequestPending(nodes: List<AccessibilityNodeInfo>): Boolean {
+        return nodes.any { node ->
+            if (!node.isVisibleToUser) return@any false
+            val txt = (node.text?.toString() ?: "").lowercase()
+            val desc = (node.contentDescription?.toString() ?: "").lowercase()
+            val combined = "$txt $desc"
+            combined.contains("đã gửi yêu cầu") ||
+                combined.contains("request pending") ||
+                combined.contains("cancel request") ||
+                combined.contains("hủy yêu cầu") ||
+                combined.contains("đang chờ phê duyệt") ||
+                combined.contains("awaiting approval") ||
+                combined.contains("requested")
+        }
+    }
+
+    private fun findJoinButton(nodes: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
+        return nodes.firstOrNull { node ->
+            if (!node.isVisibleToUser) return@firstOrNull false
+            val txt = (node.text?.toString() ?: "").lowercase()
+            val desc = (node.contentDescription?.toString() ?: "").lowercase()
+            if (txt.contains("đã tham gia") || desc.contains("đã tham gia") ||
+                txt.contains("đã gia nhập") || desc.contains("đã gia nhập") ||
+                txt.contains("joined") || desc.contains("joined") ||
+                txt.contains("rời") || desc.contains("leave")
+            ) return@firstOrNull false
+            val hit = Engine.groupJoin.any { anchor ->
+                txt == anchor || desc == anchor || txt.contains(anchor) || desc.contains(anchor)
+            } || txt.trim() == "tham gia" || desc.trim() == "tham gia" ||
+                txt.trim() == "join" || desc.trim() == "join"
+            hit && (node.isClickable || node.parent?.isClickable == true)
+        }
+    }
+
+    private fun isJoinQuestionnaireWithFreeText(nodes: List<AccessibilityNodeInfo>): Boolean {
+        val editTexts = nodes.filter { node ->
+            if (!node.isVisibleToUser) return@filter false
+            val cn = node.className?.toString() ?: ""
+            cn == "android.widget.EditText" || node.isEditable
+        }
+        if (editTexts.isEmpty()) return false
+
+        val screenText = nodes.joinToString(" ") { n ->
+            "${n.text ?: ""} ${n.contentDescription ?: ""}"
+        }.lowercase()
+
+        val hints = listOf(
+            "câu hỏi", "questions", "trả lời", "answer", "yêu cầu tham gia",
+            "membership questions", "screening", "câu trả lời", "write an answer",
+            "answer these"
+        )
+        if (hints.any { screenText.contains(it) }) return true
+
+        val hasSubmit = nodes.any { node ->
+            val txt = (node.text?.toString() ?: "").lowercase()
+            val cd = (node.contentDescription?.toString() ?: "").lowercase()
+            Engine.questionnaireSubmit.any { a -> txt.contains(a) || cd.contains(a) } &&
+                (node.isClickable || node.parent?.isClickable == true)
+        }
+        val looksLikeJoinForm = screenText.contains("tham gia") || screenText.contains("join group") ||
+            screenText.contains("quy tắc") || screenText.contains("rules")
+        return hasSubmit && looksLikeJoinForm
+    }
+
+    private fun trySimpleJoinQuestionnaire(nodes: List<AccessibilityNodeInfo>): Boolean {
+        if (isJoinQuestionnaireWithFreeText(nodes)) return false
+
+        val checkBoxes = nodes.filter { node ->
+            if (!node.isVisibleToUser) return@filter false
+            val cn = node.className?.toString() ?: ""
+            cn.contains("CheckBox") || cn.contains("RadioButton") || node.isCheckable
+        }
+        val submitBtn = nodes.firstOrNull { node ->
+            if (!node.isVisibleToUser) return@firstOrNull false
+            val txt = (node.text?.toString() ?: "").lowercase()
+            val cd = (node.contentDescription?.toString() ?: "").lowercase()
+            Engine.questionnaireSubmit.any { a ->
+                txt == a || cd == a || txt.contains(a) || cd.contains(a)
+            } && (node.isClickable || node.parent?.isClickable == true)
+        }
+
+        val looksLikeForm = nodes.any { node ->
+            val t = (node.text?.toString() ?: "").lowercase()
+            t.contains("quy tắc") || t.contains("rules") || t.contains("đồng ý") ||
+                t.contains("câu hỏi") || t.contains("tham gia nhóm") || t.contains("i agree")
+        }
+        if (!looksLikeForm && checkBoxes.isEmpty()) return false
+        if (submitBtn == null && checkBoxes.isEmpty()) return false
+
+        var altered = false
+        for (cb in checkBoxes) {
+            if (!cb.isChecked) {
+                performClick(cb)
+                altered = true
+            }
+        }
+        if (altered) return true
+        if (submitBtn != null) {
+            performClick(submitBtn)
+            joinQuestionnaireAttempts++
+            return true
+        }
+        return false
+    }
+
+    private fun scrapeJoinMeta(nodes: List<AccessibilityNodeInfo>) {
+        val task = currentTask
+        if (task != null && !task.url.startsWith("fb_join_keyword:")) {
+            lastJoinedGroupUrl = task.url
+        }
+        if (nodes.isEmpty()) return
+        val textNodes = nodes.mapNotNull { it.text?.toString()?.trim()?.takeIf { t -> t.isNotBlank() } }
+        val memberIdx = textNodes.indexOfFirst {
+            it.contains("thành viên", ignoreCase = true) || it.contains("members", ignoreCase = true)
+        }
+        if (memberIdx > 0) {
+            val nameCandidates = textNodes.subList(0, memberIdx).filter {
+                it.length > 3 &&
+                    !it.contains("Tham gia", true) &&
+                    !it.contains("Join", true) &&
+                    !it.contains("Facebook", true)
+            }
+            val name = nameCandidates.lastOrNull()
+            if (!name.isNullOrBlank()) lastJoinedGroupName = name
+        }
     }
 }
